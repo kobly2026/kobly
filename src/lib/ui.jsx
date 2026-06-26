@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Icon, IconButton, StatusLine } from '@/ds';
 
 // Kobly — UI primitives the design system doesn't ship: loading skeletons, drawn
@@ -190,4 +191,32 @@ function Modal({ open, onClose, title, subtitle, width = 460, children, footer }
   );
 }
 
-export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, Toast, Segmented, Drawer, Modal };
+// ---- Card de sugestão da IA (DeepSeek) -------------------------------------
+// `load` é uma função async que retorna a string da sugestão. Recarrega ao montar
+// e no botão "gerar de novo". Mostra skeleton enquanto a IA pensa.
+function AISuggestion({ title = 'Sugestão da IA', load }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(true);
+  async function run() {
+    if (!load) return;
+    setBusy(true);
+    try { const t = await load(); setText(t || 'Sem sugestão no momento.'); }
+    catch (e) { setText('Não consegui gerar a sugestão agora.'); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => { run(); }, []);
+  return (
+    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="sparkles" size={15} /></span>
+        <span style={{ flex: 1, fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{title}</span>
+        <IconButton icon="refresh-cw" size="sm" aria-label="Gerar de novo" onClick={run} disabled={busy} />
+      </div>
+      {busy
+        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}><Skeleton w="100%" h={11} /><Skeleton w="78%" h={11} /></div>
+        : <p style={{ margin: 0, fontSize: 'var(--text-sm)', lineHeight: 'var(--lh-normal)', color: 'var(--text-body)' }}>{text}</p>}
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, Toast, Segmented, Drawer, Modal, AISuggestion };

@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
+import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { useAsync } from '@/lib/hooks.jsx';
+import { AISuggestion } from '@/lib/ui.jsx';
 import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -297,6 +299,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
         {/* Inspetor + meta */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={() => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade })} />
           <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18, minHeight: 200 }}>
             <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} />
           </div>

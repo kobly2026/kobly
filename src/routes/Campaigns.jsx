@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
+import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, DataTable, Icon, IconButton, TemplateCard } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
+import { AISuggestion } from '@/lib/ui.jsx';
 import { useKoblyTweak } from '@/lib/tweaks.jsx';
 import { KoblyFlowBuilder } from '@/routes/FlowBuilder.jsx';
 import { useKobly } from '@/store/store.jsx';
@@ -71,6 +73,7 @@ function KoblyCampaigns() {
       <PageIntro action={canEdit ? <Button variant="primary" iconLeft="plus" onClick={() => setMode('new')}>Nova campanha</Button> : null}>
         Campanhas de recuperação por e-mail. Abra uma campanha para editar o fluxo de automação (gatilhos, tags e envios).
       </PageIntro>
+      <AISuggestion title="Sugestão da IA — campanhas" load={() => KoblyAI.suggestForDashboard(store.view)} />
       <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
         {a.status === 'loading'
           ? <div style={{ padding: 28, color: 'var(--text-muted)' }}>Carregando campanhas…</div>

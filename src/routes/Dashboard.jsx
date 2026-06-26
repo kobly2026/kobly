@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
+import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Checklist, DataTable, Icon, StatusLine } from '@/ds';
 import { Chart, KoblyChartColors, Sparkline } from '@/lib/charts.jsx';
 import { useAsync } from '@/lib/hooks.jsx';
 import { useKoblyTweak } from '@/lib/tweaks.jsx';
-import { Drawer, EmptyState, Segmented, SkeletonDashboard } from '@/lib/ui.jsx';
+import { AISuggestion, Drawer, EmptyState, Segmented, SkeletonDashboard } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Dashboard interativo. Barra de período, KPIs com sparkline clicáveis
@@ -210,6 +211,8 @@ function KoblyDashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 14 }}>
         {d.metrics.map((m) => <KpiTile key={m.key} m={m} onOpen={setDrill} />)}
       </div>
+
+      <AISuggestion title="Sugestão da IA — visão geral" load={() => KoblyAI.suggestForDashboard(store.view)} />
 
       {d.consolidated ? (
         <React.Fragment>

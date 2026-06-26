@@ -1,0 +1,15 @@
+# Kobly — deploy no Netlify (Vite SPA).
+# Importe este repositório no Netlify; estas configurações fazem o build e a publicação.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback: qualquer rota cai no index.html (e o link de recuperação de senha
+# do Supabase, que volta com #type=recovery, abre em qualquer caminho).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

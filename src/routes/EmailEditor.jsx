@@ -21,11 +21,17 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
 
   async function generate() {
     setAiBusy(true);
-    const out = await KoblyAI.generateEmailHtml({ titulo: brief || assunto || titulo, cta: 'Concluir compra', brand: { name: remetente || 'Sua Loja' } });
-    setHtml(out);
-    setAiBusy(false);
-    setTab('preview');
-    store.notify('success', 'HTML gerado pela IA');
+    try {
+      const out = await KoblyAI.generateEmailHtml({ brief: brief || assunto || titulo, cta: 'Concluir compra', brand: { name: remetente || 'Sua Loja' } });
+      setHtml(out.html);
+      if (out.assunto) setAssunto(out.assunto);
+      setTab('preview');
+      store.notify('success', 'E-mail gerado pela IA (DeepSeek)');
+    } catch (e) {
+      store.notify('danger', 'Não consegui gerar o e-mail agora. Tente de novo.');
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   return (

@@ -28,6 +28,17 @@ const ANSWERS = [
   'Para abandono de carrinho, uma cadência de 3 toques (30 min, 24 h, 48 h) com cupom no 2º e-mail costuma converter melhor.',
 ];
 
+// Markdown mínimo → HTML (negrito, itálico, código, quebras) para as respostas da IA.
+// Escapa HTML antes de formatar (conteúdo vem do DeepSeek, semi-confiável).
+function mdToHtml(src) {
+  return String(src == null ? '' : src)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
 function Bubble({ from, children }) {
   const me = from === 'user';
   return (
@@ -119,7 +130,11 @@ function AIAssistant() {
               </div>
             </React.Fragment>
           )}
-          {msgs.map((m, i) => <Bubble key={i} from={m.from}>{m.text}</Bubble>)}
+          {msgs.map((m, i) => (
+            <Bubble key={i} from={m.from}>
+              {m.from === 'ai' ? <span dangerouslySetInnerHTML={{ __html: mdToHtml(m.text) }} /> : m.text}
+            </Bubble>
+          ))}
           {typing && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
               <Icon name="sparkles" size={15} style={{ color: 'var(--accent)' }} />

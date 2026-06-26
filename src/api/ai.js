@@ -62,21 +62,36 @@ const suggestionsByCriticidade = {
 };
 
 export const KoblyAI = {
-  // Sugestão para uma campanha (usa a criticidade para contextualizar)
+  // Sugestão para uma campanha — DeepSeek REAL (ai-chat task=suggestion); fallback enlatado.
   async suggestForCampaign(campaign) {
-    await wait(1100 + Math.random() * 700);
-    const pool = suggestionsByCriticidade[campaign.criticidade] || suggestionsByCriticidade['Bom'];
-    return pick(pool);
+    try {
+      const context = await buildContext('campaign');
+      const nome = (campaign && (campaign.nome || campaign.name)) || 'esta campanha';
+      const crit = (campaign && campaign.criticidade) || '';
+      const brief = `Analise especificamente a campanha "${nome}"${crit ? ` (criticidade ${crit})` : ''} e dê 1 recomendação prática para melhorá-la.`;
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief } });
+      if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
+      return data.suggestion;
+    } catch (e) {
+      const pool = suggestionsByCriticidade[campaign && campaign.criticidade] || suggestionsByCriticidade['Bom'];
+      return pick(pool);
+    }
   },
 
-  // Sugestão consolidada (dashboard — "todas as campanhas")
-  async suggestForDashboard() {
-    await wait(1200 + Math.random() * 600);
-    return pick([
-      'Suas campanhas de Pix convertem melhor que as de carrinho. Realoque esforço de cópia para o fluxo de carrinho.',
-      'A conta "Studio Marília" está em criticidade Crítico — priorize revisão do domínio e dos assuntos.',
-      '3 campanhas usam o mesmo e-mail de "última chance". Personalize por segmento para reduzir fadiga.',
-    ]);
+  // Sugestão consolidada (dashboard) — DeepSeek REAL; fallback enlatado.
+  async suggestForDashboard(view) {
+    try {
+      const context = await buildContext(view || 'dashboard');
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief: 'Olhando todas as campanhas e métricas, dê a recomendação mais impactante agora.' } });
+      if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
+      return data.suggestion;
+    } catch (e) {
+      return pick([
+        'Reduza o atraso da 1ª etapa do fluxo de carrinho para até 30 min — a intenção de compra cai rápido.',
+        'Priorize a campanha de criticidade mais alta: revise o assunto e adicione um 2º toque com cupom.',
+        'Personalize o assunto com o nome do produto abandonado para subir a taxa de abertura.',
+      ]);
+    }
   },
 
   // Resposta do assistente IA flutuante — DeepSeek REAL via Edge Function `ai-chat`.
@@ -97,24 +112,35 @@ export const KoblyAI = {
     }
   },
 
-  // Geração de HTML de e-mail por IA (no legado: GET /generate_html).
-  // Usa o Email Design System do Kobly (src/lib/emailTemplate.js) — mesmo template
-  // branded/componentizado dos disparos reais, então editor e envio ficam idênticos.
+  // Geração de e-mail por IA: DeepSeek (ai-chat task=email) ESCREVE assunto+corpo,
+  // renderizado no Email Design System do Kobly. Retorna { html, assunto }.
+  // Fallback: template estático se a IA falhar.
   async generateEmailHtml(brief) {
-    await wait(1400 + Math.random() * 800);
-    const titulo = (brief && brief.titulo) || 'Você esqueceu algo no carrinho';
     const cta = (brief && brief.cta) || 'Concluir compra';
-    const intro = (brief && brief.intro) ||
-      'Separamos seus itens e eles continuam reservados pra você — conclua agora antes que o estoque acabe.';
     const brand = (brief && brief.brand) || { name: 'Sua Loja' };
-    return renderEmail({
-      brand,
-      preheader: titulo,
-      blocks: [
-        { type: 'hero', eyebrow: 'Sua loja', title: titulo, text: intro },
+    const briefText = (brief && (brief.brief || brief.titulo)) || 'E-mail de recuperação de carrinho abandonado.';
+    const note = 'Se você já finalizou, pode ignorar este e-mail. Para não receber mais, descadastre-se.';
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'email', brief: briefText, brand: brand.name || 'Sua Loja' } });
+      if (error || !data || !data.email) throw error || new Error('sem email');
+      const e = data.email;
+      const blocks = [
+        { type: 'hero', eyebrow: e.eyebrow || 'Sua loja', title: e.titulo || 'Você esqueceu algo', text: (e.paragrafos && e.paragrafos[0]) || '' },
+        ...((e.paragrafos || []).slice(1).map((p) => ({ type: 'paragraph', text: p }))),
+        ...((e.cupom && e.cupom.codigo) ? [{ type: 'coupon', code: e.cupom.codigo, detail: e.cupom.detalhe || '' }] : []),
+        { type: 'button', label: e.cta || cta, href: '#' },
+        { type: 'note', text: note },
+      ];
+      const html = renderEmail({ brand, preheader: e.assunto || e.titulo || '', blocks });
+      return { html, assunto: e.assunto || '' };
+    } catch (err) {
+      const titulo = (brief && brief.titulo) || 'Você esqueceu algo no carrinho';
+      const html = renderEmail({ brand, preheader: titulo, blocks: [
+        { type: 'hero', eyebrow: 'Sua loja', title: titulo, text: 'Separamos seus itens e eles continuam reservados — conclua antes que o estoque acabe.' },
         { type: 'button', label: cta, href: '#' },
-        { type: 'note', text: 'Se você já finalizou, pode ignorar este e-mail. Para não receber mais, descadastre-se.' },
-      ],
-    });
+        { type: 'note', text: note },
+      ] });
+      return { html, assunto: '' };
+    }
   },
 };
