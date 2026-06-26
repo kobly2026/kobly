@@ -1,0 +1,2213 @@
+// Kobly — tipos gerados do schema Supabase (projeto hvkuymprmfrjrgpqaxbw).
+// Gerado via supabase generate types. NÃO editar à mão — regenerar após mudanças de schema.
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  public: {
+    Tables: {
+      access_logs: {
+        Row: {
+          created_at: string
+          id: string
+          ip_conexao: unknown
+          local: string | null
+          nome: string | null
+          profile_id: string | null
+          tipo_log: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_conexao?: unknown
+          local?: string | null
+          nome?: string | null
+          profile_id?: string | null
+          tipo_log?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_conexao?: unknown
+          local?: string | null
+          nome?: string | null
+          profile_id?: string | null
+          tipo_log?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_logs_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      active_sessions: {
+        Row: {
+          created_at: string
+          dispositivo: string | null
+          id: string
+          ip_conexao: unknown
+          last_seen_at: string
+          profile_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dispositivo?: string | null
+          id?: string
+          ip_conexao?: unknown
+          last_seen_at?: string
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dispositivo?: string | null
+          id?: string
+          ip_conexao?: unknown
+          last_seen_at?: string
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "active_sessions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_suggestions: {
+        Row: {
+          campaign_stats_id: string | null
+          created_at: string
+          dashboard_stats_id: string | null
+          escopo: string | null
+          id: string
+          organization_id: string | null
+          sugestao: string | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_stats_id?: string | null
+          created_at?: string
+          dashboard_stats_id?: string | null
+          escopo?: string | null
+          id?: string
+          organization_id?: string | null
+          sugestao?: string | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_stats_id?: string | null
+          created_at?: string
+          dashboard_stats_id?: string | null
+          escopo?: string | null
+          id?: string
+          organization_id?: string | null
+          sugestao?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_suggestions_campaign_stats_id_fkey"
+            columns: ["campaign_stats_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_suggestions_dashboard_stats_id_fkey"
+            columns: ["dashboard_stats_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_suggestions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_flows: {
+        Row: {
+          campaign_id: string | null
+          created_at: string
+          id: string
+          organization_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_flows_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: true
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_flows_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_stats: {
+        Row: {
+          campaign_id: string | null
+          created_at: string
+          ctr: number
+          emails_enviados: number
+          gerando_sugestao: boolean
+          id: string
+          organization_id: string | null
+          status_criticidade: Database["public"]["Enums"]["status_criticidade"]
+          taxa_abertura: number
+          ultimo_calculo: string | null
+          updated_at: string
+          valor_criticidade: number
+          vendas_recuperadas: number
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string
+          ctr?: number
+          emails_enviados?: number
+          gerando_sugestao?: boolean
+          id?: string
+          organization_id?: string | null
+          status_criticidade?: Database["public"]["Enums"]["status_criticidade"]
+          taxa_abertura?: number
+          ultimo_calculo?: string | null
+          updated_at?: string
+          valor_criticidade?: number
+          vendas_recuperadas?: number
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string
+          ctr?: number
+          emails_enviados?: number
+          gerando_sugestao?: boolean
+          id?: string
+          organization_id?: string | null
+          status_criticidade?: Database["public"]["Enums"]["status_criticidade"]
+          taxa_abertura?: number
+          ultimo_calculo?: string | null
+          updated_at?: string
+          valor_criticidade?: number
+          vendas_recuperadas?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_stats_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: true
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_stats_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          criador_id: string | null
+          id: string
+          legacy_id: string | null
+          nome: string
+          organization_id: string
+          status_campanha: Database["public"]["Enums"]["status_campanha"]
+          template_id: string | null
+          updated_at: string
+          usa_template: boolean
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          criador_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome: string
+          organization_id: string
+          status_campanha?: Database["public"]["Enums"]["status_campanha"]
+          template_id?: string | null
+          updated_at?: string
+          usa_template?: boolean
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          criador_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string
+          organization_id?: string
+          status_campanha?: Database["public"]["Enums"]["status_campanha"]
+          template_id?: string | null
+          updated_at?: string
+          usa_template?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_criador_id_fkey"
+            columns: ["criador_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dashboard_stats: {
+        Row: {
+          created_at: string
+          ctr_todas: number
+          gerando_sugestao: boolean
+          id: string
+          organization_id: string | null
+          profile_id: string | null
+          taxa_abertura_todas: number
+          total_campanhas_ativas: number
+          total_contas_gerenciadas: number
+          ultimo_calculo: string | null
+          updated_at: string
+          vendas_recuperadas_todas: number
+        }
+        Insert: {
+          created_at?: string
+          ctr_todas?: number
+          gerando_sugestao?: boolean
+          id?: string
+          organization_id?: string | null
+          profile_id?: string | null
+          taxa_abertura_todas?: number
+          total_campanhas_ativas?: number
+          total_contas_gerenciadas?: number
+          ultimo_calculo?: string | null
+          updated_at?: string
+          vendas_recuperadas_todas?: number
+        }
+        Update: {
+          created_at?: string
+          ctr_todas?: number
+          gerando_sugestao?: boolean
+          id?: string
+          organization_id?: string | null
+          profile_id?: string | null
+          taxa_abertura_todas?: number
+          total_campanhas_ativas?: number
+          total_contas_gerenciadas?: number
+          ultimo_calculo?: string | null
+          updated_at?: string
+          vendas_recuperadas_todas?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_stats_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_stats_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      domain_dns_records: {
+        Row: {
+          created_at: string
+          domain_id: string
+          host: string
+          id: string
+          record_role: string | null
+          status: Database["public"]["Enums"]["dns_record_status"]
+          tipo: string
+          updated_at: string
+          valor: string | null
+        }
+        Insert: {
+          created_at?: string
+          domain_id: string
+          host: string
+          id?: string
+          record_role?: string | null
+          status?: Database["public"]["Enums"]["dns_record_status"]
+          tipo: string
+          updated_at?: string
+          valor?: string | null
+        }
+        Update: {
+          created_at?: string
+          domain_id?: string
+          host?: string
+          id?: string
+          record_role?: string | null
+          status?: Database["public"]["Enums"]["dns_record_status"]
+          tipo?: string
+          updated_at?: string
+          valor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "domain_dns_records_domain_id_fkey"
+            columns: ["domain_id"]
+            isOneToOne: false
+            referencedRelation: "domains"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      domains: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          id_sendgrid: string | null
+          legacy_id: string | null
+          organization_id: string
+          updated_at: string
+          url: string
+          validado: boolean
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          id_sendgrid?: string | null
+          legacy_id?: string | null
+          organization_id: string
+          updated_at?: string
+          url: string
+          validado?: boolean
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          id_sendgrid?: string | null
+          legacy_id?: string | null
+          organization_id?: string
+          updated_at?: string
+          url?: string
+          validado?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "domains_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "domains_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_events: {
+        Row: {
+          campaign_id: string | null
+          created_at: string
+          email: string | null
+          event: string | null
+          id: string
+          ip: unknown
+          lead_metric_id: string | null
+          organization_id: string | null
+          reason: string | null
+          response: string | null
+          sg_event_id: string | null
+          sg_message_id: string | null
+          status: string | null
+          timestamp: string | null
+          url: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string
+          email?: string | null
+          event?: string | null
+          id?: string
+          ip?: unknown
+          lead_metric_id?: string | null
+          organization_id?: string | null
+          reason?: string | null
+          response?: string | null
+          sg_event_id?: string | null
+          sg_message_id?: string | null
+          status?: string | null
+          timestamp?: string | null
+          url?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string
+          email?: string | null
+          event?: string | null
+          id?: string
+          ip?: unknown
+          lead_metric_id?: string | null
+          organization_id?: string | null
+          reason?: string | null
+          response?: string | null
+          sg_event_id?: string | null
+          sg_message_id?: string | null
+          status?: string | null
+          timestamp?: string | null
+          url?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_events_lead_metric_id_fkey"
+            columns: ["lead_metric_id"]
+            isOneToOne: false
+            referencedRelation: "lead_metrics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      emails: {
+        Row: {
+          assunto: string | null
+          corpo_html: string | null
+          created_at: string
+          created_by: string | null
+          dominio_id: string | null
+          id: string
+          legacy_id: string | null
+          organization_id: string
+          remetente: string | null
+          titulo: string | null
+          updated_at: string
+        }
+        Insert: {
+          assunto?: string | null
+          corpo_html?: string | null
+          created_at?: string
+          created_by?: string | null
+          dominio_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          organization_id: string
+          remetente?: string | null
+          titulo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assunto?: string | null
+          corpo_html?: string | null
+          created_at?: string
+          created_by?: string | null
+          dominio_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          organization_id?: string
+          remetente?: string | null
+          titulo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emails_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emails_dominio_id_fkey"
+            columns: ["dominio_id"]
+            isOneToOne: false
+            referencedRelation: "domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emails_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      error_logs: {
+        Row: {
+          contexto: Json | null
+          created_at: string
+          id: string
+          organization_id: string | null
+          tipo_erro: string | null
+        }
+        Insert: {
+          contexto?: Json | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          tipo_erro?: string | null
+        }
+        Update: {
+          contexto?: Json | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          tipo_erro?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "error_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faq: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          ordem: number
+          pergunta: string
+          resposta: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          ordem?: number
+          pergunta: string
+          resposta: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          ordem?: number
+          pergunta?: string
+          resposta?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      flow_meta_tags: {
+        Row: {
+          created_at: string
+          flow_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          flow_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          flow_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_meta_tags_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_meta_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_steps: {
+        Row: {
+          atraso: number
+          created_at: string
+          email_id: string | null
+          flow_id: string
+          fluxo_alvo_id: string | null
+          id: string
+          legacy_id: string | null
+          nome: string | null
+          organization_id: string | null
+          posicao: number
+          tipo_card: Database["public"]["Enums"]["tipo_card_fluxo"]
+          tipo_evento: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at: string
+          webhook_id: string | null
+        }
+        Insert: {
+          atraso?: number
+          created_at?: string
+          email_id?: string | null
+          flow_id: string
+          fluxo_alvo_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string | null
+          organization_id?: string | null
+          posicao?: number
+          tipo_card: Database["public"]["Enums"]["tipo_card_fluxo"]
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+          webhook_id?: string | null
+        }
+        Update: {
+          atraso?: number
+          created_at?: string
+          email_id?: string | null
+          flow_id?: string
+          fluxo_alvo_id?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string | null
+          organization_id?: string | null
+          posicao?: number
+          tipo_card?: Database["public"]["Enums"]["tipo_card_fluxo"]
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+          webhook_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_steps_email_id_fkey"
+            columns: ["email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_fluxo_alvo_id_fkey"
+            columns: ["fluxo_alvo_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_metrics: {
+        Row: {
+          aberturas: number
+          cliques: number
+          codigo_sendgrid: string | null
+          created_at: string
+          enviados: number
+          etapa_email_origem_id: string | null
+          id: string
+          lead_id: string | null
+          organization_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          aberturas?: number
+          cliques?: number
+          codigo_sendgrid?: string | null
+          created_at?: string
+          enviados?: number
+          etapa_email_origem_id?: string | null
+          id?: string
+          lead_id?: string | null
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          aberturas?: number
+          cliques?: number
+          codigo_sendgrid?: string | null
+          created_at?: string
+          enviados?: number
+          etapa_email_origem_id?: string | null
+          id?: string
+          lead_id?: string | null
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_metrics_etapa_email_origem_id_fkey"
+            columns: ["etapa_email_origem_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_metrics_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_metrics_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_tags: {
+        Row: {
+          created_at: string
+          lead_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          lead_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          lead_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_tags_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email: string | null
+          endereco: string | null
+          id: string
+          legacy_id: string | null
+          metodo_pagamento: string | null
+          nome: string | null
+          organization_id: string
+          pix_gerado: boolean
+          produto: string | null
+          sobrenome: string | null
+          telefone: string | null
+          ultimo_evento: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at: string
+          valor_compra: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          endereco?: string | null
+          id?: string
+          legacy_id?: string | null
+          metodo_pagamento?: string | null
+          nome?: string | null
+          organization_id: string
+          pix_gerado?: boolean
+          produto?: string | null
+          sobrenome?: string | null
+          telefone?: string | null
+          ultimo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+          valor_compra?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          endereco?: string | null
+          id?: string
+          legacy_id?: string | null
+          metodo_pagamento?: string | null
+          nome?: string | null
+          organization_id?: string
+          pix_gerado?: boolean
+          produto?: string | null
+          sobrenome?: string | null
+          telefone?: string | null
+          ultimo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+          valor_compra?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_memberships: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          organization_id: string
+          profile_id: string
+          role: Database["public"]["Enums"]["tipo_user_geral"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id: string
+          profile_id: string
+          role?: Database["public"]["Enums"]["tipo_user_geral"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id?: string
+          profile_id?: string
+          role?: Database["public"]["Enums"]["tipo_user_geral"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_memberships_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_memberships_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_memberships_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          campanhas_ativas_count: number
+          created_at: string
+          created_by: string | null
+          criticidade: Database["public"]["Enums"]["status_criticidade"]
+          id: string
+          leads_count: number
+          legacy_id: string | null
+          nome: string
+          plano_id: string | null
+          segmento: string | null
+          updated_at: string
+          user_fundador_id: string | null
+        }
+        Insert: {
+          campanhas_ativas_count?: number
+          created_at?: string
+          created_by?: string | null
+          criticidade?: Database["public"]["Enums"]["status_criticidade"]
+          id?: string
+          leads_count?: number
+          legacy_id?: string | null
+          nome: string
+          plano_id?: string | null
+          segmento?: string | null
+          updated_at?: string
+          user_fundador_id?: string | null
+        }
+        Update: {
+          campanhas_ativas_count?: number
+          created_at?: string
+          created_by?: string | null
+          criticidade?: Database["public"]["Enums"]["status_criticidade"]
+          id?: string
+          leads_count?: number
+          legacy_id?: string | null
+          nome?: string
+          plano_id?: string | null
+          segmento?: string | null
+          updated_at?: string
+          user_fundador_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organizations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organizations_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organizations_user_fundador_id_fkey"
+            columns: ["user_fundador_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          created_at: string
+          deleted: boolean
+          descricao: string | null
+          id: string
+          legacy_id: string | null
+          limite_campanhas: number | null
+          limite_execucoes: number | null
+          nome: string
+          status: Database["public"]["Enums"]["status_planos"]
+          updated_at: string
+          valor_anual: number | null
+          valor_mensal: number | null
+        }
+        Insert: {
+          created_at?: string
+          deleted?: boolean
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          limite_campanhas?: number | null
+          limite_execucoes?: number | null
+          nome: string
+          status?: Database["public"]["Enums"]["status_planos"]
+          updated_at?: string
+          valor_anual?: number | null
+          valor_mensal?: number | null
+        }
+        Update: {
+          created_at?: string
+          deleted?: boolean
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          limite_campanhas?: number | null
+          limite_execucoes?: number | null
+          nome?: string
+          status?: Database["public"]["Enums"]["status_planos"]
+          updated_at?: string
+          valor_anual?: number | null
+          valor_mensal?: number | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          auth_id: string | null
+          celular: string | null
+          created_at: string
+          created_by: string | null
+          curadoria: string[]
+          email: string
+          gestor_responsavel_id: string | null
+          id: string
+          imagem_perfil: string | null
+          ip_conexao: unknown
+          legacy_id: string | null
+          local: string | null
+          nome: string
+          organization_id: string | null
+          perfil_completo: boolean
+          status_user: Database["public"]["Enums"]["status_user"]
+          tipo_user_geral: Database["public"]["Enums"]["tipo_user_geral"]
+          ultimo_login: string | null
+          updated_at: string
+        }
+        Insert: {
+          auth_id?: string | null
+          celular?: string | null
+          created_at?: string
+          created_by?: string | null
+          curadoria?: string[]
+          email: string
+          gestor_responsavel_id?: string | null
+          id?: string
+          imagem_perfil?: string | null
+          ip_conexao?: unknown
+          legacy_id?: string | null
+          local?: string | null
+          nome: string
+          organization_id?: string | null
+          perfil_completo?: boolean
+          status_user?: Database["public"]["Enums"]["status_user"]
+          tipo_user_geral?: Database["public"]["Enums"]["tipo_user_geral"]
+          ultimo_login?: string | null
+          updated_at?: string
+        }
+        Update: {
+          auth_id?: string | null
+          celular?: string | null
+          created_at?: string
+          created_by?: string | null
+          curadoria?: string[]
+          email?: string
+          gestor_responsavel_id?: string | null
+          id?: string
+          imagem_perfil?: string | null
+          ip_conexao?: unknown
+          legacy_id?: string | null
+          local?: string | null
+          nome?: string
+          organization_id?: string | null
+          perfil_completo?: boolean
+          status_user?: Database["public"]["Enums"]["status_user"]
+          tipo_user_geral?: Database["public"]["Enums"]["tipo_user_geral"]
+          ultimo_login?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_gestor_responsavel_id_fkey"
+            columns: ["gestor_responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scheduled_steps: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          id_agendamento: string | null
+          last_error: string | null
+          lead_id: string | null
+          organization_id: string | null
+          run_at: string
+          status_agendamento: Database["public"]["Enums"]["status_agendamento"]
+          step_id: string | null
+          updated_at: string
+          webhook_event_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          id_agendamento?: string | null
+          last_error?: string | null
+          lead_id?: string | null
+          organization_id?: string | null
+          run_at?: string
+          status_agendamento?: Database["public"]["Enums"]["status_agendamento"]
+          step_id?: string | null
+          updated_at?: string
+          webhook_event_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          id_agendamento?: string | null
+          last_error?: string | null
+          lead_id?: string | null
+          organization_id?: string | null
+          run_at?: string
+          status_agendamento?: Database["public"]["Enums"]["status_agendamento"]
+          step_id?: string | null
+          updated_at?: string
+          webhook_event_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_steps_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_steps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_steps_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_steps_webhook_event_id_fkey"
+            columns: ["webhook_event_id"]
+            isOneToOne: false
+            referencedRelation: "webhook_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      step_add_tags: {
+        Row: {
+          created_at: string
+          step_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          step_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          step_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "step_add_tags_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "step_add_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      step_remove_tags: {
+        Row: {
+          created_at: string
+          step_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          step_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          step_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "step_remove_tags_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "step_remove_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      step_trigger_tags: {
+        Row: {
+          created_at: string
+          step_id: string
+          tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          step_id: string
+          tag_id: string
+        }
+        Update: {
+          created_at?: string
+          step_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "step_trigger_tags_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "step_trigger_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_conversations: {
+        Row: {
+          assigned_to: string | null
+          assunto: string | null
+          cliente_id: string | null
+          created_at: string
+          id: string
+          legacy_id: string | null
+          organization_id: string | null
+          prioridade_chamado: Database["public"]["Enums"]["prioridade_chamado"]
+          status_chamado: Database["public"]["Enums"]["status_chamado"]
+          tipo_chamado: Database["public"]["Enums"]["tipo_chamado"] | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          assunto?: string | null
+          cliente_id?: string | null
+          created_at?: string
+          id?: string
+          legacy_id?: string | null
+          organization_id?: string | null
+          prioridade_chamado?: Database["public"]["Enums"]["prioridade_chamado"]
+          status_chamado?: Database["public"]["Enums"]["status_chamado"]
+          tipo_chamado?: Database["public"]["Enums"]["tipo_chamado"] | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          assunto?: string | null
+          cliente_id?: string | null
+          created_at?: string
+          id?: string
+          legacy_id?: string | null
+          organization_id?: string | null
+          prioridade_chamado?: Database["public"]["Enums"]["prioridade_chamado"]
+          status_chamado?: Database["public"]["Enums"]["status_chamado"]
+          tipo_chamado?: Database["public"]["Enums"]["tipo_chamado"] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_conversations_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_conversations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_messages: {
+        Row: {
+          arquivos: Json
+          autor: Database["public"]["Enums"]["autor_mensagem"]
+          conversation_id: string
+          created_at: string
+          id: string
+          mensagem: string | null
+          nome: string | null
+          profile_id: string | null
+        }
+        Insert: {
+          arquivos?: Json
+          autor: Database["public"]["Enums"]["autor_mensagem"]
+          conversation_id: string
+          created_at?: string
+          id?: string
+          mensagem?: string | null
+          nome?: string | null
+          profile_id?: string | null
+        }
+        Update: {
+          arquivos?: Json
+          autor?: Database["public"]["Enums"]["autor_mensagem"]
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          mensagem?: string | null
+          nome?: string | null
+          profile_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_messages_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          descricao: string | null
+          id: string
+          legacy_id: string | null
+          nome: string
+          organization_id: string
+          tipo_evento: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome: string
+          organization_id: string
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string
+          organization_id?: string
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tags_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      templates: {
+        Row: {
+          blank: boolean
+          created_at: string
+          descricao: string | null
+          gatilho: Database["public"]["Enums"]["tipo_evento"] | null
+          icone: string | null
+          id: string
+          is_global: boolean
+          legacy_id: string | null
+          nome: string
+          organization_id: string | null
+          tipo_template: Database["public"]["Enums"]["tipo_template"]
+          updated_at: string
+        }
+        Insert: {
+          blank?: boolean
+          created_at?: string
+          descricao?: string | null
+          gatilho?: Database["public"]["Enums"]["tipo_evento"] | null
+          icone?: string | null
+          id?: string
+          is_global?: boolean
+          legacy_id?: string | null
+          nome: string
+          organization_id?: string | null
+          tipo_template: Database["public"]["Enums"]["tipo_template"]
+          updated_at?: string
+        }
+        Update: {
+          blank?: boolean
+          created_at?: string
+          descricao?: string | null
+          gatilho?: Database["public"]["Enums"]["tipo_evento"] | null
+          icone?: string | null
+          id?: string
+          is_global?: boolean
+          legacy_id?: string | null
+          nome?: string
+          organization_id?: string | null
+          tipo_template?: Database["public"]["Enums"]["tipo_template"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          data: string | null
+          forma_pagamento: string | null
+          id: string
+          id_transacao: string | null
+          legacy_id: string | null
+          organization_id: string | null
+          plano_id: string | null
+          profile_id: string | null
+          status_pagamento: Database["public"]["Enums"]["status_pagamento"]
+          updated_at: string
+          valor_pago: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          data?: string | null
+          forma_pagamento?: string | null
+          id?: string
+          id_transacao?: string | null
+          legacy_id?: string | null
+          organization_id?: string | null
+          plano_id?: string | null
+          profile_id?: string | null
+          status_pagamento?: Database["public"]["Enums"]["status_pagamento"]
+          updated_at?: string
+          valor_pago?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          data?: string | null
+          forma_pagamento?: string | null
+          id?: string
+          id_transacao?: string | null
+          legacy_id?: string | null
+          organization_id?: string | null
+          plano_id?: string | null
+          profile_id?: string | null
+          status_pagamento?: Database["public"]["Enums"]["status_pagamento"]
+          updated_at?: string
+          valor_pago?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      usage_counters: {
+        Row: {
+          created_at: string
+          id: string
+          numero_campanhas: number
+          numero_execucoes: number
+          organization_id: string | null
+          periodo_inicio: string | null
+          plano_id: string | null
+          profile_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          numero_campanhas?: number
+          numero_execucoes?: number
+          organization_id?: string | null
+          periodo_inicio?: string | null
+          plano_id?: string | null
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          numero_campanhas?: number
+          numero_execucoes?: number
+          organization_id?: string | null
+          periodo_inicio?: string | null
+          plano_id?: string | null
+          profile_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_counters_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "usage_counters_plano_id_fkey"
+            columns: ["plano_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "usage_counters_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhook_event_types: {
+        Row: {
+          created_at: string
+          tipo_evento: Database["public"]["Enums"]["tipo_evento"]
+          webhook_id: string
+        }
+        Insert: {
+          created_at?: string
+          tipo_evento: Database["public"]["Enums"]["tipo_evento"]
+          webhook_id: string
+        }
+        Update: {
+          created_at?: string
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"]
+          webhook_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_event_types_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhook_events: {
+        Row: {
+          campaign_id: string | null
+          created_at: string
+          email: string | null
+          endereco_comprador: string | null
+          id: string
+          id_webhook: string | null
+          lead_id: string | null
+          metodo_pagamento: string | null
+          nome_comprador: string | null
+          organization_id: string | null
+          payload: Json | null
+          pix_gerado: boolean
+          produto: string | null
+          provider: string | null
+          sobrenome_comprador: string | null
+          telefone: string | null
+          tipo_evento: Database["public"]["Enums"]["tipo_evento"] | null
+          valor_produto: number | null
+          webhook_id: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string
+          email?: string | null
+          endereco_comprador?: string | null
+          id?: string
+          id_webhook?: string | null
+          lead_id?: string | null
+          metodo_pagamento?: string | null
+          nome_comprador?: string | null
+          organization_id?: string | null
+          payload?: Json | null
+          pix_gerado?: boolean
+          produto?: string | null
+          provider?: string | null
+          sobrenome_comprador?: string | null
+          telefone?: string | null
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          valor_produto?: number | null
+          webhook_id?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string
+          email?: string | null
+          endereco_comprador?: string | null
+          id?: string
+          id_webhook?: string | null
+          lead_id?: string | null
+          metodo_pagamento?: string | null
+          nome_comprador?: string | null
+          organization_id?: string | null
+          payload?: Json | null
+          pix_gerado?: boolean
+          produto?: string | null
+          provider?: string | null
+          sobrenome_comprador?: string | null
+          telefone?: string | null
+          tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
+          valor_produto?: number | null
+          webhook_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhook_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhook_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhook_events_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhooks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          desabilitado: boolean
+          descricao: string | null
+          id: string
+          legacy_id: string | null
+          nome: string | null
+          organization_id: string
+          payload: string | null
+          secret: string | null
+          testado: boolean
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          desabilitado?: boolean
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string | null
+          organization_id: string
+          payload?: string | null
+          secret?: string | null
+          testado?: boolean
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          desabilitado?: boolean
+          descricao?: string | null
+          id?: string
+          legacy_id?: string | null
+          nome?: string | null
+          organization_id?: string
+          payload?: string | null
+          secret?: string | null
+          testado?: boolean
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhooks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhooks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      classify_criticidade: {
+        Args: { enviados: number; valor: number }
+        Returns: Database["public"]["Enums"]["status_criticidade"]
+      }
+      current_profile_id: { Args: never; Returns: string }
+      current_role_geral: {
+        Args: never
+        Returns: Database["public"]["Enums"]["tipo_user_geral"]
+      }
+      has_org_access: { Args: { org: string }; Returns: boolean }
+      is_admin: { Args: never; Returns: boolean }
+      is_gestor: { Args: never; Returns: boolean }
+      is_support: { Args: never; Returns: boolean }
+      my_org_ids: { Args: never; Returns: string[] }
+    }
+    Enums: {
+      autor_mensagem: "cliente" | "suporte" | "sistema"
+      dns_record_status: "pendente" | "verificado"
+      metodo_https: "GET" | "POST" | "DELETE" | "PATCH"
+      prioridade_chamado: "Alta" | "Média" | "Baixa"
+      status_agendamento:
+        | "Iniciado"
+        | "Em andamento"
+        | "Encerrado por Meta"
+        | "Finalizado"
+      status_campanha:
+        | "Ativa"
+        | "Pausada"
+        | "Finalizada"
+        | "Inativa"
+        | "Pendente"
+        | "Rascunho"
+      status_chamado: "Em andamento" | "Resolvida"
+      status_criticidade:
+        | "Crítico"
+        | "Mediano"
+        | "Bom"
+        | "Excelente"
+        | "Não Iniciado"
+      status_pagamento: "Pago" | "Pendente" | "Pagamento recusado"
+      status_planos: "Ativo" | "Inativo"
+      status_user: "Ativo" | "Desabilitado" | "Pendente"
+      tipo_card_fluxo:
+        | "Gatilho"
+        | "Adicionar Tag"
+        | "Remover Tag"
+        | "Envio de e-mail"
+        | "Acionar Fluxo"
+      tipo_chamado:
+        | "Dúvidas"
+        | "Integração com a Plataforma"
+        | "Pagamento"
+        | "Erros"
+      tipo_envio: "email" | "SMS" | "Whatsapp"
+      tipo_evento:
+        | "Abandono de carrinho"
+        | "Boleto Gerado"
+        | "Compra cancelada"
+        | "Depósito Solicitado"
+        | "Pix Gerado"
+        | "Chargeback"
+        | "Cancelamento de Assinatura"
+        | "Compra Reembolsada"
+        | "Compra Aprovada"
+        | "Compra Recusada"
+      tipo_template:
+        | "Criar em Branco"
+        | "Vender Curso"
+        | "Abandono de Carrinho"
+        | "Envio de oportunidade p/ Kobly CRM"
+        | "Marcar Leads eCommerce como oportunidades"
+        | "Marcar Leads eCommerce como vendas"
+        | "Pré-inscrição de curso"
+        | "Indique e Ganhe"
+        | "Pós-venda"
+        | "Cupom de Desconto"
+        | "Resposta automática"
+        | "Nutrição de Leads"
+      tipo_user_geral: "Gestor" | "Cliente" | "Suporte" | "Administrador"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      autor_mensagem: ["cliente", "suporte", "sistema"],
+      dns_record_status: ["pendente", "verificado"],
+      metodo_https: ["GET", "POST", "DELETE", "PATCH"],
+      prioridade_chamado: ["Alta", "Média", "Baixa"],
+      status_agendamento: [
+        "Iniciado",
+        "Em andamento",
+        "Encerrado por Meta",
+        "Finalizado",
+      ],
+      status_campanha: [
+        "Ativa",
+        "Pausada",
+        "Finalizada",
+        "Inativa",
+        "Pendente",
+        "Rascunho",
+      ],
+      status_chamado: ["Em andamento", "Resolvida"],
+      status_criticidade: [
+        "Crítico",
+        "Mediano",
+        "Bom",
+        "Excelente",
+        "Não Iniciado",
+      ],
+      status_pagamento: ["Pago", "Pendente", "Pagamento recusado"],
+      status_planos: ["Ativo", "Inativo"],
+      status_user: ["Ativo", "Desabilitado", "Pendente"],
+      tipo_card_fluxo: [
+        "Gatilho",
+        "Adicionar Tag",
+        "Remover Tag",
+        "Envio de e-mail",
+        "Acionar Fluxo",
+      ],
+      tipo_chamado: [
+        "Dúvidas",
+        "Integração com a Plataforma",
+        "Pagamento",
+        "Erros",
+      ],
+      tipo_envio: ["email", "SMS", "Whatsapp"],
+      tipo_evento: [
+        "Abandono de carrinho",
+        "Boleto Gerado",
+        "Compra cancelada",
+        "Depósito Solicitado",
+        "Pix Gerado",
+        "Chargeback",
+        "Cancelamento de Assinatura",
+        "Compra Reembolsada",
+        "Compra Aprovada",
+        "Compra Recusada",
+      ],
+      tipo_template: [
+        "Criar em Branco",
+        "Vender Curso",
+        "Abandono de Carrinho",
+        "Envio de oportunidade p/ Kobly CRM",
+        "Marcar Leads eCommerce como oportunidades",
+        "Marcar Leads eCommerce como vendas",
+        "Pré-inscrição de curso",
+        "Indique e Ganhe",
+        "Pós-venda",
+        "Cupom de Desconto",
+        "Resposta automática",
+        "Nutrição de Leads",
+      ],
+      tipo_user_geral: ["Gestor", "Cliente", "Suporte", "Administrador"],
+    },
+  },
+} as const

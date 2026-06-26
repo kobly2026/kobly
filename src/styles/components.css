@@ -1,0 +1,38 @@
+/* Kobly — interactive states for components.
+   Inline styles can't express :hover/:focus/:active, so those live here and ship to consumers.
+   Components set the matching classNames (kbly-btn, kbly-iconbtn, kbly-input, kbly-nav-btn, kbly-row, kbly-template). */
+
+/* Buttons */
+.kbly-btn { -webkit-tap-highlight-color: transparent; }
+.kbly-btn--primary:not(:disabled):hover { background: var(--primary-bg-hover) !important; border-color: var(--primary-bg-hover) !important; }
+.kbly-btn--primary:not(:disabled):active { background: var(--primary-bg-active) !important; }
+.kbly-btn--secondary:not(:disabled):hover { background: var(--surface-sunken) !important; border-color: var(--border-strong) !important; }
+.kbly-btn--ghost:not(:disabled):hover { background: var(--surface-sunken) !important; }
+.kbly-btn--danger:not(:disabled):hover { background: var(--red-600) !important; border-color: var(--red-600) !important; }
+.kbly-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+/* Icon buttons */
+.kbly-iconbtn--ghost:not(:disabled):hover,
+.kbly-iconbtn--danger:not(:disabled):hover { background: var(--surface-sunken) !important; }
+.kbly-iconbtn--secondary:not(:disabled):hover { background: var(--surface-sunken) !important; border-color: var(--border-strong) !important; }
+.kbly-iconbtn--primary:not(:disabled):hover { background: var(--primary-bg-hover) !important; }
+.kbly-iconbtn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+/* Inputs & selects */
+.kbly-input:focus { border-color: var(--accent) !important; box-shadow: var(--shadow-focus); }
+
+/* Nav rail */
+.kbly-nav-btn:hover { background: var(--surface-nav-hover) !important; color: #fff !important; }
+.kbly-nav-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+/* Table rows */
+.kbly-row:hover { background: var(--surface-sunken); }
+
+/* Template tiles */
+.kbly-template:not(:disabled):hover { border-color: var(--border-strong) !important; box-shadow: var(--shadow-sm) !important; }
+.kbly-template:focus-visible { outline: none; box-shadow: var(--shadow-focus) !important; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

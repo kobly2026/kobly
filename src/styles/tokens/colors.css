@@ -1,0 +1,91 @@
+/* Kobly — Color tokens.
+   Brand palette confirmed by the user: a DARK theme with an orange primary.
+     Primário     Laranja Primário  #FF6800
+     Cinza        Cinza Escuro      #1A1A1A   ·  Cinza Claro #808080
+     Background   Preto Background  #000000   ·  Branco Background #F9F9F9
+     Texto        Texto Preto       #000000
+   Base ramps first, semantic aliases below. */
+
+:root {
+  /* ---- Brand: Orange (primary, accent, links, active) ---- */
+  --orange-700: #b34900; /* deep / active */
+  --orange-600: #e65d00;
+  --orange-500: #ff6800; /* Laranja Primário ★ */
+  --orange-400: #ff8128;
+  --orange-300: #ff9d52;
+  --orange-200: #ffba85;
+  --orange-100: #ffd9bd;
+  --orange-tint: rgba(255, 104, 0, 0.14); /* soft fill on dark */
+
+  /* ---- Neutral: Ink ramp (higher number = darker) ---- */
+  --ink-1000: #000000; /* Preto Background ★ */
+  --ink-900:  #0d0d0d;
+  --ink-850:  #141414;
+  --ink-800:  #1a1a1a; /* Cinza Escuro ★ — cards */
+  --ink-700:  #242424;
+  --ink-600:  #2e2e2e;
+  --ink-500:  #3a3a3a; /* borders */
+  --ink-400:  #555555;
+  --ink-300:  #808080; /* Cinza Claro ★ — muted text */
+  --ink-200:  #a8a8a8;
+  --ink-100:  #cfcfcf;
+  --ink-50:   #f9f9f9; /* Branco Background ★ — primary text/light */
+  --white:    #ffffff;
+
+  /* ---- Semantic status ramps (tuned to read on dark surfaces) ---- */
+  --green-500: #3ddc84; --green-600: #2cb46a; --green-tint: rgba(61, 220, 132, 0.14);
+  --amber-500: #ffb020; --amber-600: #e09400; --amber-tint: rgba(255, 176, 32, 0.14);
+  --red-500:   #ff6a61; --red-600:   #e84840; --red-tint:   rgba(255, 106, 97, 0.15);
+
+  /* ===================================================== */
+  /* Semantic aliases — use these in components            */
+  /* ===================================================== */
+
+  /* Surfaces */
+  --surface-app:       var(--ink-1000); /* #000 */
+  --surface-nav:       var(--ink-900);  /* #0d0d0d */
+  --surface-card:      var(--ink-800);  /* #1a1a1a */
+  --surface-sunken:    var(--ink-900);  /* wells / inputs */
+  --surface-raised:    var(--ink-700);  /* chips / hover */
+  --surface-nav-hover: var(--ink-800);
+  --surface-nav-active:var(--orange-tint);
+  --surface-inverse:   var(--ink-50);
+
+  /* Text */
+  --text-strong:   var(--ink-50);   /* #f9f9f9 */
+  --text-body:     var(--ink-100);  /* #cfcfcf */
+  --text-muted:    var(--ink-300);  /* #808080 */
+  --text-subtle:   var(--ink-400);  /* #555 */
+  --text-on-dark:  var(--ink-50);
+  --text-on-dark-muted: var(--ink-300);
+  --text-on-accent:var(--ink-800);  /* dark text on orange */
+  --text-link:     var(--orange-400);
+
+  /* Borders */
+  --border-subtle: #242424;
+  --border-default:var(--ink-500);
+  --border-strong: var(--ink-400);
+  --border-nav:    rgba(255, 255, 255, 0.07);
+
+  /* Accent / interactive */
+  --accent:         var(--orange-500);
+  --accent-hover:   var(--orange-400);
+  --accent-soft:    var(--orange-tint);
+  --accent-contrast:var(--ink-800);
+
+  /* Primary action — the orange, per brand */
+  --primary-bg:        var(--orange-500);
+  --primary-bg-hover:  var(--orange-400);
+  --primary-bg-active: var(--orange-600);
+  --primary-fg:        var(--ink-800); /* dark label on orange */
+
+  /* Focus ring */
+  --ring: rgba(255, 104, 0, 0.5);
+
+  /* Status semantic pairs (fg on tinted bg) */
+  --status-success-fg: var(--green-500); --status-success-bg: var(--green-tint);
+  --status-warning-fg: var(--amber-500); --status-warning-bg: var(--amber-tint);
+  --status-danger-fg:  var(--red-500);   --status-danger-bg:  var(--red-tint);
+  --status-info-fg:    var(--orange-400);--status-info-bg:    var(--orange-tint);
+  --status-neutral-fg: var(--ink-200);   --status-neutral-bg: rgba(255, 255, 255, 0.07);
+}

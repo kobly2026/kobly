@@ -1,0 +1,23 @@
+{
+  "name": "kobly",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Kobly — console de automação de marketing (Vite + React)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "apexcharts": "^3.49.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

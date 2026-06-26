@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kobly — Console</title>
+
+<!-- Kobly design system: tokens + component styles -->
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/tokens/colors.css">
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/tokens/typography.css">
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/tokens/effects.css">
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/components/core/components.css">
+<link rel="stylesheet" href="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/styles.css">
+<link rel="icon" href="assets/kobly-mark.svg">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.49.1/dist/apexcharts.min.js"></script>
+<script src="_ds/kobly-design-system-29b7f4b6-ec8e-43be-aef1-17691d862b57/_ds_bundle.js"></script>
+
+<style>
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--surface-app);
+    color: var(--text-body);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  #root { height: 100%; }
+
+  /* Motion keyframes — short, ease-out. Entrance motion is state-driven (see motion.jsx);
+     these cover the loading shimmer and the toast only. */
+  @keyframes kbly-shimmer  { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @keyframes kbly-toast-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+  @keyframes kbly-fade     { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes kbly-slide-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+
+  .kbly-seg:hover { color: var(--text-body) !important; }
+
+  /* Clickable KPI tiles */
+  .kbly-kpi:hover { border-color: var(--border-strong) !important; transform: translateY(-1px); }
+  .kbly-kpi:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+  /* AI assistant */
+  .kbly-fab:hover { background: var(--accent-hover) !important; transform: translateY(-1px); }
+  .kbly-suggchip:hover { border-color: var(--accent) !important; color: var(--text-strong) !important; }
+  .kbly-nicho:hover { filter: brightness(1.12); }
+  .kbly-typing { animation: kbly-pulse 1.2s ease-in-out infinite; }
+  @keyframes kbly-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+  /* ApexCharts dark-theme cleanup */
+  .apexcharts-tooltip { background: var(--surface-card) !important; border: 1px solid var(--border-default) !important; box-shadow: var(--shadow-lg) !important; color: var(--text-strong) !important; }
+  .apexcharts-tooltip-title { background: var(--surface-sunken) !important; border-bottom: 1px solid var(--border-subtle) !important; font-weight: 600 !important; }
+  .apexcharts-xaxistooltip, .apexcharts-yaxistooltip { background: var(--surface-card) !important; border-color: var(--border-default) !important; color: var(--text-body) !important; }
+  .apexcharts-legend-text { color: var(--text-muted) !important; }
+
+  /* Dark scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--ink-600); border-radius: 999px; border: 2px solid var(--surface-app); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-500); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Data layer (plain JS) -->
+<script src="app/api/mockData.js"></script>
+<script src="app/api/mockApi.js"></script>
+<script src="app/api/ai.js"></script>
+
+<!-- App (JSX via Babel) — load order = dependency order -->
+<script type="text/babel" data-presets="react" src="app/lib/tweaks-panel.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/lib/motion.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/lib/tweaks.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/lib/ui.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/lib/charts.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/lib/hooks.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/store.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/shell/Topbar.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/shell/TweaksPanel.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/shell/AIAssistant.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/shell/Onboarding.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Dashboard.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Campaigns.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/FlowBuilder.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/EmailEditor.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Leads.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Clients.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Integrations.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Reports.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Plans.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Tickets.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Help.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Security.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/routes/Profile.jsx"></script>
+<script type="text/babel" data-presets="react" src="app/shell/AppShell.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  function boot() {
+    if (!window.KoblyApp || !window.KoblyApi || !window.KoblyDesignSystem_29b7f4) { setTimeout(boot, 30); return; }
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(window.KoblyApp));
+  }
+  boot();
+</script>
+
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <rect width="100" height="100" fill="#000000"/>
+    <rect x="30" y="30" width="40" height="40" rx="11" fill="#FF6800"/>
+    <text x="50" y="50" dy="0.35em" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="26" font-weight="800" fill="#1A1A1A">K</text>
+  </svg>
+</template>
+</body>
+</html>

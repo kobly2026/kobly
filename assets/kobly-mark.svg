@@ -1,0 +1,8 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kobly">
+  <rect width="96" height="96" rx="22" fill="#ff6800"></rect>
+  <g stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="#1a1a1a">
+    <path d="M36 26V70"></path>
+    <path d="M36 49L60 26"></path>
+    <path d="M36 49L62 70"></path>
+  </g>
+</svg>

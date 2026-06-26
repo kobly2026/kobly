@@ -1,0 +1,8 @@
+/* Kobly — global stylesheet entry. Imported once from src/main.jsx.
+   Order matters: tokens (custom properties) first, then component states, then globals. */
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/effects.css';
+@import './components.css';
+@import './global.css';
