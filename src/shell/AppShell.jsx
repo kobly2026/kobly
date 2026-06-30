@@ -1,5 +1,5 @@
-// Kobly — application shell. NavRail filtered by role (RBAC) + topbar + route
-// switch with an entrance transition + toast outlet + global overlays.
+// Kobly — application shell v2. Simplificado: NavRail + Topbar + rota ativa.
+// Removidos: AIAssistant, Onboarding, TweaksPanel, telas não-core.
 import React from 'react';
 import { NavRail } from '@/ds';
 import { Toast } from '@/lib/ui.jsx';
@@ -7,33 +7,16 @@ import { Reveal } from '@/lib/motion.jsx';
 import { useKobly } from '@/store/store.jsx';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { KoblyTopbar } from '@/shell/Topbar.jsx';
-import { KoblyTweaksPanel } from '@/shell/TweaksPanel.jsx';
-import { KoblyAIAssistant } from '@/shell/AIAssistant.jsx';
-import { KoblyOnboarding } from '@/shell/Onboarding.jsx';
-import { KoblyDashboard } from '@/routes/Dashboard.jsx';
 import { KoblyCampaigns } from '@/routes/Campaigns.jsx';
 import { KoblyLeads } from '@/routes/Leads.jsx';
-import { KoblyClients } from '@/routes/Clients.jsx';
 import { KoblyIntegrations } from '@/routes/Integrations.jsx';
-import { KoblyReports } from '@/routes/Reports.jsx';
-import { KoblyPlans } from '@/routes/Plans.jsx';
-import { KoblyTickets } from '@/routes/Tickets.jsx';
-import { KoblyHelp } from '@/routes/Help.jsx';
-import { KoblySecurity } from '@/routes/Security.jsx';
 import { KoblyProfile } from '@/routes/Profile.jsx';
 
 // Route id -> screen component (FlowBuilder / EmailEditor are sub-screens of Campanhas).
 const SCREENS = {
-  dashboard: KoblyDashboard,
   campanhas: KoblyCampaigns,
   leads: KoblyLeads,
-  clientes: KoblyClients,
   integracoes: KoblyIntegrations,
-  relatorios: KoblyReports,
-  planos: KoblyPlans,
-  chamados: KoblyTickets,
-  suporte: KoblyHelp,
-  seguranca: KoblySecurity,
   perfil: KoblyProfile,
 };
 
@@ -73,9 +56,6 @@ export function Shell() {
           {store.toast.msg}
         </Toast>
       )}
-      <KoblyTweaksPanel />
-      <KoblyAIAssistant />
-      <KoblyOnboarding />
     </div>
   );
 }

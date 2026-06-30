@@ -296,8 +296,75 @@ export const KoblyApi = {
       dominios: clone(db.dominios),
       webhooks: clone(db.webhooks),
       tags: clone(db.tags),
+      emails: clone(db.emails),
       apiKey: 'kbl_live_' + 'a3f9c2e1b884d07f',
     };
+  },
+
+  // ---- Postback Tokens ----------------------------------------------------
+  async getPostbackTokens() {
+    const me = await currentProfile();
+    const orgId = await firstOrgId(me);
+    if (!orgId) return [];
+    const { data, error } = await supabase.from('postback_tokens')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+    if (error) return [];
+    return data || [];
+  },
+  async getOrCreatePostbackToken() {
+    const me = await currentProfile();
+    const orgId = await firstOrgId(me);
+    if (!orgId) return null;
+    // Busca token existente
+    const { data: existing } = await supabase.from('postback_tokens')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('ativo', true)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return existing;
+    // Cria novo via RPC
+    const { data, error } = await supabase.rpc('create_postback_token', {
+      p_org_id: orgId,
+      p_nome: 'Token principal',
+    });
+    if (error) return null;
+    return data;
+  },
+  async createPostbackToken(nome) {
+    const me = await currentProfile();
+    const orgId = await firstOrgId(me);
+    if (!orgId) return null;
+    const { data, error } = await supabase.rpc('create_postback_token', {
+      p_org_id: orgId,
+      p_nome: nome || 'Novo token',
+    });
+    if (error) return null;
+    resetDb();
+    return data;
+  },
+  async revokePostbackToken(tokenId) {
+    const { error } = await supabase.from('postback_tokens')
+      .update({ ativo: false })
+      .eq('id', tokenId);
+    resetDb();
+    return !error;
+  },
+
+  // ---- Últimos eventos recebidos ------------------------------------------
+  async getRecentEvents(limit = 20) {
+    const me = await currentProfile();
+    const orgId = await firstOrgId(me);
+    if (!orgId) return [];
+    const { data, error } = await supabase.from('webhook_events')
+      .select('id, tipo_evento, email, produto, valor_produto, provider, created_at')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return [];
+    return data || [];
   },
   async verifyDmarc(domId) {
     await supabase.from('domains').update({ validado: true }).eq('id', domId);
