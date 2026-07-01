@@ -105,7 +105,8 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         <Icon name={cardIconOf(step.tipo)} size={17} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* flexWrap: badges quebram pra 2ª linha em colunas estreitas (ramos) em vez de estourar o card */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 2 }}>
           <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', whiteSpace: 'nowrap' }}>{step.tipo}</span>
           {step.tipo !== 'Gatilho' && step.atraso > 0 && <Badge tone="neutral" size="sm" style={{ flex: 'none' }}>⏱ {fmtDelay(step.atraso)}</Badge>}
           {(() => { const b = condicaoBadge((step.config || {}).condicao); return b ? <Badge tone={b.tone} size="sm" style={{ flex: 'none' }}>{b.label}</Badge> : null; })()}
@@ -128,7 +129,9 @@ const RAMOS = [
 ];
 function BranchSplit({ cond, steps, selId, onSelect, onDelete, onAddChild, opts, compact }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', marginTop: 4 }}>
+    // minmax(0,1fr): sem isso o nowrap dos badges dos cards impede a coluna de
+    // encolher (min-content) e o grid estoura pra fora do canvas.
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12, width: '100%', marginTop: 4 }}>
       {RAMOS.map((r) => {
         const children = steps.filter((s) => s.parentId === cond.id && s.ramo === r.key);
         return (
@@ -150,21 +153,50 @@ function BranchSplit({ cond, steps, selId, onSelect, onDelete, onAddChild, opts,
   );
 }
 
-// ----- Slot de inserção (drop zone) -----
-function DropSlot({ index, over, onOver, onDrop, horizontal }) {
+// ----- Slot de inserção (drop zone) + conector do trilho -----
+// Continua sendo o alvo de drag (barra accent no hover), mas em repouso desenha
+// o CONECTOR do fluxo (linha vertical + seta) — continuidade visual (Gestalt):
+// o olho lê a sequência Gatilho → envio → envio em vez de cards soltos.
+function DropSlot({ index, over, onOver, onDrop, horizontal, arrow }) {
+  const showArrow = arrow && !over && !horizontal;
   return (
     <div
       onDragOver={(e) => { e.preventDefault(); onOver(index); }}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop(index); }}
       style={horizontal
         ? { width: over ? 30 : 14, alignSelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'width var(--dur-fast)' }
-        : { height: over ? 30 : 14, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'height var(--dur-fast)' }}>
-      <div style={{
-        background: over ? 'var(--accent)' : 'transparent',
-        borderRadius: 'var(--radius-pill)',
-        ...(horizontal ? { width: over ? 4 : 2, height: '60%' } : { height: over ? 4 : 2, width: over ? '100%' : 40 }),
-        transition: 'all var(--dur-fast)',
-      }} />
+        : { height: over ? 30 : (showArrow ? 28 : 14), display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'height var(--dur-fast)' }}>
+      {showArrow ? (
+        <div aria-hidden style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ width: 2, height: 16, background: 'var(--border-default)' }} />
+          <Icon name="chevron-down" size={14} style={{ color: 'var(--text-subtle)', marginTop: -6 }} />
+        </div>
+      ) : (
+        <div style={{
+          background: over ? 'var(--accent)' : 'transparent',
+          borderRadius: 'var(--radius-pill)',
+          ...(horizontal ? { width: over ? 4 : 2, height: '60%' } : { height: over ? 4 : 2, width: over ? '100%' : 40 }),
+          transition: 'all var(--dur-fast)',
+        }} />
+      )}
+    </div>
+  );
+}
+
+// ----- Conector em forquilha: card Condição → ramos SIM/NÃO -----
+// Tronco central + barra horizontal + duas descidas com seta na cor de cada
+// ramo — mostra que o fluxo SE DIVIDE ali (era o elo visual que faltava).
+function ForkConnector() {
+  return (
+    <div aria-hidden style={{ width: '100%', height: 30, position: 'relative', flex: 'none' }}>
+      <div style={{ position: 'absolute', left: '50%', top: 0, width: 2, height: 10, background: 'var(--border-default)', transform: 'translateX(-50%)' }} />
+      <div style={{ position: 'absolute', left: '25%', right: '25%', top: 10, height: 2, background: 'var(--border-default)' }} />
+      {[{ left: '25%', tone: 'success' }, { left: '75%', tone: 'warning' }].map((r) => (
+        <div key={r.left} style={{ position: 'absolute', left: r.left, top: 10, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ width: 2, height: 12, background: 'var(--border-default)' }} />
+          <Icon name="chevron-down" size={13} style={{ color: `var(--status-${r.tone}-fg)`, marginTop: -6 }} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -391,12 +423,15 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   // desenham os dois ramos (SIM/NÃO) logo abaixo, com seus filhos.
   const flowNodes = [];
   rootSteps.forEach((s, i) => {
-    flowNodes.push(<DropSlot key={'slot-' + i} index={i} over={over === i} onOver={setOver} onDrop={onDrop} horizontal={horizontal} />);
+    flowNodes.push(<DropSlot key={'slot-' + i} index={i} over={over === i} onOver={setOver} onDrop={onDrop} horizontal={horizontal} arrow={i > 0} />);
     flowNodes.push(
       <div key={s.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: s.tipo === 'Condição' ? '100%' : 'auto' }}>
         <StepCard step={s} index={i} selected={selId === s.id} onSelect={setSelId} onDelete={deleteStep} onDragStart={onDragStart} compact={compact} opts={opts} />
         {s.tipo === 'Condição' && (
-          <BranchSplit cond={s} steps={steps} selId={selId} onSelect={setSelId} onDelete={deleteStep} onAddChild={addChild} opts={opts} compact={compact} />
+          <React.Fragment>
+            <ForkConnector />
+            <BranchSplit cond={s} steps={steps} selId={selId} onSelect={setSelId} onDelete={deleteStep} onAddChild={addChild} opts={opts} compact={compact} />
+          </React.Fragment>
         )}
       </div>
     );
@@ -451,7 +486,9 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
               <div style={{ fontSize: 'var(--text-sm)' }}>Arraste um card da paleta para cá — ou clique nele — para começar o fluxo.</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', alignItems: 'center', flexWrap: horizontal ? 'nowrap' : 'nowrap' }}>
+            // Largura máxima consistente: os ramos da Condição alinham com a coluna
+            // dos cards em vez de esticar o canvas inteiro (larguras desalinhadas).
+            <div style={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', alignItems: 'center', ...(horizontal ? {} : { width: '100%', maxWidth: 620, marginInline: 'auto' }) }}>
               {flowNodes}
             </div>
           )}
