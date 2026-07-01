@@ -59,7 +59,7 @@ function KoblyOnboarding() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
           <span style={{ display: 'inline-flex', width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: 'var(--accent)', color: 'var(--text-on-accent)', fontWeight: 800, fontSize: 18 }}>K</span>
-          <span style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Bem-vindo à Kobly</span>
+          <span style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Bem-vindo à Koblay</span>
         </div>
         <h2 style={{ margin: '0 0 4px', fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Escolha sua área</h2>
         <p style={{ margin: '0 0 22px', fontSize: 'var(--text-md)', color: 'var(--text-muted)' }}>Escolha pelo menos uma área e clique em finalizar. Usamos isso para personalizar templates e sugestões.</p>

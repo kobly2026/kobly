@@ -76,7 +76,7 @@ export function KoblyAuthScreen({ mode = 'login' }) {
   }
 
   const titles = {
-    login: ['Entrar', 'Acesse o console da Kobly.'],
+    login: ['Entrar', 'Acesse o console da Koblay.'],
     signup: ['Criar conta', 'Comece a recuperar vendas por e-mail.'],
     reset: ['Recuperar senha', 'Enviaremos um link para redefinir sua senha.'],
     recovery: ['Definir nova senha', 'Escolha uma nova senha para sua conta.'],
@@ -87,8 +87,8 @@ export function KoblyAuthScreen({ mode = 'login' }) {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
       <div style={{ width: '100%', maxWidth: 400 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, justifyContent: 'center' }}>
-          <img src="/assets/kobly-mark.svg" alt="Kobly" width={34} height={34} />
-          <span style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Kobly</span>
+          <img src="/assets/koblay-mark.svg" alt="Koblay" width={34} height={34} />
+          <span style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Koblay</span>
         </div>
 
         <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>

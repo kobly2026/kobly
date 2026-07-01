@@ -102,7 +102,7 @@ function AIAssistant() {
       )}
       <Drawer
         open={open} onClose={() => setOpen(false)} width={420}
-        title="Assistente Kobly"
+        title="Assistente Koblay"
         subtitle={`Contexto: ${store.roleDef.label} · ${KoblyMockDB.routeTitle[store.view] || ''}`}
         footer={
           <form onSubmit={(e) => { e.preventDefault(); ask(input); }} style={{ display: 'flex', gap: 8 }}>
@@ -117,7 +117,7 @@ function AIAssistant() {
         <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
           {msgs.length === 0 && (
             <React.Fragment>
-              <Bubble from="ai">Olá! Sou o assistente da Kobly. Posso analisar suas campanhas, sugerir melhorias e explicar as métricas. Por onde começamos?</Bubble>
+              <Bubble from="ai">Olá! Sou o assistente da Koblay. Posso analisar suas campanhas, sugerir melhorias e explicar as métricas. Por onde começamos?</Bubble>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                 <span style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Sugestões</span>
                 {sugg.map((s) => (

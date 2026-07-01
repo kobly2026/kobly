@@ -44,7 +44,7 @@ src/
   routes/             # 13 telas: Dashboard, Campaigns, FlowBuilder, EmailEditor, Leads,
                       # Clients, Integrations, Reports, Plans, Tickets, Help, Security, Profile
   styles/             # tokens/ (colors, typography, spacing, effects) + components.css + global.css
-public/assets/        # kobly-mark.svg (servido em /assets/...)
+public/assets/        # koblay-mark.svg (servido em /assets/...)
 docs/                 # especificação técnica + plano de migração Supabase (fonte da verdade)
 prototype/            # protótipo Claude Design original (referência; pode ser removido)
 ```

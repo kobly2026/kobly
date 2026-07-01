@@ -301,11 +301,15 @@ export const KoblyApi = {
         const { data: tf } = await supabase.from('campaign_flows').select('id').eq('campaign_id', cfg.fluxoAlvo).maybeSingle();
         fluxoAlvoId = tf ? tf.id : null;
       }
-      const { data: st } = await supabase.from('flow_steps').insert({
+      const { data: st, error: stErr } = await supabase.from('flow_steps').insert({
         flow_id: flowId, organization_id: orgId, tipo_card: s.tipo, nome: s.nome,
         posicao: s.posicao != null ? s.posicao : i, atraso: s.atraso || 0,
-        email_id: cfg.emailId || null, tipo_evento: cfg.tipoEvento || null, webhook_id: cfg.webhookId || null, fluxo_alvo_id: fluxoAlvoId,
+        email_id: cfg.emailId || null, whatsapp_message_id: cfg.whatsappMessageId || null,
+        tipo_evento: cfg.tipoEvento || null, webhook_id: cfg.webhookId || null, fluxo_alvo_id: fluxoAlvoId,
       }).select().single();
+      // Nunca falhar em silêncio: os steps antigos já foram apagados acima — se o
+      // insert falhar, avisa o chamador para a UI não fingir que salvou.
+      if (stErr) { console.error('saveFlow steps insert failed', stErr); return false; }
       if (st && s.tipo === 'Adicionar Tag' && (cfg.tags || []).length) await supabase.from('step_add_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
       if (st && s.tipo === 'Remover Tag' && (cfg.tags || []).length) await supabase.from('step_remove_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
     }
@@ -452,6 +456,7 @@ export const KoblyApi = {
     return {
       webhooks: clone(db.webhooks),
       emails: clone(db.emails),
+      whatsappMessages: clone(db.whatsappMessages || []),
       tags: clone(db.tags),
       campaigns: db.campanhas.map((c) => ({ id: c.id, nome: c.nome })),
     };
@@ -669,9 +674,74 @@ export const KoblyApi = {
       testHtml = testHtml.split('{{cta_link}}').join(fallback);
     }
     const { data, error } = await supabase.functions.invoke('send-email', { body: { to, subject, html: testHtml, text, from } });
-    if (error) return { error: error.message };
+    if (error) {
+      // Em não-2xx (FunctionsHttpError) o corpo vem em error.context — tenta ler
+      // para transformar erros conhecidos em mensagem amigável.
+      const body = await error.context?.json?.().catch(() => null);
+      if (body && body.error === 'secret_unavailable') return { error: 'Resend não configurado — a API key é definida pelo suporte.' };
+      if (body && (body.detail || body.error)) {
+        const msg = (body.detail && typeof body.detail === 'object') ? body.detail.message : body.detail;
+        return { error: msg || body.error };
+      }
+      return { error: error.message };
+    }
     if (data && data.error) {
       if (data.error === 'secret_unavailable') return { error: 'Resend não configurado (falta a API key).' };
+      const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
+      return { error: msg || data.error || 'Falha no envio' };
+    }
+    return { error: null, id: data && data.id };
+  },
+
+  // ---- WhatsApp (mensagens + envio de teste via Edge Function send-whatsapp)
+  // Mesma modelagem dos templates de e-mail: lista escopada por RLS, título +
+  // corpo em texto puro com suporte ao placeholder {{cta_link}}.
+  async listWhatsappMessages() {
+    const db = await loadDB();
+    return clone(db.whatsappMessages || []);
+  },
+  // Cria (sem id) ou atualiza (com id) uma mensagem de WhatsApp da org.
+  async saveWhatsappMessage({ id, titulo, corpoTexto, mediaUrl }, empresaId) {
+    if (id) {
+      const { error } = await supabase.from('whatsapp_messages').update({
+        titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, updated_at: new Date().toISOString(),
+      }).eq('id', id);
+      resetDb();
+      return { error: error ? error.message : null, id };
+    }
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return { error: 'Sem organização', id: null };
+    const { data, error } = await supabase.from('whatsapp_messages').insert({
+      organization_id: orgId, titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, created_by: me ? me.id : null,
+    }).select().single();
+    resetDb();
+    return { error: error ? error.message : null, id: data ? data.id : null };
+  },
+  // Envio de teste — espelha o sendTestEmail: no teste não há lead, então o
+  // {{cta_link}} é resolvido pela URL da loja (ou '#'). Credenciais Z-API ficam
+  // no Vault e são resolvidas pela própria edge function.
+  async sendTestWhatsapp({ phone, message }) {
+    let testMsg = message || '';
+    if (testMsg.includes('{{cta_link}}')) {
+      let fallback = '#';
+      try { const b = await this.getBranding(); if (b && b.link_loja) fallback = b.link_loja; } catch (e) { /* usa '#' */ }
+      testMsg = testMsg.split('{{cta_link}}').join(fallback);
+    }
+    const { data, error } = await supabase.functions.invoke('send-whatsapp', { body: { phone, message: testMsg } });
+    if (error) {
+      // Em não-2xx (FunctionsHttpError) o corpo vem em error.context — tenta ler
+      // para transformar erros conhecidos em mensagem amigável.
+      const body = await error.context?.json?.().catch(() => null);
+      if (body && body.error === 'secret_unavailable') return { error: 'Z-API não configurada — as credenciais são definidas pelo suporte.' };
+      if (body && (body.detail || body.error)) {
+        const msg = (body.detail && typeof body.detail === 'object') ? body.detail.message : body.detail;
+        return { error: msg || body.error };
+      }
+      return { error: error.message };
+    }
+    if (data && data.error) {
+      if (data.error === 'secret_unavailable') return { error: 'Z-API não configurada (faltam as credenciais no Vault).' };
       const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
       return { error: msg || data.error || 'Falha no envio' };
     }

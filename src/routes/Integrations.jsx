@@ -7,7 +7,7 @@ import { Segmented, Modal } from '@/lib/ui.jsx';
 import { renderEmail } from '@/lib/emailTemplate.js';
 import { useKobly } from '@/store/store.jsx';
 
-// Kobly — Integrações simplificada. Postback URL + Templates de email + Tags.
+// Kobly — Integrações simplificada. Postback URL + Templates de email + WhatsApp + Tags.
 // KoblyIntegrations
 
 function CopyField({ value, label }) {
@@ -47,6 +47,18 @@ const HOTMART_EVENTS = [
   { event: 'PURCHASE_BILLET_PRINTED', trigger: 'Boleto Gerado' },
   { event: 'PURCHASE_OUT_OF_SHOPPING_CART', trigger: 'Abandono de carrinho (nome a confirmar no 1º teste)' },
   { event: 'SUBSCRIPTION_CANCELLATION', trigger: 'Cancelamento de Assinatura' },
+];
+
+// ── NexusPayt (família Payt): aceito nativamente, mapeamento informativo status → gatilho ──
+const NEXUSPAYT_EVENTS = [
+  { event: 'paid', trigger: 'Compra Aprovada' },
+  { event: 'refused', trigger: 'Compra Recusada' },
+  { event: 'refunded', trigger: 'Compra Reembolsada' },
+  { event: 'chargeback', trigger: 'Chargeback' },
+  { event: 'canceled', trigger: 'Compra cancelada' },
+  { event: 'lost_cart', trigger: 'Abandono de carrinho' },
+  { event: 'subscription_canceled', trigger: 'Cancelamento de Assinatura' },
+  { event: 'waiting_payment', trigger: 'Pix Gerado / Boleto Gerado (conforme o método)' },
 ];
 
 // Tempo relativo curto ("agora", "há 12s", "há 3min") pra sessão de teste ao vivo.
@@ -286,6 +298,21 @@ function PostbackTab({ data, empresaId }) {
         </div>
       </Card>
 
+      {/* NexusPayt nativo */}
+      <Card title="NexusPayt" subtitle="Cole a mesma URL acima no campo de Postback/Webhook da NexusPayt — o payload nativo da família Payt é aceito sem adaptação">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {NEXUSPAYT_EVENTS.map((ev) => (
+            <div key={ev.event} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+              <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--accent)', minWidth: 260 }}>{ev.event}</code>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>→ {ev.trigger}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            <code>waiting_payment</code> vira "Pix Gerado" ou "Boleto Gerado" conforme o método de pagamento do pedido. Status fora dessa lista são recebidos e ignorados sem erro — não derrubam o postback.
+          </div>
+        </div>
+      </Card>
+
       {/* Exemplo de payload */}
       <Card title="Exemplo de payload (outras plataformas)" subtitle="Copie e adapte para sua plataforma">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -387,7 +414,7 @@ function PostbackTab({ data, empresaId }) {
 }
 
 // ── Aba 2: Templates de Email ──
-function EmailTemplatesTab({ data }) {
+function EmailTemplatesTab({ data, reload }) {
   const store = useKobly();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -440,6 +467,124 @@ function EmailTemplatesTab({ data }) {
           <Input label="Título (intern)" placeholder="Ex.: Carrinho — lembrete" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
           <Input label="Assunto do e-mail" placeholder="Ex.: Você esqueceu algo no carrinho" value={form.assunto} onChange={(e) => setForm({ ...form, assunto: e.target.value })} />
           <Input label="Nome do remetente" placeholder="Ex.: Loja do João" value={form.remetente} onChange={(e) => setForm({ ...form, remetente: e.target.value })} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ── Aba: WhatsApp (Z-API) — estado da conexão + envio de teste + mensagens ──
+// As credenciais Z-API ficam no Vault (backend); a UI não coleta secrets — a
+// conexão é configurada pelo suporte e aqui só se testa e se editam as mensagens.
+function WhatsappTab({ empresaId }) {
+  const store = useKobly();
+  const msgs = useAsync(() => KoblyApi.listWhatsappMessages(), [empresaId]);
+  const [testPhone, setTestPhone] = useState('');
+  const [sending, setSending] = useState(false);
+  const [testResult, setTestResult] = useState(null); // { ok, msg } do último teste
+  const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ titulo: '', corpoTexto: '' });
+  const [saving, setSaving] = useState(false);
+
+  async function sendTest() {
+    if (!testPhone.trim()) return;
+    setSending(true);
+    setTestResult(null);
+    const r = await KoblyApi.sendTestWhatsapp({
+      phone: testPhone.trim(),
+      message: 'Mensagem de teste da Koblay — sua conexão WhatsApp está funcionando.',
+    });
+    setSending(false);
+    if (r.error) {
+      setTestResult({ ok: false, msg: r.error });
+      store.notify('danger', r.error);
+    } else {
+      setTestResult({ ok: true, msg: 'Mensagem de teste enviada — confira o WhatsApp do número informado.' });
+      store.notify('success', 'Mensagem de teste enviada');
+    }
+  }
+
+  function openNew() {
+    setEditing(null);
+    setForm({ titulo: '', corpoTexto: '' });
+    setModal(true);
+  }
+  function openEdit(m) {
+    setEditing(m);
+    setForm({ titulo: m.titulo, corpoTexto: m.corpoTexto || '' });
+    setModal(true);
+  }
+  async function saveMsg() {
+    if (!form.titulo.trim() || !form.corpoTexto.trim()) return;
+    setSaving(true);
+    const r = await KoblyApi.saveWhatsappMessage({ id: editing ? editing.id : null, titulo: form.titulo.trim(), corpoTexto: form.corpoTexto }, empresaId);
+    setSaving(false);
+    if (r.error) { store.notify('danger', 'Não foi possível salvar a mensagem'); return; }
+    store.notify('success', editing ? 'Mensagem atualizada' : 'Mensagem criada');
+    setModal(false);
+    msgs.reload();
+  }
+
+  const messages = (msgs.data || []).filter((m) => !empresaId || m.empresaId === empresaId);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Conexão Z-API + envio de teste */}
+      <Card title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+            <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
+            Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px', maxWidth: 320 }}>
+              <Input label="Telefone de teste" placeholder="Ex.: 5511999999999" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+            </div>
+            <Button variant="primary" iconLeft="send" disabled={sending || !testPhone.trim()} onClick={sendTest}>
+              {sending ? 'Enviando…' : 'Enviar teste'}
+            </Button>
+          </div>
+          {testResult && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: testResult.ok ? 'var(--status-success-fg)' : 'var(--status-danger-fg)' }}>
+              <Icon name={testResult.ok ? 'check-circle-2' : 'alert-triangle'} size={15} style={{ flex: 'none' }} />
+              {testResult.msg}
+            </div>
+          )}
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Informe o número com DDI e DDD, só dígitos (ex.: 5511999999999).
+          </div>
+        </div>
+      </Card>
+
+      {/* Mensagens de WhatsApp (análogo aos templates de e-mail) */}
+      {messages.map((m) => (
+        <Card key={m.id} title={m.titulo} subtitle="Mensagem de WhatsApp"
+          action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(m)}>Editar</Button>}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <Icon name="message-circle" size={16} style={{ color: 'var(--accent)', flex: 'none', marginTop: 2 }} />
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.corpoTexto}</div>
+          </div>
+        </Card>
+      ))}
+      <Button variant="secondary" iconLeft="plus" onClick={openNew}>Nova mensagem de WhatsApp</Button>
+
+      <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Editar mensagem' : 'Nova mensagem'} width={520}
+        footer={<>
+          <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
+          <Button variant="primary" disabled={saving || !form.titulo.trim() || !form.corpoTexto.trim()} onClick={saveMsg}>{saving ? 'Salvando…' : 'Salvar'}</Button>
+        </>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Input label="Título (interno)" placeholder="Ex.: Carrinho — lembrete WhatsApp" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
+          <div>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)', marginBottom: 8 }}>Texto da mensagem</div>
+            <textarea value={form.corpoTexto} onChange={(e) => setForm({ ...form, corpoTexto: e.target.value })} rows={6}
+              placeholder={'Ex.: Oi! Vi que você deixou itens no carrinho. Finalize por aqui: {{cta_link}}'}
+              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10, outline: 'none' }} />
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>
+              Use <code>{'{{cta_link}}'}</code> onde o link de recuperação deve entrar — ele é trocado automaticamente no envio.
+            </div>
+          </div>
         </div>
       </Modal>
     </div>
@@ -604,12 +749,13 @@ function KoblyIntegrations() {
     { value: 'postback', label: 'Postback URL' },
     { value: 'marca', label: 'Marca' },
     { value: 'emails', label: 'Templates de e-mail' },
+    { value: 'whatsapp', label: 'WhatsApp' },
     { value: 'tags', label: 'Tags' },
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageIntro action={<Segmented value={tab} onChange={setTab} options={tabs} />}>
-        Configure a URL de postback, templates de e-mail e tags por evento.
+        Configure a URL de postback, templates de e-mail, mensagens de WhatsApp e tags por evento.
       </PageIntro>
       {isGestor && (
         <Select
@@ -626,6 +772,7 @@ function KoblyIntegrations() {
             {tab === 'postback' && <PostbackTab data={a.data} empresaId={empresaId} />}
             {tab === 'marca' && <BrandTab empresaId={empresaId} />}
             {tab === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} />}
+            {tab === 'whatsapp' && <WhatsappTab empresaId={empresaId} />}
             {tab === 'tags' && <TagsTab data={a.data} reload={a.reload} />}
           </>)}
     </div>

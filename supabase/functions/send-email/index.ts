@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
     const { data: apiKey } = await admin.rpc("get_secret", { p_name: "resend_api_key" });
     if (!apiKey) return json({ error: "secret_unavailable", detail: "Defina a secret 'resend_api_key' no Vault." }, 500);
     const { data: fromCfg } = await admin.rpc("get_secret", { p_name: "resend_from" });
-    const sender = from || fromCfg || "Kobly <onboarding@resend.dev>";
+    const sender = from || fromCfg || "Koblay <onboarding@resend.dev>";
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",

@@ -43,7 +43,7 @@ function KoblyTickets() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - var(--topbar-height) - var(--content-pad) * 2)' }}>
-      <PageIntro>{isSupport ? 'Fila de chamados dos clientes. Responda e resolva conversas de suporte.' : 'Seus chamados de suporte. Converse com a equipe Kobly.'}</PageIntro>
+      <PageIntro>{isSupport ? 'Fila de chamados dos clientes. Responda e resolva conversas de suporte.' : 'Seus chamados de suporte. Converse com a equipe Koblay.'}</PageIntro>
       <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16 }}>
         {/* Lista */}
         <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

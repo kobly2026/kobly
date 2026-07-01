@@ -217,7 +217,7 @@ export function renderEmail({ brand = {}, preheader = '', blocks = [] } = {}) {
             <td class="kbly-pad" bgcolor="${P.bg}" style="background:${P.bg};padding:22px 34px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
                 <td valign="middle" style="font-family:${FONT};font-size:12px;color:${P.muted};">
-                  ${koblyMark(18, P)}<span style="display:inline-block;vertical-align:middle;padding-left:7px;">Enviado com <span style="color:${P.body};font-weight:700;">Kobly</span></span>
+                  ${koblyMark(18, P)}<span style="display:inline-block;vertical-align:middle;padding-left:7px;">Enviado com <span style="color:${P.body};font-weight:700;">Koblay</span></span>
                 </td>
                 <td valign="middle" align="right" style="font-family:${FONT};font-size:12px;color:${P.muted};">
                   <a href="#" style="color:${P.muted};text-decoration:underline;">Descadastrar</a>

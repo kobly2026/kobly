@@ -32,6 +32,7 @@ function reshapeStep(s, flowMap) {
   else if (s.tipo_card === 'Adicionar Tag') config = { tags: (s.step_add_tags || []).map((t) => t.tag_id) };
   else if (s.tipo_card === 'Remover Tag') config = { tags: (s.step_remove_tags || []).map((t) => t.tag_id) };
   else if (s.tipo_card === 'Envio de e-mail') config = { emailId: s.email_id };
+  else if (s.tipo_card === 'Envio de WhatsApp') config = { whatsappMessageId: s.whatsapp_message_id };
   else if (s.tipo_card === 'Acionar Fluxo') config = { fluxoAlvo: flowMap[s.fluxo_alvo_id] || s.fluxo_alvo_id };
   return { id: s.id, tipo: s.tipo_card, nome: s.nome, posicao: s.posicao, atraso: num(s.atraso), config };
 }
@@ -61,17 +62,19 @@ async function sel(table, columns, order) {
 }
 
 async function hydrate() {
-  const [orgs, profiles, plans, templates, tags, emails, domains, webhooks, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
+  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
     sel('organizations', '*'),
     sel('profiles', '*'),
     sel('plans', '*'),
     sel('templates', '*'),
     sel('tags', '*'),
     sel('emails', '*'),
+    sel('whatsapp_messages', '*'),
     sel('domains', '*, domain_dns_records(*)'),
     sel('webhooks', '*, webhook_event_types(tipo_evento)'),
     sel('leads', '*, lead_tags(tag_id), lead_metrics(enviados, aberturas, cliques)'),
     // flow_steps tem 2 FKs p/ campaign_flows (flow_id e fluxo_alvo_id) -> desambigua via !flow_id
+    // (o "*" de flow_steps já inclui email_id e whatsapp_message_id)
     sel('campaigns', '*, campaign_stats(*), campaign_flows(id, campaign_id, flow_steps!flow_id(*, step_add_tags(tag_id), step_remove_tags(tag_id)), flow_meta_tags(tag_id))'),
     sel('webhook_events', '*'),
     sel('support_conversations', '*, support_messages(*)'),
@@ -110,6 +113,7 @@ async function hydrate() {
     })),
     tags: tags.map((t) => ({ id: t.id, nome: t.nome, descricao: t.descricao, tipoEvento: t.tipo_evento, empresaId: t.organization_id })),
     emails: emails.map((e) => ({ id: e.id, titulo: e.titulo, assunto: e.assunto, remetente: e.remetente, dominioId: e.dominio_id, corpoHtml: e.corpo_html })),
+    whatsappMessages: whatsappMsgs.map((m) => ({ id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, mediaUrl: m.media_url, empresaId: m.organization_id })),
     dominios: domains.map((d) => ({
       id: d.id, url: d.url, validado: d.validado, idSendGrid: d.id_sendgrid, empresaId: d.organization_id,
       registros: (d.domain_dns_records || []).map((r) => ({ tipo: r.tipo, host: r.host, valor: r.valor, status: r.status })),

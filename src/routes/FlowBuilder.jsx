@@ -13,7 +13,11 @@ import { useKobly } from '@/store/store.jsx';
 // Layout com variações (tweak: builderVariant = vertical | horizontal | compact).
 // KoblyFlowBuilder
 
-const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Acionar Fluxo'];
+const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Envio de WhatsApp', 'Acionar Fluxo'];
+
+// Tom/ícone do card com fallback local p/ tipos ainda não mapeados no mockData (ex.: WhatsApp).
+const cardToneOf = (tipo) => KoblyMockDB.cardTone[tipo] || (tipo === 'Envio de WhatsApp' ? 'success' : 'neutral');
+const cardIconOf = (tipo) => KoblyMockDB.cardIcon[tipo] || (tipo === 'Envio de WhatsApp' ? 'message-circle' : 'circle');
 
 function fmtDelay(min) {
   if (!min) return 'imediato';
@@ -28,6 +32,7 @@ function defaultConfig(tipo, opts) {
     case 'Adicionar Tag':
     case 'Remover Tag': return { tags: [] };
     case 'Envio de e-mail': return { emailId: (o.emails || [])[0] ? o.emails[0].id : null };
+    case 'Envio de WhatsApp': return { whatsappMessageId: (o.whatsappMessages || [])[0] ? o.whatsappMessages[0].id : null };
     case 'Acionar Fluxo': return { fluxoAlvo: '' };
     default: return {};
   }
@@ -39,7 +44,6 @@ function newStep(tipo, opts) {
 // ----- Paleta -----
 // Arraste o card para o fluxo OU clique para adicionar ao final (fallback robusto).
 function Palette({ onDragStart, onAdd }) {
-  const DB = KoblyMockDB;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', padding: '0 2px 4px' }}>Cards do fluxo · arraste ou clique</div>
@@ -48,8 +52,8 @@ function Palette({ onDragStart, onAdd }) {
           title={`Adicionar "${tipo}" ao fluxo`}
           className="kbly-palette-card"
           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', width: '100%', textAlign: 'start', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', cursor: 'grab', fontFamily: 'var(--font-sans)', transition: 'border-color var(--dur-fast), transform var(--dur-fast)' }}>
-          <span style={{ display: 'inline-flex', width: 30, height: 30, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${DB.cardTone[tipo]}-bg)`, color: `var(--status-${DB.cardTone[tipo]}-fg)` }}>
-            <Icon name={DB.cardIcon[tipo]} size={16} />
+          <span style={{ display: 'inline-flex', width: 30, height: 30, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${cardToneOf(tipo)}-bg)`, color: `var(--status-${cardToneOf(tipo)}-fg)` }}>
+            <Icon name={cardIconOf(tipo)} size={16} />
           </span>
           <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{tipo}</span>
           <Icon name="plus" size={15} style={{ color: 'var(--text-subtle)', marginInlineStart: 'auto', flex: 'none' }} />
@@ -61,13 +65,13 @@ function Palette({ onDragStart, onAdd }) {
 
 // ----- Card de etapa no fluxo -----
 function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, compact, opts = {} }) {
-  const DB = KoblyMockDB;
-  const tone = DB.cardTone[step.tipo];
+  const tone = cardToneOf(step.tipo);
   const summary = (() => {
     const c = step.config || {};
     if (step.tipo === 'Gatilho') return c.tipoEvento;
     if (step.tipo === 'Adicionar Tag' || step.tipo === 'Remover Tag') return `${(c.tags || []).length} tag(s)`;
     if (step.tipo === 'Envio de e-mail') return ((opts.emails || []).find((e) => e.id === c.emailId) || {}).titulo || 'e-mail';
+    if (step.tipo === 'Envio de WhatsApp') return ((opts.whatsappMessages || []).find((m) => m.id === c.whatsappMessageId) || {}).titulo || 'mensagem WhatsApp';
     if (step.tipo === 'Acionar Fluxo') return ((opts.campaigns || []).find((x) => x.id === c.fluxoAlvo) || {}).nome || 'selecionar fluxo';
     return '';
   })();
@@ -83,7 +87,7 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
       }}>
       <span style={{ display: 'inline-flex', width: 34, height: 34, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${tone}-bg)`, color: `var(--status-${tone}-fg)` }}>
-        <Icon name={DB.cardIcon[step.tipo]} size={17} />
+        <Icon name={cardIconOf(step.tipo)} size={17} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -137,7 +141,7 @@ function Inspector({ step, onChange, onEditEmail, opts = {} }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ display: 'inline-flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${DB.cardTone[step.tipo]}-bg)`, color: `var(--status-${DB.cardTone[step.tipo]}-fg)` }}><Icon name={DB.cardIcon[step.tipo]} size={16} /></span>
+        <span style={{ display: 'inline-flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${cardToneOf(step.tipo)}-bg)`, color: `var(--status-${cardToneOf(step.tipo)}-fg)` }}><Icon name={cardIconOf(step.tipo)} size={16} /></span>
         <span style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{step.tipo}</span>
       </div>
       <Input label="Nome da etapa" value={step.nome} onChange={(e) => set({ nome: e.target.value })} />
@@ -166,8 +170,14 @@ function Inspector({ step, onChange, onEditEmail, opts = {} }) {
       )}
       {step.tipo === 'Envio de e-mail' && (
         <React.Fragment>
-          <Select label="E-mail" value={c.emailId || ''} onChange={(e) => setCfg({ emailId: e.target.value })} options={(opts.emails || []).map((em) => ({ value: em.id, label: em.titulo }))} />
+          <Select label="E-mail" value={c.emailId || ''} onChange={(e) => setCfg({ emailId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.emails || []).map((em) => ({ value: em.id, label: em.titulo }))]} />
           <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditEmail(c.emailId)}>Editar e-mail</Button>
+        </React.Fragment>
+      )}
+      {step.tipo === 'Envio de WhatsApp' && (
+        <React.Fragment>
+          <Select label="Mensagem WhatsApp" value={c.whatsappMessageId || ''} onChange={(e) => setCfg({ whatsappMessageId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.whatsappMessages || []).map((m) => ({ value: m.id, label: m.titulo }))]} />
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Crie e edite mensagens em Integrações → aba WhatsApp.</div>
         </React.Fragment>
       )}
       {step.tipo === 'Acionar Fluxo' && (
@@ -185,7 +195,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const store = useKobly();
   const DB = KoblyMockDB;
   const optsA = useAsync(() => KoblyApi.getFlowOptions(), [store.role]);
-  const opts = optsA.data || { webhooks: [], emails: [], tags: [], campaigns: [] };
+  const opts = optsA.data || { webhooks: [], emails: [], whatsappMessages: [], tags: [], campaigns: [] };
   const [steps, setSteps] = useState(campaign.fluxo || []);
   const [tagsMeta, setTagsMeta] = useState(campaign.tagsMeta || []);
   const [selId, setSelId] = useState(steps[0] ? steps[0].id : null);
@@ -241,7 +251,23 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   function toggleMeta(id) { setTagsMeta((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id])); markDirty(); }
 
   async function save() {
-    await KoblyApi.saveFlow(campaign.id, steps, tagsMeta);
+    // Validação pré-save: cards de envio precisam ter mensagem/e-mail selecionado.
+    const incompleto = steps.find((s) => {
+      const c = s.config || {};
+      if (s.tipo === 'Envio de WhatsApp' && !c.whatsappMessageId) return true;
+      if (s.tipo === 'Envio de e-mail' && !c.emailId) return true;
+      return false;
+    });
+    if (incompleto) {
+      const oque = incompleto.tipo === 'Envio de WhatsApp' ? 'uma mensagem de WhatsApp' : 'um e-mail';
+      store.notify('warning', `O card "${incompleto.nome || incompleto.tipo}" está incompleto: selecione ${oque} antes de salvar.`);
+      return;
+    }
+    const ok = await KoblyApi.saveFlow(campaign.id, steps, tagsMeta);
+    if (!ok) {
+      store.notify('danger', 'Não foi possível salvar o fluxo. Tente novamente.');
+      return; // mantém o estado "não salvo" (dirty)
+    }
     setDirty(false);
     store.notify('success', 'Fluxo salvo');
   }

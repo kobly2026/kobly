@@ -4,8 +4,11 @@
 // Payload esperado (contrato genérico Kobly):
 //   { event, email, name, product, value, payment_method, external_id, metadata }
 // Também aceita nativamente o payload de Webhook da Hotmart (v2), sem tradução manual
-// pelo cliente: { event: "PURCHASE_APPROVED", data: { buyer: {...}, purchase: {...} } }.
-// Mapeamento event → tipo_evento é feito internamente (EVENT_MAP / HOTMART_EVENT_MAP).
+// pelo cliente: { event: "PURCHASE_APPROVED", data: { buyer: {...}, purchase: {...} } },
+// e o postback nativo da NexoPayt/NexusPayt (família Payt), detectado pelo shape
+// { transaction: {...}, customer: {...}, integration_key } — sem campo `event` no raiz.
+// Mapeamento event/status → tipo_evento é feito internamente (EVENT_MAP / HOTMART_EVENT_MAP /
+// NEXOPAYT_PAYMENT_STATUS_MAP + NEXOPAYT_ORDER_STATUS_MAP).
 // Link de recuperação: extractRecoveryLink varre o payload por um link de checkout/carrinho
 // (checkout_url, billet_url, link em metadata…) e grava em leads.link_recuperacao → o botão
 // do e-mail ({{cta_link}}) é apontado pra lá no envio.
@@ -62,15 +65,76 @@ function isHotmartShaped(body: any): boolean {
   return !!(body && body.data && (body.data.buyer || body.data.purchase || body.data.subscriber));
 }
 
-// Normaliza os dois formatos aceitos (genérico Kobly e nativo Hotmart) para um
-// único shape interno. Retorna null quando o evento não é reconhecido/mapeável
-// (nesse caso o chamador deve responder 200 "ignored", nunca 4xx — a Hotmart
-// desativa automaticamente um Webhook que fica respondendo erro).
+// ── Mapeamento nativo NexoPayt/NexusPayt (família Payt) → tipo_evento ──
+// Formato do postback baseado na família Payt/NexoPayt (ref. pública: ventuinha/payt-postback).
+// Campos: integration_key, transaction_id, status (pedido), customer{name,email,phone,doc},
+//   transaction{payment_method, payment_status, total_price}, product{name,price}, payment_method.
+// ⚠️ A CONFIRMAR com 1 postback REAL da conta NexoPayt:
+//   (a) unidade de total_price (heurística: string decimal => reais; inteiro => centavos);
+//   (b) nomes exatos dos campos/status (se a NexoPayt divergir da família Payt).
+// Auth: o token pbk_ da URL já autentica a org — integration_key NÃO é validada aqui.
+// transaction.payment_status (lifecycle de pagamento) → tipo_evento (enum Kobly).
+const NEXOPAYT_PAYMENT_STATUS_MAP: Record<string, string> = {
+  paid: "Compra Aprovada",
+  refused: "Compra Recusada",
+  one_click_buy_refused: "Compra Recusada",
+  refunded: "Compra Reembolsada",
+  refunded_partial: "Compra Reembolsada",
+  one_click_buy_refunded: "Compra Reembolsada",
+  one_click_buy_refunded_partial: "Compra Reembolsada",
+  pending_refund: "Compra Reembolsada",
+  chargeback: "Chargeback",
+  chargeback_presented: "Chargeback",
+  canceled: "Compra cancelada",
+};
+// status (pedido) → tipo_evento, para casos não cobertos pelo payment_status.
+const NEXOPAYT_ORDER_STATUS_MAP: Record<string, string> = {
+  paid: "Compra Aprovada",
+  canceled: "Compra cancelada",
+  lost_cart: "Abandono de carrinho",
+  subscription_canceled: "Cancelamento de Assinatura",
+};
+const NEXOPAYT_PAYMENT_LABEL: Record<string, string> = { pix: "Pix", credit_card: "Cartão", boleto: "Boleto" };
+
+function resolveNexopaytTipoEvento(root: Record<string, any>, tx: Record<string, any>, pm: string): string | null {
+  const payStatus = String(tx.payment_status ?? root.payment_status ?? "").toLowerCase();
+  const orderStatus = String(root.status ?? "").toLowerCase();
+  // waiting_payment → depende do método: pix → Pix Gerado, boleto → Boleto Gerado
+  if (payStatus === "waiting_payment" || orderStatus === "waiting_payment") {
+    if (pm === "boleto") return "Boleto Gerado";
+    if (pm === "pix") return "Pix Gerado";
+    return null;
+  }
+  return NEXOPAYT_PAYMENT_STATUS_MAP[payStatus] || NEXOPAYT_ORDER_STATUS_MAP[orderStatus] || null;
+}
+
+// Payload é "formato NexoPayt/NexusPayt" quando traz os objetos `transaction`/`customer`
+// e/ou a `integration_key` no raiz. Não colide com o Hotmart (aninhado em `data.*`) nem
+// com o contrato genérico Kobly (event+email planos, sem esses campos) — mesmo assim o
+// chamador checa Hotmart ANTES e o contrato genérico DEPOIS deste shape.
+function isNexopaytShaped(body: any): boolean {
+  if (!body || typeof body !== "object" || isHotmartShaped(body)) return false;
+  // NexoPayt NÃO manda `event` no raiz; o contrato genérico Kobly SEMPRE manda.
+  // Sem este guard, um payload genérico que também trouxesse `customer`/`transaction`
+  // seria "roubado" pelo branch nexopayt e mal interpretado.
+  if (typeof body.event === "string") return false;
+  const hasTx = !!body.transaction && typeof body.transaction === "object";
+  const hasCustomer = !!body.customer && typeof body.customer === "object";
+  return hasTx || hasCustomer || typeof body.integration_key === "string";
+}
+
+// Normaliza os três formatos aceitos (genérico Kobly, nativo Hotmart e nativo
+// NexoPayt/NexusPayt) para um único shape interno. Retorna null quando o evento não é
+// reconhecido/mapeável (nesse caso o chamador deve responder 200 "ignored", nunca 4xx —
+// a Hotmart desativa automaticamente um Webhook que fica respondendo erro).
+// `isPix` é opcional: só o branch nexopayt o preenche; nos demais o chamador deriva
+// do sourceEvent (compat com o comportamento anterior).
 function normalizePayload(body: any): {
-  tipoEvento: string; email: string | null; name: string | null; product: string | null;
-  value: number | null; paymentMethod: string | null; externalId: string | null; sourceEvent: string;
+  tipoEvento: string; email: string | null; name: string | null; phone: string | null;
+  product: string | null; value: number | null; paymentMethod: string | null;
+  externalId: string | null; sourceEvent: string; isPix?: boolean;
 } | null {
-  if (!body || !body.event) return null;
+  if (!body) return null;
 
   if (isHotmartShaped(body)) {
     const tipoEvento = HOTMART_EVENT_MAP[body.event];
@@ -83,20 +147,58 @@ function normalizePayload(body: any): {
       tipoEvento,
       email: buyer.email,
       name: buyer.name || null,
+      phone: buyer.checkout_phone ?? buyer.phone ?? null, // checkout_phone é o campo comum do Webhook v2
       product: product.name || null,
       value: purchase?.price?.value ?? purchase?.full_price?.value ?? null,
       paymentMethod: purchase?.payment?.type || null,
-      externalId: body.data.purchase?.transaction || body.id || null,
+      // Idempotência por TRANSIÇÃO de status (igual ao branch nexopayt): a Hotmart usa
+      // o MESMO transaction code em APPROVED e depois em REFUNDED/CHARGEBACK — sem o
+      // sufixo do tipo_evento, o refund era dedupado e fluxos de reembolso nunca disparavam.
+      externalId: body.data.purchase?.transaction
+        ? `${body.data.purchase.transaction}:${tipoEvento}`
+        : (body.id || null),
       sourceEvent: body.event,
     };
   }
 
+  // NexoPayt/NexusPayt: sem campo `event` no raiz — o evento sai dos status. Status não
+  // mapeável → null (200 "ignored" no chamador, nunca 4xx).
+  if (isNexopaytShaped(body)) {
+    const tx = (body.transaction ?? {}) as Record<string, any>;
+    const pm = String(tx.payment_method ?? body.payment_method ?? "").toLowerCase();
+    const tipoEvento = resolveNexopaytTipoEvento(body, tx, pm);
+    if (!tipoEvento) return null;
+    const c = (body.customer ?? {}) as Record<string, any>;
+    const prod = (body.product ?? {}) as Record<string, any>;
+    if (!c.email) return null;
+    // Heurística de UNIDADE do valor: string decimal ("197.90") => já em reais;
+    // inteiro ("19790") => centavos. ⚠️ A CONFIRMAR com 1 postback real.
+    const rawStr = String(tx.total_price ?? body.total_price ?? prod.price ?? "");
+    const n = Number(rawStr);
+    const value = !n ? null : (rawStr.includes(".") ? Math.round(n * 100) / 100 : Math.round(n) / 100);
+    const txId = body.transaction_id ?? tx.id ?? body.id ?? null;
+    return {
+      tipoEvento,
+      email: c.email,
+      name: c.name ?? null,
+      phone: c.phone ?? c.phone_number ?? null,
+      product: prod.name ?? prod.title ?? null,
+      value,
+      paymentMethod: NEXOPAYT_PAYMENT_LABEL[pm] ?? (pm || null),
+      externalId: txId ? `${txId}:${tipoEvento}` : null, // idempotência por transição de status
+      sourceEvent: String(tx.payment_status || body.payment_status || body.status || ""),
+      isPix: tipoEvento === "Pix Gerado",
+    };
+  }
+
+  if (!body.event) return null;
   const tipoEvento = EVENT_MAP[body.event];
   if (!tipoEvento || !body.email) return null;
   return {
     tipoEvento,
     email: body.email,
     name: body.name || null,
+    phone: body.phone ?? null,
     product: body.product || null,
     value: body.value ?? null,
     paymentMethod: body.payment_method || null,
@@ -151,13 +253,17 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try { body = JSON.parse(rawBody || "{}"); } catch { return json({ error: "invalid_json" }, 400); }
 
-  // ── Normaliza (contrato genérico Kobly OU payload nativo Hotmart) ──
+  // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
   // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
   // Hotmart desativam automaticamente um Webhook que fica respondendo erro, o que
   // derrubaria TODOS os eventos futuros por causa de um único tipo não mapeado ainda.
   const norm = normalizePayload(body);
   if (!norm) {
-    return json({ ok: true, ignored: true, reason: "unknown_event_or_missing_email", received_event: body?.event ?? null });
+    return json({
+      ok: true, ignored: true, reason: "unknown_event_or_missing_email",
+      // NexoPayt não tem `event` no raiz — devolve o status recebido p/ facilitar o debug.
+      received_event: body?.event ?? body?.transaction?.payment_status ?? body?.status ?? null,
+    });
   }
   const tipoEvento = norm.tipoEvento;
 
@@ -176,9 +282,13 @@ Deno.serve(async (req: Request) => {
     .eq("organization_id", org).gte("created_at", since);
   if ((recent ?? 0) > RATE_LIMIT_PER_MIN) return json({ error: "rate_limited" }, 429);
 
-  // ── Idempotência: dedup por external_id (se fornecido) ──
-  const idWebhook = norm.externalId ?? `pbk:${crypto.randomUUID()}`;
-  const isPix = norm.sourceEvent === "pix_generated"; // só o contrato genérico distingue Pix hoje
+  // ── Idempotência: dedup por external_id (se fornecido), composto com a ORG ──
+  // A unique de webhook_events é global (webhook_id NULL colide entre orgs) — a mesma
+  // transação entregue a duas orgs diferentes NÃO pode dedupar entre elas.
+  const idWebhook = norm.externalId ? `${org}:${norm.externalId}` : `pbk:${crypto.randomUUID()}`;
+  // Pix: o branch nexopayt já resolve (norm.isPix); genérico distingue via sourceEvent;
+  // Hotmart não tem evento dedicado de Pix (ver comentário do HOTMART_EVENT_MAP).
+  const isPix = norm.isPix ?? norm.sourceEvent === "pix_generated";
   // Link de recuperação/checkout que a plataforma mandou (se houver) → destino do botão do e-mail.
   const recoveryLink = extractRecoveryLink(body);
 
@@ -217,7 +327,8 @@ Deno.serve(async (req: Request) => {
       valor_compra: norm.value,
       metodo_pagamento: norm.paymentMethod,
       pix_gerado: isPix,
-      // Só sobrescreve o link se este evento trouxe um (não apaga um link válido anterior).
+      // Só sobrescreve telefone/link se este evento trouxe um (não apaga valor válido anterior).
+      ...(norm.phone ? { telefone: norm.phone } : {}),
       ...(recoveryLink ? { link_recuperacao: recoveryLink } : {}),
     }).eq("id", leadId);
   } else {
@@ -225,6 +336,7 @@ Deno.serve(async (req: Request) => {
       organization_id: org,
       email: norm.email,
       nome: norm.name,
+      telefone: norm.phone,
       produto: norm.product,
       valor_compra: norm.value,
       metodo_pagamento: norm.paymentMethod,

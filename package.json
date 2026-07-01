@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Kobly — console de automação de marketing (Vite + React)",
+  "description": "Koblay — console de automação de marketing (Vite + React)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
