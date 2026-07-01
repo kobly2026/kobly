@@ -51,6 +51,28 @@ Deno.serve(async (req: Request) => {
     const ctx = JSON.stringify(context).slice(0, 6000);
 
     // ── Task: email (JSON estruturado) ──────────────────────────────────────
+    if (task === "plan") {
+      const eventos = ["Abandono de carrinho", "Boleto Gerado", "Compra cancelada", "Depósito Solicitado", "Pix Gerado", "Chargeback", "Cancelamento de Assinatura", "Compra Reembolsada", "Compra Aprovada", "Compra Recusada"];
+      const sys = [
+        "Você é estrategista de automação de recuperação de vendas por e-mail (pt-BR) da Kobly.",
+        "A partir do OBJETIVO do usuário, planeje uma campanha: escolha o GATILHO e uma cadência de 1 a 3 e-mails.",
+        "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) no formato exato:",
+        '{"nome": string (curto), "gatilho": string, "etapas": [{"atraso_min": number, "assunto": string (até ~55 car.), "eyebrow": string (curtíssimo), "titulo": string, "paragrafos": string[] (1-2 curtos), "cta": string (até ~28 car.), "cupom": {"codigo": string, "detalhe": string} | null}]}',
+        "O campo gatilho DEVE ser EXATAMENTE um destes: " + eventos.join(" | ") + ".",
+        "atraso_min é o atraso desde o gatilho, em minutos (ex.: 0, 60, 1440). Primeira etapa geralmente com atraso pequeno.",
+        "Cadência típica de abandono: 3 toques (0, 60, 1440 min). Use cupom só se o objetivo mencionar oferta/desconto. Não invente dados do cliente.",
+        `Loja: ${String(brand || "a loja").slice(0, 80)}.`,
+        `Objetivo: ${String(brief || "recuperar carrinhos abandonados").slice(0, 600)}.`,
+      ].join("\n");
+      const r = await callDeepSeek(apiKey, [{ role: "system", content: sys }, { role: "user", content: brief || "Planeje a campanha." }], { jsonMode: true, maxTokens: 1300 });
+      if ((r as any).error) return json({ error: "deepseek_error", ...(r as any).error }, 502);
+      let plan: any;
+      try { plan = JSON.parse((r as any).content); } catch { return json({ error: "parse_error", detail: String((r as any).content).slice(0, 200) }, 502); }
+      if (!plan || !eventos.includes(plan.gatilho)) { if (plan) plan.gatilho = "Abandono de carrinho"; }
+      if (!plan || !Array.isArray(plan.etapas)) return json({ error: "parse_error", detail: "sem etapas" }, 502);
+      return json({ plan });
+    }
+
     if (task === "email") {
       const sys = [
         "Você é redator de e-mail marketing de recuperação de vendas para e-commerce (pt-BR).",

@@ -338,6 +338,8 @@ const faq = [
 // Item de nav: { id, icon, label }. A visibilidade depende do papel.
 // v2: Simplificado — foco em automação pura (Campanhas, Leads, Integrações, Perfil).
 const NAV = {
+  painel:       { id: 'painel',       icon: 'layout-dashboard', label: 'Dashboard' },
+  pipeline:     { id: 'pipeline',     icon: 'kanban',           label: 'Pipeline' },
   campanhas:    { id: 'campanhas',    icon: 'megaphone',        label: 'Campanhas' },
   leads:        { id: 'leads',        icon: 'users-round',      label: 'Leads' },
   integracoes:  { id: 'integracoes',  icon: 'plug',             label: 'Integrações' },
@@ -348,16 +350,16 @@ const NAV = {
 const roles = {
   Cliente: {
     label: 'Cliente',
-    descricao: 'Dono da conta — campanhas, leads, integrações.',
-    nav: ['campanhas', 'leads', 'integracoes', 'perfil'],
-    home: 'campanhas',
+    descricao: 'Dono da conta — dashboard, pipeline, campanhas, leads, integrações.',
+    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    home: 'painel',
     can: { editCampaign: true, viewAllAccounts: false, createPlan: false, manageUsers: false, answerTickets: false },
   },
   Gestor: {
     label: 'Gestor',
     descricao: 'Agência — visão consolidada de várias contas.',
-    nav: ['campanhas', 'leads', 'integracoes', 'perfil'],
-    home: 'campanhas',
+    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    home: 'painel',
     can: { editCampaign: true, viewAllAccounts: true, createPlan: false, manageUsers: false, answerTickets: false },
   },
   Suporte: {
@@ -370,15 +372,15 @@ const roles = {
   Administrador: {
     label: 'Administrador',
     descricao: 'Plataforma — usuários, planos, segurança, auditoria.',
-    nav: ['campanhas', 'leads', 'integracoes', 'perfil'],
-    home: 'campanhas',
+    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    home: 'painel',
     can: { editCampaign: false, viewAllAccounts: true, createPlan: true, manageUsers: true, answerTickets: false },
   },
 };
 
 // Títulos de rota (topbar)
 const routeTitle = {
-  campanhas: 'Campanhas', leads: 'Leads', integracoes: 'Integrações', perfil: 'Perfil',
+  painel: 'Dashboard', pipeline: 'Pipeline', campanhas: 'Campanhas', leads: 'Leads', integracoes: 'Integrações', perfil: 'Perfil',
 };
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,8 @@ import { Reveal } from '@/lib/motion.jsx';
 import { useKobly } from '@/store/store.jsx';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { KoblyTopbar } from '@/shell/Topbar.jsx';
+import { KoblyDashboard } from '@/routes/Dashboard.jsx';
+import { KoblyPipeline } from '@/routes/Pipeline.jsx';
 import { KoblyCampaigns } from '@/routes/Campaigns.jsx';
 import { KoblyLeads } from '@/routes/Leads.jsx';
 import { KoblyIntegrations } from '@/routes/Integrations.jsx';
@@ -14,6 +16,8 @@ import { KoblyProfile } from '@/routes/Profile.jsx';
 
 // Route id -> screen component (FlowBuilder / EmailEditor are sub-screens of Campanhas).
 const SCREENS = {
+  painel: KoblyDashboard,
+  pipeline: KoblyPipeline,
   campanhas: KoblyCampaigns,
   leads: KoblyLeads,
   integracoes: KoblyIntegrations,

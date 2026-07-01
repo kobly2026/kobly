@@ -193,6 +193,9 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const [status, setStatus] = useState(campaign.status);
   const [emailModal, setEmailModal] = useState(null);
   const [dirty, setDirty] = useState(false);
+  const [nome, setNome] = useState(campaign.nome);
+  const [editingName, setEditingName] = useState(false);
+  const [nomeDraft, setNomeDraft] = useState(campaign.nome);
   const dragRef = useRef(null);
   const horizontal = variant === 'horizontal';
   const compact = variant === 'compact';
@@ -248,6 +251,15 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     setStatus(next);
     store.notify(next === 'Ativa' ? 'success' : 'warning', `Campanha ${next === 'Ativa' ? 'ativada' : 'pausada'}`);
   }
+  async function saveName() {
+    const clean = (nomeDraft || '').trim();
+    setEditingName(false);
+    if (!clean || clean === nome) { setNomeDraft(nome); return; }
+    setNome(clean);
+    campaign.nome = clean; // mantém o objeto em memória coerente (usado pela IA/breadcrumb)
+    const ok = await KoblyApi.renameCampaign(campaign.id, clean);
+    store.notify(ok ? 'success' : 'danger', ok ? 'Nome atualizado' : 'Não foi possível renomear');
+  }
 
   // Renderiza fluxo com slots de inserção entre etapas
   const flowNodes = [];
@@ -267,7 +279,25 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={onBack}>Campanhas</Button>
         <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
-        <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{campaign.nome}</span>
+        {editingName ? (
+          <input
+            autoFocus
+            value={nomeDraft}
+            onChange={(e) => setNomeDraft(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setNomeDraft(nome); setEditingName(false); } }}
+            style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', fontFamily: 'var(--font-sans)', minWidth: 220 }}
+          />
+        ) : (
+          <button
+            onClick={() => { setNomeDraft(nome); setEditingName(true); }}
+            title="Renomear campanha"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: '2px 4px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+          >
+            <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{nome}</span>
+            <Icon name="pencil" size={14} style={{ color: 'var(--text-subtle)' }} />
+          </button>
+        )}
         <Badge tone={DB.optionSets.StatusCampanha[status] || 'neutral'} dot>{status}</Badge>
         <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {dirty && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Alterações não salvas</span>}

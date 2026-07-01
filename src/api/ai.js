@@ -12,13 +12,16 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 async function buildContext(view) {
   try {
     const db = await loadDB();
+    // Contagem REAL de leads por org (o org.leads_count é um contador congelado do seed).
+    const leadsPorOrg = {};
+    db.leads.forEach((l) => { leadsPorOrg[l.empresaId] = (leadsPorOrg[l.empresaId] || 0) + 1; });
     return {
       papel: view,
       campanhas: db.campanhas.map((c) => ({
         nome: c.nome, status: c.status, taxaAbertura: c.stats.taxaAbertura, ctr: c.stats.ctr,
         emailsEnviados: c.stats.emailsEnviados, vendasRecuperadas: c.stats.vendasRecuperadas, criticidade: c.stats.criticidade,
       })),
-      contas: db.empresas.map((e) => ({ nome: e.nome, segmento: e.segmento, criticidade: e.criticidade, leads: e.leads })),
+      contas: db.empresas.map((e) => ({ nome: e.nome, segmento: e.segmento, criticidade: e.criticidade, leads: leadsPorOrg[e.id] || 0 })),
       leadsTotal: db.leads.length,
     };
   } catch (e) {
@@ -112,12 +115,41 @@ export const KoblyAI = {
     }
   },
 
+  // Planeja uma campanha COMPLETA a partir de um objetivo: DeepSeek (ai-chat task=plan)
+  // escolhe o gatilho + cadência + textos. Retorna { nome, gatilho, etapas:[...] }.
+  // Fallback: plano de abandono de carrinho de 2 toques se a IA falhar.
+  async planCampaign(objetivo) {
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'plan', brief: objetivo || '' } });
+      if (error || !data || !data.plan) throw error || new Error('sem plano');
+      const p = data.plan;
+      if (!p.etapas || !p.etapas.length) throw new Error('plano vazio');
+      return p;
+    } catch (e) {
+      return {
+        nome: (objetivo && objetivo.slice(0, 40)) || 'Recuperação de carrinho',
+        gatilho: 'Abandono de carrinho',
+        etapas: [
+          { atraso_min: 30, assunto: 'Você esqueceu algo no carrinho', eyebrow: 'Recuperação', titulo: 'Seu carrinho ainda está aqui', paragrafos: ['Separamos seus itens e eles continuam reservados — conclua antes que acabem.'], cta: 'Voltar ao carrinho', cupom: null },
+          { atraso_min: 1440, assunto: 'Última chance: 10% OFF', eyebrow: 'Oferta', titulo: 'Um empurrãozinho pra fechar', paragrafos: ['Use o cupom abaixo e finalize hoje.'], cta: 'Usar cupom', cupom: { codigo: 'VOLTA10', detalhe: '10% de desconto por tempo limitado' } },
+        ],
+      };
+    }
+  },
+
   // Geração de e-mail por IA: DeepSeek (ai-chat task=email) ESCREVE assunto+corpo,
   // renderizado no Email Design System do Kobly. Retorna { html, assunto }.
   // Fallback: template estático se a IA falhar.
   async generateEmailHtml(brief) {
     const cta = (brief && brief.cta) || 'Concluir compra';
-    const brand = (brief && brief.brand) || { name: 'Sua Loja' };
+    let brand = (brief && brief.brand) || { name: 'Sua Loja' };
+    // Aplica a marca white-label da org (logo + cor) por cima do brand recebido.
+    try {
+      let q = supabase.from('org_branding').select('nome, logo_url, cor, modo');
+      if (brief && brief.empresaId) q = q.eq('organization_id', brief.empresaId);
+      const { data: b } = await q.limit(1).maybeSingle();
+      if (b) brand = { name: brand.name || b.nome || 'Sua Loja', logoUrl: b.logo_url || brand.logoUrl, color: b.cor || brand.color, mode: b.modo || brand.mode || 'dark' };
+    } catch (e) { /* segue com o brand recebido */ }
     const briefText = (brief && (brief.brief || brief.titulo)) || 'E-mail de recuperação de carrinho abandonado.';
     const note = 'Se você já finalizou, pode ignorar este e-mail. Para não receber mais, descadastre-se.';
     try {

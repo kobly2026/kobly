@@ -3,8 +3,9 @@
 // do Supabase via loadDB() (escopado por RLS multi-tenant) e escreve via supabase-js.
 // Toda a SÍNTESE de séries/gráficos foi preservada — só a FONTE dos dados mudou.
 import { supabase } from './supabaseClient.js';
-import { loadDB, resetDb, currentProfile, firstOrgId, fmtDate } from './supabaseDb.js';
+import { loadDB, resetDb, currentProfile, firstOrgId, fmtDate, fmtDateTime } from './supabaseDb.js';
 import { DEMO_PERSONAS, DEMO_PASSWORD } from './demoPersonas.js';
+import { renderEmail } from '../lib/emailTemplate.js';
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const br = (n) => Number(n).toLocaleString('pt-BR');
@@ -194,11 +195,12 @@ export const KoblyApi = {
     const c = db.campanhas.find((x) => x.id === id);
     return c ? clone(c) : null;
   },
-  async createCampaign(tpl) {
+  async createCampaign(tpl, empresaId, nome) {
     const me = await currentProfile();
-    const orgId = await firstOrgId(me);
+    const orgId = empresaId || await firstOrgId(me);
+    const finalNome = (nome && nome.trim()) || (tpl.blank ? 'Nova campanha' : tpl.nome);
     const { data: camp, error } = await supabase.from('campaigns').insert({
-      organization_id: orgId, nome: tpl.blank ? 'Nova campanha' : tpl.nome, status_campanha: 'Rascunho',
+      organization_id: orgId, nome: finalNome, status_campanha: 'Rascunho',
       usa_template: !tpl.blank, template_id: tpl.blank ? null : tpl.id, criador_id: me ? me.id : null,
     }).select().single();
     if (error) throw error;
@@ -223,6 +225,62 @@ export const KoblyApi = {
     const { error } = await supabase.from('campaigns').update({ status_campanha: status }).eq('id', id);
     resetDb();
     return !error;
+  },
+
+  // Cria uma campanha COMPLETA a partir de um plano gerado por IA:
+  // Gatilho (plan.gatilho) + N e-mails (etapas com atraso, assunto e corpo renderizado na marca).
+  async createCampaignFromPlan(plan, empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId || !plan) return null;
+    // marca white-label da org p/ renderizar os e-mails
+    let brand = { name: 'Sua Loja' };
+    try {
+      const { data: b } = await supabase.from('org_branding').select('nome, logo_url, cor, modo').eq('organization_id', orgId).maybeSingle();
+      if (b) brand = { name: b.nome || 'Sua Loja', logoUrl: b.logo_url || undefined, color: b.cor || undefined, mode: b.modo || 'dark' };
+    } catch (e) { /* usa default */ }
+
+    const { data: camp, error } = await supabase.from('campaigns').insert({
+      organization_id: orgId, nome: plan.nome || 'Campanha (IA)', status_campanha: 'Rascunho', usa_template: false, criador_id: me ? me.id : null,
+    }).select().single();
+    if (error) throw error;
+    const { data: flow } = await supabase.from('campaign_flows').insert({ campaign_id: camp.id, organization_id: orgId }).select().single();
+    await supabase.from('campaign_stats').insert({ campaign_id: camp.id, organization_id: orgId });
+
+    const fluxo = [];
+    const gatilho = plan.gatilho || 'Abandono de carrinho';
+    const { data: gat } = await supabase.from('flow_steps').insert({
+      flow_id: flow.id, organization_id: orgId, tipo_card: 'Gatilho', nome: gatilho, posicao: 0, atraso: 0, tipo_evento: gatilho,
+    }).select().single();
+    if (gat) fluxo.push({ id: gat.id, tipo: 'Gatilho', nome: gatilho, posicao: 0, atraso: 0, config: { tipoEvento: gatilho, webhookId: null } });
+
+    let pos = 1;
+    for (const et of (plan.etapas || [])) {
+      const blocks = [
+        { type: 'hero', eyebrow: et.eyebrow || 'Sua loja', title: et.titulo || et.assunto || 'Você esqueceu algo', text: (et.paragrafos || [])[0] || '' },
+        ...((et.paragrafos || []).slice(1).map((p) => ({ type: 'paragraph', text: p }))),
+        ...((et.cupom && et.cupom.codigo) ? [{ type: 'coupon', code: et.cupom.codigo, detail: et.cupom.detalhe || '' }] : []),
+        { type: 'button', label: et.cta || 'Concluir compra', href: '#' },
+      ];
+      const html = renderEmail({ brand, preheader: et.assunto || '', blocks });
+      const { data: em } = await supabase.from('emails').insert({
+        organization_id: orgId, titulo: et.assunto || 'E-mail da campanha', assunto: et.assunto || '', corpo_html: html, remetente: brand.name,
+      }).select().single();
+      const atraso = Number(et.atraso_min) || 0;
+      const { data: st } = await supabase.from('flow_steps').insert({
+        flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, email_id: em ? em.id : null,
+      }).select().single();
+      if (st) fluxo.push({ id: st.id, tipo: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, config: { emailId: em ? em.id : null } });
+      pos += 1;
+    }
+
+    resetDb();
+    return {
+      id: camp.id, empresaId: orgId, nome: camp.nome, status: 'Rascunho', usaTemplate: false, templateId: null,
+      criadorId: me ? me.id : null, criadoEm: fmtDate(camp.created_at),
+      stats: { taxaAbertura: 0, ctr: 0, emailsEnviados: 0, vendasRecuperadas: 0, criticidade: 'Não Iniciado', valorCriticidade: 0, ultimoCalculo: '—' },
+      tagsMeta: [], fluxo,
+    };
   },
   async renameCampaign(id, nome) {
     const { error } = await supabase.from('campaigns').update({ nome }).eq('id', id);
@@ -259,14 +317,132 @@ export const KoblyApi = {
   async listLeads() {
     const db = await loadDB();
     const rows = clone(db.leads);
-    const enviados = rows.reduce((s, l) => s + l.metricas.enviados, 0);
+    // Contagens REAIS do pipeline de e-mail, escopadas por RLS às orgs acessíveis.
+    const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    const [enviados, rejeitados, fila] = await Promise.all([
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
+    ]);
     const status = {
-      processados: enviados + Math.round(enviados * 0.12),
-      enviados,
-      rejeitados: Math.round(enviados * 0.07),
-      adiados: Math.round(enviados * 0.05),
+      processados: enviados + rejeitados, // total de tentativas processadas (enviadas + rejeitadas)
+      enviados,                           // email_events.status = 'enviado'
+      rejeitados,                         // email_events.status = 'falhou'
+      adiados: fila,                      // scheduled_steps ainda pendentes (na fila)
     };
     return { rows, status, tags: clone(db.tags) };
+  },
+
+  // Funil de recuperação — contagens REAIS por etapa, escopadas por RLS (opcionalmente
+  // filtradas por empresaId). Etapas: eventos recebidos → e-mails enviados → abertos →
+  // clicados → recuperados. Abertos/clicados = e-mails ÚNICOS (por destinatário).
+  async getFunnel(empresaId) {
+    const scope = (q) => (empresaId ? q.eq('organization_id', empresaId) : q);
+    const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    const uniqueEmails = async (ev) => {
+      let q = supabase.from('email_events').select('email').eq('event', ev);
+      if (empresaId) q = q.eq('organization_id', empresaId);
+      const { data } = await q;
+      return new Set((data || []).map((r) => r.email)).size;
+    };
+    const [eventos, enviados] = await Promise.all([
+      countOf(scope(supabase.from('webhook_events').select('id', { count: 'exact', head: true }))),
+      countOf(scope(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado'))),
+    ]);
+    const [abertos, clicados] = await Promise.all([uniqueEmails('open'), uniqueEmails('click')]);
+    let rq = supabase.from('campaign_stats').select('vendas_recuperadas');
+    if (empresaId) rq = rq.eq('organization_id', empresaId);
+    const { data: cs } = await rq;
+    const recuperados = (cs || []).reduce((s, r) => s + (Number(r.vendas_recuperadas) || 0), 0);
+    return { eventos, enviados, abertos, clicados, recuperados };
+  },
+
+  // Dashboard completo — KPIs + funil + eventos recentes + top campanhas, tudo REAL.
+  async getDashboard(empresaId) {
+    const db = await loadDB();
+    const funnel = await this.getFunnel(empresaId);
+    const camps = (db.campanhas || []).filter((c) => !empresaId || c.empresaId === empresaId);
+    const leads = (db.leads || []).filter((l) => !empresaId || l.empresaId === empresaId);
+    const enviados = funnel.enviados;
+    const kpis = {
+      leads: leads.length,
+      enviados,
+      abertura: enviados ? funnel.abertos / enviados : 0,
+      ctr: enviados ? funnel.clicados / enviados : 0,
+      recuperados: funnel.recuperados,
+      ativas: camps.filter((c) => c.status === 'Ativa').length,
+    };
+    const recent = await this.getRecentEvents(8, empresaId);
+    const topCampaigns = camps
+      .map((c) => ({ id: c.id, nome: c.nome, status: c.status, recuperadas: c.stats.vendasRecuperadas, enviados: c.stats.emailsEnviados, taxaAbertura: c.stats.taxaAbertura }))
+      .sort((a, b) => (b.recuperadas - a.recuperadas) || (b.enviados - a.enviados))
+      .slice(0, 5);
+    return { kpis, funnel, recent, topCampaigns };
+  },
+
+  // Jornada cronológica de UM lead: eventos de checkout + e-mails (agendados/enviados,
+  // com assunto e abertura/clique) + tags aplicadas — mesclados e ordenados no tempo.
+  // Fontes: webhook_events, scheduled_steps(→flow_steps→emails + campaigns), lead_tags(→tags),
+  // enriquecido com lead_metrics (aberturas/cliques por etapa). Tudo escopado por RLS.
+  async getLeadTimeline(leadId) {
+    if (!leadId) return [];
+    const items = [];
+
+    // 1) Eventos de checkout recebidos (entrada e conversão)
+    const { data: evs } = await supabase.from('webhook_events')
+      .select('id, tipo_evento, produto, valor_produto, provider, created_at')
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false });
+    (evs || []).forEach((e) => items.push({
+      id: 'ev_' + e.id, kind: 'evento', at: e.created_at,
+      titulo: e.tipo_evento,
+      sub: [e.produto, e.valor_produto != null ? money(e.valor_produto) : null].filter(Boolean).join(' · '),
+      meta: e.provider || 'postback', tipoEvento: e.tipo_evento,
+    }));
+
+    // 2) Métricas por etapa (aberturas/cliques) p/ enriquecer os e-mails
+    const { data: mets } = await supabase.from('lead_metrics')
+      .select('etapa_email_origem_id, enviados, aberturas, cliques')
+      .eq('lead_id', leadId);
+    const metByStep = {};
+    (mets || []).forEach((m) => { if (m.etapa_email_origem_id) metByStep[m.etapa_email_origem_id] = m; });
+
+    // 3) E-mails do fluxo (agendados/enviados) — resolve assunto via flow_steps→emails
+    const { data: steps } = await supabase.from('scheduled_steps')
+      .select('id, status_agendamento, run_at, updated_at, created_at, step_id, flow_steps!step_id(nome, tipo_card, emails(assunto, titulo), campaign_flows!flow_id(campaigns(nome)))')
+      .eq('lead_id', leadId)
+      .order('run_at', { ascending: false });
+    (steps || []).forEach((s) => {
+      const fs = s.flow_steps || {};
+      const email = fs.emails || {};
+      const camp = fs.campaign_flows && fs.campaign_flows.campaigns ? fs.campaign_flows.campaigns.nome : null;
+      const enviado = s.status_agendamento === 'Finalizado';
+      const m = metByStep[s.step_id];
+      const flags = [];
+      if (m && m.aberturas > 0) flags.push('aberto');
+      if (m && m.cliques > 0) flags.push('clicado');
+      items.push({
+        id: 'st_' + s.id, kind: 'email',
+        at: enviado ? (s.updated_at || s.run_at) : s.run_at,
+        titulo: email.assunto || fs.nome || 'E-mail',
+        sub: [camp, enviado ? 'Enviado' : `Agendado (${s.status_agendamento})`, ...flags].filter(Boolean).join(' · '),
+        status: s.status_agendamento, enviado, flags,
+      });
+    });
+
+    // 4) Tags aplicadas (timestamp real)
+    const { data: lts } = await supabase.from('lead_tags')
+      .select('tag_id, created_at, tags(nome)')
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false });
+    (lts || []).forEach((t) => items.push({
+      id: 'tg_' + t.tag_id, kind: 'tag', at: t.created_at,
+      titulo: t.tags ? t.tags.nome : 'Tag', sub: 'Tag aplicada',
+    }));
+
+    // Ordena tudo por tempo (mais recente primeiro) e formata a data
+    items.sort((a, b) => new Date(b.at) - new Date(a.at));
+    return items.map((it) => ({ ...it, quando: it.at ? fmtDateTime(it.at) : '—' }));
   },
 
   // Listas de apoio do construtor de fluxo (ids reais escopados por RLS).
@@ -297,8 +473,38 @@ export const KoblyApi = {
       webhooks: clone(db.webhooks),
       tags: clone(db.tags),
       emails: clone(db.emails),
-      apiKey: 'kbl_live_' + 'a3f9c2e1b884d07f',
     };
+  },
+
+  // ---- Marca / white-label ------------------------------------------------
+  async getBranding(empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return null;
+    const { data } = await supabase.from('org_branding').select('*').eq('organization_id', orgId).maybeSingle();
+    return data || { organization_id: orgId, nome: '', logo_url: '', cor: '#ff6800', modo: 'dark' };
+  },
+  async saveBranding(empresaId, { nome, cor, logoUrl, modo }) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return { error: 'no_org' };
+    const { error } = await supabase.from('org_branding').upsert(
+      { organization_id: orgId, nome: nome || null, cor: cor || null, logo_url: logoUrl || null, modo: modo === 'light' ? 'light' : 'dark', updated_at: new Date().toISOString() },
+      { onConflict: 'organization_id' },
+    );
+    resetDb();
+    return { error };
+  },
+  async uploadLogo(file, empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId || !file) return { error: 'missing' };
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `${orgId}/logo-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('branding').upload(path, file, { upsert: true, contentType: file.type || 'image/png' });
+    if (error) return { error };
+    const { data } = supabase.storage.from('branding').getPublicUrl(path);
+    return { url: data.publicUrl };
   },
 
   // ---- Postback Tokens ----------------------------------------------------
@@ -313,9 +519,9 @@ export const KoblyApi = {
     if (error) return [];
     return data || [];
   },
-  async getOrCreatePostbackToken() {
+  async getOrCreatePostbackToken(empresaId) {
     const me = await currentProfile();
-    const orgId = await firstOrgId(me);
+    const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return null;
     // Busca token existente
     const { data: existing } = await supabase.from('postback_tokens')
@@ -333,9 +539,9 @@ export const KoblyApi = {
     if (error) return null;
     return data;
   },
-  async createPostbackToken(nome) {
+  async createPostbackToken(nome, empresaId) {
     const me = await currentProfile();
-    const orgId = await firstOrgId(me);
+    const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return null;
     const { data, error } = await supabase.rpc('create_postback_token', {
       p_org_id: orgId,
@@ -354,9 +560,9 @@ export const KoblyApi = {
   },
 
   // ---- Últimos eventos recebidos ------------------------------------------
-  async getRecentEvents(limit = 20) {
+  async getRecentEvents(limit = 20, empresaId) {
     const me = await currentProfile();
-    const orgId = await firstOrgId(me);
+    const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return [];
     const { data, error } = await supabase.from('webhook_events')
       .select('id, tipo_evento, email, produto, valor_produto, provider, created_at')
