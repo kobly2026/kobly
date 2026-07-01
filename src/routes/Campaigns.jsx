@@ -35,6 +35,9 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
   const [nomeTouched, setNomeTouched] = useState(false);
   const [objetivo, setObjetivo] = useState('');
   const [generating, setGenerating] = useState(false);
+  // Canais da cadência gerada pela IA — o usuário escolhe se quer e-mail, WhatsApp ou os dois.
+  const [canalEmail, setCanalEmail] = useState(true);
+  const [canalWhats, setCanalWhats] = useState(false);
 
   // Selecionar um modelo pré-preenche o nome (se o usuário ainda não digitou o seu).
   function pickTemplate(t) {
@@ -42,9 +45,10 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
     if (!nomeTouched) setNome(t.blank ? '' : t.nome);
   }
   async function generate() {
-    if (!objetivo.trim()) return;
+    if (!objetivo.trim() || (!canalEmail && !canalWhats)) return;
     setGenerating(true);
-    try { await onGenerate(objetivo.trim()); } finally { setGenerating(false); }
+    const canais = [...(canalEmail ? ['email'] : []), ...(canalWhats ? ['whatsapp'] : [])];
+    try { await onGenerate(objetivo.trim(), canais); } finally { setGenerating(false); }
   }
 
   const selTpl = templates.find((t) => t.id === sel);
@@ -64,7 +68,7 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
           <Icon name="sparkles" size={17} style={{ color: 'var(--accent)' }} />
           <span style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Gerar campanha com IA</span>
         </div>
-        <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Descreva o objetivo em uma frase. A IA escolhe o gatilho, a cadência e escreve os e-mails — você revisa e ativa.</p>
+        <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Descreva o objetivo em uma frase. A IA escolhe o gatilho, a cadência e escreve os textos — você revisa e ativa.</p>
         <textarea
           value={objetivo}
           onChange={(e) => setObjetivo(e.target.value)}
@@ -72,8 +76,23 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
           rows={2}
           style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', color: 'var(--text-body)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', boxSizing: 'border-box' }}
         />
+        {/* Canais da cadência — o usuário decide se a campanha envia e-mail, WhatsApp ou os dois */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-body)', fontWeight: 'var(--fw-medium)' }}>Canais:</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--text-sm)', color: 'var(--text-body)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={canalEmail} onChange={(e) => setCanalEmail(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+            <Icon name="mail" size={14} style={{ color: 'var(--text-muted)' }} /> E-mail
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--text-sm)', color: 'var(--text-body)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={canalWhats} onChange={(e) => setCanalWhats(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+            <Icon name="message-circle" size={14} style={{ color: 'var(--text-muted)' }} /> WhatsApp
+          </label>
+          {!canalEmail && !canalWhats && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--status-warning-fg)' }}>Escolha pelo menos um canal.</span>
+          )}
+        </div>
         <div>
-          <Button variant="primary" iconLeft="sparkles" disabled={generating || !objetivo.trim()} onClick={generate}>
+          <Button variant="primary" iconLeft="sparkles" disabled={generating || !objetivo.trim() || (!canalEmail && !canalWhats)} onClick={generate}>
             {generating ? 'Gerando campanha…' : 'Gerar campanha com IA'}
           </Button>
         </div>
@@ -150,8 +169,8 @@ function KoblyCampaigns() {
     setActive(c); setMode('builder');
     a.reload();
   }
-  async function generateAI(objetivo) {
-    const plan = await KoblyAI.planCampaign(objetivo);
+  async function generateAI(objetivo, canais) {
+    const plan = await KoblyAI.planCampaign(objetivo, canais);
     const c = await KoblyApi.createCampaignFromPlan(plan, targetOrgId);
     if (!c) { store.notify('danger', 'Não foi possível gerar a campanha'); return; }
     store.notify('success', `Campanha "${c.nome}" gerada pela IA`);

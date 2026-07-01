@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
+import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
@@ -486,6 +487,21 @@ function WhatsappTab({ empresaId }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ titulo: '', corpoTexto: '' });
   const [saving, setSaving] = useState(false);
+  // Geração do texto por IA (ai-chat task=whatsapp) — preenche o form, o usuário revisa e salva.
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+
+  async function generateWithAI() {
+    if (!aiBrief.trim()) return;
+    setAiGenerating(true);
+    try {
+      const r = await KoblyAI.generateWhatsappText({ brief: aiBrief.trim(), empresaId });
+      setForm((f) => ({ titulo: f.titulo.trim() ? f.titulo : (r.titulo || 'Mensagem WhatsApp'), corpoTexto: r.texto || f.corpoTexto }));
+      store.notify('success', 'Texto gerado — revise e salve');
+    } finally {
+      setAiGenerating(false);
+    }
+  }
 
   async function sendTest() {
     if (!testPhone.trim()) return;
@@ -508,11 +524,13 @@ function WhatsappTab({ empresaId }) {
   function openNew() {
     setEditing(null);
     setForm({ titulo: '', corpoTexto: '' });
+    setAiBrief('');
     setModal(true);
   }
   function openEdit(m) {
     setEditing(m);
     setForm({ titulo: m.titulo, corpoTexto: m.corpoTexto || '' });
+    setAiBrief('');
     setModal(true);
   }
   async function saveMsg() {
@@ -575,6 +593,20 @@ function WhatsappTab({ empresaId }) {
           <Button variant="primary" disabled={saving || !form.titulo.trim() || !form.corpoTexto.trim()} onClick={saveMsg}>{saving ? 'Salvando…' : 'Salvar'}</Button>
         </>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Gerar com IA — mesmo padrão do editor de e-mail: descreve o objetivo, a IA escreve, você revisa */}
+          <div style={{ background: 'var(--surface-sunken)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
+              <Icon name="sparkles" size={15} style={{ color: 'var(--accent)' }} /> Gerar com IA
+            </div>
+            <textarea value={aiBrief} onChange={(e) => setAiBrief(e.target.value)} rows={2}
+              placeholder="Ex.: lembrete amigável de carrinho abandonado, com senso de urgência"
+              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', color: 'var(--text-body)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 8, outline: 'none' }} />
+            <div>
+              <Button size="sm" variant="secondary" iconLeft="sparkles" disabled={aiGenerating || !aiBrief.trim()} onClick={generateWithAI}>
+                {aiGenerating ? 'Gerando…' : 'Gerar texto'}
+              </Button>
+            </div>
+          </div>
           <Input label="Título (interno)" placeholder="Ex.: Carrinho — lembrete WhatsApp" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
           <div>
             <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)', marginBottom: 8 }}>Texto da mensagem</div>

@@ -116,23 +116,54 @@ export const KoblyAI = {
   },
 
   // Planeja uma campanha COMPLETA a partir de um objetivo: DeepSeek (ai-chat task=plan)
-  // escolhe o gatilho + cadência + textos. Retorna { nome, gatilho, etapas:[...] }.
-  // Fallback: plano de abandono de carrinho de 2 toques se a IA falhar.
-  async planCampaign(objetivo) {
+  // escolhe o gatilho + cadência + textos. `canais` (['email','whatsapp']) define os
+  // canais da cadência — cada etapa volta com `canal` (whatsapp → campo `texto`).
+  // Retorna { nome, gatilho, etapas:[...] }. Fallback: abandono de carrinho de 2 toques.
+  async planCampaign(objetivo, canais) {
+    const lista = Array.isArray(canais) && canais.length ? canais : ['email'];
     try {
-      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'plan', brief: objetivo || '' } });
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'plan', brief: objetivo || '', canais: lista } });
       if (error || !data || !data.plan) throw error || new Error('sem plano');
       const p = data.plan;
       if (!p.etapas || !p.etapas.length) throw new Error('plano vazio');
       return p;
     } catch (e) {
+      const soWhats = lista.includes('whatsapp') && !lista.includes('email');
+      const etapas = soWhats
+        ? [
+            { canal: 'whatsapp', atraso_min: 30, assunto: 'Carrinho — lembrete', titulo: 'Carrinho — lembrete', texto: 'Oi! Vi que você deixou itens no carrinho e eles ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}', cupom: null },
+            { canal: 'whatsapp', atraso_min: 1440, assunto: 'Carrinho — última chance', titulo: 'Carrinho — última chance', texto: 'Última chance: seus itens saem da reserva hoje.\nGaranta agora: {{cta_link}}', cupom: null },
+          ]
+        : [
+            { canal: 'email', atraso_min: 30, assunto: 'Você esqueceu algo no carrinho', eyebrow: 'Recuperação', titulo: 'Seu carrinho ainda está aqui', paragrafos: ['Separamos seus itens e eles continuam reservados — conclua antes que acabem.'], cta: 'Voltar ao carrinho', cupom: null },
+            ...(lista.includes('whatsapp')
+              ? [{ canal: 'whatsapp', atraso_min: 120, assunto: 'Carrinho — toque no WhatsApp', titulo: 'Carrinho — toque no WhatsApp', texto: 'Oi! Seus itens ainda estão no carrinho. 😉\nFinalize por aqui: {{cta_link}}', cupom: null }]
+              : []),
+            { canal: 'email', atraso_min: 1440, assunto: 'Última chance: 10% OFF', eyebrow: 'Oferta', titulo: 'Um empurrãozinho pra fechar', paragrafos: ['Use o cupom abaixo e finalize hoje.'], cta: 'Usar cupom', cupom: { codigo: 'VOLTA10', detalhe: '10% de desconto por tempo limitado' } },
+          ];
+      return { nome: (objetivo && objetivo.slice(0, 40)) || 'Recuperação de carrinho', gatilho: 'Abandono de carrinho', etapas };
+    }
+  },
+
+  // Geração de mensagem de WhatsApp por IA (ai-chat task=whatsapp): retorna
+  // { titulo, texto } com {{cta_link}} garantido. Fallback: template estático.
+  async generateWhatsappText(brief) {
+    let brandName = 'Sua Loja';
+    try {
+      let q = supabase.from('org_branding').select('nome');
+      if (brief && brief.empresaId) q = q.eq('organization_id', brief.empresaId);
+      const { data: b } = await q.limit(1).maybeSingle();
+      if (b && b.nome) brandName = b.nome;
+    } catch (e) { /* segue com o default */ }
+    const briefText = (brief && brief.brief) || 'Mensagem de recuperação de carrinho abandonado.';
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'whatsapp', brief: briefText, brand: brandName } });
+      if (error || !data || !data.mensagem || !data.mensagem.texto) throw error || new Error('sem mensagem');
+      return { titulo: data.mensagem.titulo || '', texto: data.mensagem.texto };
+    } catch (err) {
       return {
-        nome: (objetivo && objetivo.slice(0, 40)) || 'Recuperação de carrinho',
-        gatilho: 'Abandono de carrinho',
-        etapas: [
-          { atraso_min: 30, assunto: 'Você esqueceu algo no carrinho', eyebrow: 'Recuperação', titulo: 'Seu carrinho ainda está aqui', paragrafos: ['Separamos seus itens e eles continuam reservados — conclua antes que acabem.'], cta: 'Voltar ao carrinho', cupom: null },
-          { atraso_min: 1440, assunto: 'Última chance: 10% OFF', eyebrow: 'Oferta', titulo: 'Um empurrãozinho pra fechar', paragrafos: ['Use o cupom abaixo e finalize hoje.'], cta: 'Usar cupom', cupom: { codigo: 'VOLTA10', detalhe: '10% de desconto por tempo limitado' } },
-        ],
+        titulo: 'Recuperação — WhatsApp',
+        texto: `Oi! Aqui é a ${brandName}. Vi que você não finalizou sua compra — seus itens ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}`,
       };
     }
   },

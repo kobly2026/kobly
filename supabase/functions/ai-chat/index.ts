@@ -6,7 +6,10 @@
 // Tasks (campo `task` no corpo):
 //   'chat'       (default) — assistente conversacional, multi-turn, resposta curta.
 //   'email'      — redige um e-mail de recuperação: JSON {assunto,titulo,paragrafos,cta,cupom}.
+//   'whatsapp'   — redige UMA mensagem de WhatsApp: JSON {titulo,texto} (com {{cta_link}}).
 //   'suggestion' — UMA recomendação prática (1-2 frases) fundamentada no contexto real.
+//   'plan'       — planeja campanha completa; aceita `canais` (['email','whatsapp']) e
+//                  gera etapas com campo `canal` (whatsapp → campo `texto` com {{cta_link}}).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -42,7 +45,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { messages = [], context = {}, task = "chat", brief = "", brand = "" } = await req.json();
+    const { messages = [], context = {}, task = "chat", brief = "", brand = "", canais = [] } = await req.json();
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: apiKey, error: keyErr } = await admin.rpc("get_secret", { p_name: "deepseek_api_key" });
@@ -53,14 +56,23 @@ Deno.serve(async (req: Request) => {
     // ── Task: email (JSON estruturado) ──────────────────────────────────────
     if (task === "plan") {
       const eventos = ["Abandono de carrinho", "Boleto Gerado", "Compra cancelada", "Depósito Solicitado", "Pix Gerado", "Chargeback", "Cancelamento de Assinatura", "Compra Reembolsada", "Compra Aprovada", "Compra Recusada"];
+      const useWhatsapp = Array.isArray(canais) && canais.includes("whatsapp");
+      const useEmail = !Array.isArray(canais) || canais.length === 0 || canais.includes("email");
+      const canalDesc = useWhatsapp && useEmail
+        ? "Misture os canais na cadência: cada etapa tem \"canal\": \"email\" ou \"whatsapp\" (WhatsApp é ótimo pro 1º toque rápido; e-mail pros toques com mais conteúdo/cupom)."
+        : useWhatsapp
+          ? 'TODAS as etapas devem ter "canal": "whatsapp".'
+          : 'TODAS as etapas devem ter "canal": "email".';
       const sys = [
-        "Você é estrategista de automação de recuperação de vendas por e-mail (pt-BR) da Koblay.",
-        "A partir do OBJETIVO do usuário, planeje uma campanha: escolha o GATILHO e uma cadência de 1 a 3 e-mails.",
+        "Você é estrategista de automação de recuperação de vendas (pt-BR) da Koblay.",
+        "A partir do OBJETIVO do usuário, planeje uma campanha: escolha o GATILHO e uma cadência de 1 a 3 toques.",
         "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) no formato exato:",
-        '{"nome": string (curto), "gatilho": string, "etapas": [{"atraso_min": number, "assunto": string (até ~55 car.), "eyebrow": string (curtíssimo), "titulo": string, "paragrafos": string[] (1-2 curtos), "cta": string (até ~28 car.), "cupom": {"codigo": string, "detalhe": string} | null}]}',
+        '{"nome": string (curto), "gatilho": string, "etapas": [{"canal": "email" | "whatsapp", "atraso_min": number, "assunto": string (até ~55 car.; p/ whatsapp é o título interno), "eyebrow": string (curtíssimo; só email), "titulo": string, "paragrafos": string[] (1-2 curtos; só email), "cta": string (até ~28 car.; só email), "cupom": {"codigo": string, "detalhe": string} | null, "texto": string (SÓ whatsapp: a mensagem, 2-6 linhas, tom pessoal, no máx. 1 emoji, DEVE conter {{cta_link}})}]}',
+        canalDesc,
         "O campo gatilho DEVE ser EXATAMENTE um destes: " + eventos.join(" | ") + ".",
         "atraso_min é o atraso desde o gatilho, em minutos (ex.: 0, 60, 1440). Primeira etapa geralmente com atraso pequeno.",
         "Cadência típica de abandono: 3 toques (0, 60, 1440 min). Use cupom só se o objetivo mencionar oferta/desconto. Não invente dados do cliente.",
+        "Em etapas whatsapp o placeholder {{cta_link}} é obrigatório no texto — é trocado pelo link de recuperação no envio.",
         `Loja: ${String(brand || "a loja").slice(0, 80)}.`,
         `Objetivo: ${String(brief || "recuperar carrinhos abandonados").slice(0, 600)}.`,
       ].join("\n");
@@ -71,6 +83,32 @@ Deno.serve(async (req: Request) => {
       if (!plan || !eventos.includes(plan.gatilho)) { if (plan) plan.gatilho = "Abandono de carrinho"; }
       if (!plan || !Array.isArray(plan.etapas)) return json({ error: "parse_error", detail: "sem etapas" }, 502);
       return json({ plan });
+    }
+
+    // ── Task: whatsapp (mensagem curta com {{cta_link}}) ────────────────────
+    if (task === "whatsapp") {
+      const sys = [
+        "Você é redator de mensagens de WhatsApp para recuperação de vendas de e-commerce (pt-BR).",
+        "Escreva UMA mensagem curta (2 a 6 linhas), tom pessoal e direto, como a loja falando com o cliente no WhatsApp. No máximo 1 emoji.",
+        "A mensagem DEVE conter o placeholder {{cta_link}} exatamente assim — ele é trocado pelo link de recuperação no envio.",
+        "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) com este formato exato:",
+        '{"titulo": string (título INTERNO curto, ex.: "Carrinho — lembrete"), "texto": string (a mensagem, use \\n para quebras de linha)}',
+        "Use cupom apenas se o briefing mencionar desconto/oferta. Não invente dados.",
+        `Loja: ${String(brand || "a loja").slice(0, 80)}.`,
+        `Briefing do usuário: ${String(brief || "recuperação de carrinho abandonado").slice(0, 800)}.`,
+      ].join("\n");
+      const r = await callDeepSeek(apiKey, [{ role: "system", content: sys }, { role: "user", content: brief || "Escreva a mensagem." }], { jsonMode: true, maxTokens: 400 });
+      if ((r as any).error) return json({ error: "deepseek_error", ...(r as any).error }, 502);
+      let mensagem: any;
+      try { mensagem = JSON.parse((r as any).content); } catch { return json({ error: "parse_error", detail: String((r as any).content).slice(0, 200) }, 502); }
+      // Normaliza variantes malformadas do placeholder que o modelo às vezes gera
+      // ({cta_link}, {{cta_link}, cta_link}} …) e garante que ele exista — sem ele
+      // a mensagem sai sem link de recuperação.
+      if (mensagem && typeof mensagem.texto === "string") {
+        mensagem.texto = mensagem.texto.replace(/\{{1,2}\s*cta_link\s*\}{1,2}/gi, "{{cta_link}}");
+        if (!mensagem.texto.includes("{{cta_link}}")) mensagem.texto = `${mensagem.texto.trim()}\n\n{{cta_link}}`;
+      }
+      return json({ mensagem });
     }
 
     if (task === "email") {

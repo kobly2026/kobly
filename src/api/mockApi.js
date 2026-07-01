@@ -256,6 +256,29 @@ export const KoblyApi = {
 
     let pos = 1;
     for (const et of (plan.etapas || [])) {
+      const atraso = Number(et.atraso_min) || 0;
+
+      // Etapa de WhatsApp (plan.etapas[].canal === 'whatsapp'): cria a mensagem em
+      // whatsapp_messages e o card 'Envio de WhatsApp' — espelha o caminho do e-mail.
+      if (et.canal === 'whatsapp') {
+        let texto = String(et.texto || '').trim() || `Oi! Aqui é a ${brand.name}. Seus itens ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}`;
+        // Normaliza variantes malformadas do placeholder que a IA às vezes gera
+        // ({cta_link}, {{cta_link} …) e garante que ele exista — sem ele a mensagem
+        // sai sem o link de recuperação.
+        texto = texto.replace(/\{{1,2}\s*cta_link\s*\}{1,2}/gi, '{{cta_link}}');
+        if (!texto.includes('{{cta_link}}')) texto = `${texto}\n\n{{cta_link}}`;
+        const tituloWa = et.titulo || et.assunto || 'Mensagem WhatsApp';
+        const { data: wm } = await supabase.from('whatsapp_messages').insert({
+          organization_id: orgId, titulo: tituloWa, corpo_texto: texto, created_by: me ? me.id : null,
+        }).select().single();
+        const { data: st } = await supabase.from('flow_steps').insert({
+          flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, whatsapp_message_id: wm ? wm.id : null,
+        }).select().single();
+        if (st) fluxo.push({ id: st.id, tipo: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, config: { whatsappMessageId: wm ? wm.id : null } });
+        pos += 1;
+        continue;
+      }
+
       const blocks = [
         { type: 'hero', eyebrow: et.eyebrow || 'Sua loja', title: et.titulo || et.assunto || 'Você esqueceu algo', text: (et.paragrafos || [])[0] || '' },
         ...((et.paragrafos || []).slice(1).map((p) => ({ type: 'paragraph', text: p }))),
@@ -267,7 +290,6 @@ export const KoblyApi = {
       const { data: em } = await supabase.from('emails').insert({
         organization_id: orgId, titulo: et.assunto || 'E-mail da campanha', assunto: et.assunto || '', corpo_html: html, remetente: brand.name,
       }).select().single();
-      const atraso = Number(et.atraso_min) || 0;
       const { data: st } = await supabase.from('flow_steps').insert({
         flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, email_id: em ? em.id : null,
       }).select().single();

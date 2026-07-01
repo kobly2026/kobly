@@ -1,0 +1,98 @@
+- generic [ref=e626]:
+  - navigation [ref=e627]:
+    - generic [ref=e628]:
+      - img "Koblay" [ref=e629]
+      - generic [ref=e630]: Koblay
+    - generic [ref=e631]:
+      - button "Dashboard" [ref=e632] [cursor=pointer]:
+        - img [ref=e634]
+        - generic [ref=e639]: Dashboard
+      - button "Pipeline" [ref=e640] [cursor=pointer]:
+        - img [ref=e641]
+        - generic [ref=e642]: Pipeline
+      - button "Campanhas" [ref=e643] [cursor=pointer]:
+        - img [ref=e644]
+        - generic [ref=e647]: Campanhas
+      - button "Leads" [ref=e648] [cursor=pointer]:
+        - img [ref=e649]
+        - generic [ref=e653]: Leads
+      - button "Integrações" [ref=e654] [cursor=pointer]:
+        - img [ref=e655]
+        - generic [ref=e657]: Integrações
+      - button "Perfil" [ref=e658] [cursor=pointer]:
+        - img [ref=e659]
+        - generic [ref=e662]: Perfil
+    - generic [ref=e663]:
+      - generic [ref=e664]: L
+      - generic [ref=e665]:
+        - generic [ref=e666]: Loja do João
+        - generic [ref=e667]: Plano Pro
+  - generic [ref=e668]:
+    - banner [ref=e669]:
+      - generic [ref=e670]:
+        - generic [ref=e671]: Cliente · Loja do João
+        - generic [ref=e911]: Integrações
+      - generic [ref=e673]:
+        - generic [ref=e674]: J
+        - button "Sair" [ref=e675] [cursor=pointer]:
+          - img [ref=e676]
+    - main [ref=e679]:
+      - generic [ref=e913]:
+        - generic [ref=e914]:
+          - paragraph [ref=e915]: Configure a URL de postback, templates de e-mail, mensagens de WhatsApp e tags por evento.
+          - tablist [ref=e917]:
+            - tab "Postback URL" [ref=e918] [cursor=pointer]
+            - tab "Marca" [ref=e919] [cursor=pointer]
+            - tab "Templates de e-mail" [ref=e920] [cursor=pointer]
+            - tab "WhatsApp" [selected] [ref=e921] [cursor=pointer]
+            - tab "Tags" [ref=e922] [cursor=pointer]
+        - generic [ref=e1222]:
+          - generic [ref=e1223]:
+            - generic [ref=e1225]:
+              - generic [ref=e1226]: WhatsApp (Z-API)
+              - generic [ref=e1227]: A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.
+            - generic [ref=e1229]:
+              - generic [ref=e1230]:
+                - img [ref=e1231]
+                - text: Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.
+              - generic [ref=e1233]:
+                - generic [ref=e1235]:
+                  - generic [ref=e1236]: Telefone de teste
+                  - textbox "Telefone de teste" [ref=e1238]:
+                    - /placeholder: "Ex.: 5511999999999"
+                - button "Enviar teste" [disabled] [ref=e1239]:
+                  - img [ref=e1240]
+                  - text: Enviar teste
+              - generic [ref=e1243]: "Informe o número com DDI e DDD, só dígitos (ex.: 5511999999999)."
+          - button "Nova mensagem de WhatsApp" [ref=e1244] [cursor=pointer]:
+            - img [ref=e1245]
+            - text: Nova mensagem de WhatsApp
+          - generic [ref=e1248]:
+            - generic [ref=e1249]:
+              - heading "Nova mensagem" [level=3] [ref=e1251]
+              - button "Fechar" [ref=e1252] [cursor=pointer]:
+                - img [ref=e1253]
+            - generic [ref=e1256]:
+              - generic [ref=e1257]:
+                - generic [ref=e1258]:
+                  - img [ref=e1259]
+                  - text: Gerar com IA
+                - 'textbox "Ex.: lembrete amigável de carrinho abandonado, com senso de urgência" [ref=e1261]': lembrete amigável de pix gerado e não pago, com senso de urgência leve
+                - button "Gerar texto" [ref=e1263] [cursor=pointer]:
+                  - img [ref=e1264]
+                  - text: Gerar texto
+              - generic [ref=e1266]:
+                - generic [ref=e1267]: Título (interno)
+                - textbox "Título (interno)" [ref=e1269]:
+                  - /placeholder: "Ex.: Carrinho — lembrete WhatsApp"
+                  - text: Pix pendente — lembrete
+              - generic [ref=e1270]:
+                - generic [ref=e1271]: Texto da mensagem
+                - 'textbox "Ex.: Oi! Vi que você deixou itens no carrinho. Finalize por aqui: {{cta_link}}" [ref=e1272]': "Oi! Tudo bem? 😊 Aqui é da Loja do João. Seu pedido ainda está com o Pix pendente e a reserva dos itens está quase expirando. Clique aqui para pagar agora: {{cta_link}} Qualquer dúvida, é só chamar!"
+                - generic [ref=e1273]:
+                  - text: Use
+                  - code [ref=e1274]: "{{cta_link}}"
+                  - text: onde o link de recuperação deve entrar — ele é trocado automaticamente no envio.
+            - generic [ref=e1275]:
+              - button "Cancelar" [ref=e1276] [cursor=pointer]
+              - button "Salvar" [ref=e1277] [cursor=pointer]
