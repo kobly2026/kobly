@@ -95,6 +95,8 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
       className="kbly-step"
       style={{
         position: 'relative', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+        // border-box: sem o reset global, width 100% + padding + borda estoura a coluna do ramo.
+        boxSizing: 'border-box',
         padding: compact ? '10px 12px' : '14px 16px', width: compact ? '100%' : 280,
         background: 'var(--surface-card)', borderRadius: 'var(--radius-md)',
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--border-subtle)'}`,
