@@ -25,6 +25,19 @@ function fmtDelay(min) {
   if (min < 1440) return `${(min / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
   return `${(min / 1440).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dia(s)`;
 }
+
+// Condição de envio (IF/ELSE do fluxo) — avaliada pelo motor na HORA do envio,
+// contra "Compra Aprovada" do lead desde o início da execução do fluxo.
+const CONDICAO_OPTIONS = [
+  { value: '', label: 'Sempre enviar' },
+  { value: 'nao_comprou', label: 'Apenas se ainda NÃO comprou' },
+  { value: 'comprou', label: 'Apenas se JÁ comprou' },
+];
+const condicaoBadge = (condicao) => (
+  condicao === 'comprou' ? { tone: 'success', label: 'se comprou' }
+  : condicao === 'nao_comprou' ? { tone: 'warning', label: 'se não comprou' }
+  : null
+);
 function defaultConfig(tipo, opts) {
   const o = opts || { webhooks: [], emails: [] };
   switch (tipo) {
@@ -93,6 +106,7 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', whiteSpace: 'nowrap' }}>{step.tipo}</span>
           {step.tipo !== 'Gatilho' && step.atraso > 0 && <Badge tone="neutral" size="sm" style={{ flex: 'none' }}>⏱ {fmtDelay(step.atraso)}</Badge>}
+          {(() => { const b = condicaoBadge((step.config || {}).condicao); return b ? <Badge tone={b.tone} size="sm" style={{ flex: 'none' }}>{b.label}</Badge> : null; })()}
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summary}</div>
       </div>
@@ -182,6 +196,19 @@ function Inspector({ step, onChange, onEditEmail, opts = {} }) {
       )}
       {step.tipo === 'Acionar Fluxo' && (
         <Select label="Fluxo a acionar" value={c.fluxoAlvo || ''} onChange={(e) => setCfg({ fluxoAlvo: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.campaigns || []).map((x) => ({ value: x.id, label: x.nome }))]} />
+      )}
+      {(step.tipo === 'Envio de e-mail' || step.tipo === 'Envio de WhatsApp') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <Select
+            label="Condição de envio"
+            value={c.condicao || ''}
+            onChange={(e) => setCfg({ condicao: e.target.value || null })}
+            options={CONDICAO_OPTIONS}
+          />
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Avaliada na hora do envio: quem pagou no meio da cadência para de receber recuperação ("NÃO comprou") e pode receber o agradecimento ("JÁ comprou") no mesmo fluxo.
+          </div>
+        </div>
       )}
 
       {step.tipo !== 'Gatilho' && (

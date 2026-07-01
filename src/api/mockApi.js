@@ -257,6 +257,8 @@ export const KoblyApi = {
     let pos = 1;
     for (const et of (plan.etapas || [])) {
       const atraso = Number(et.atraso_min) || 0;
+      // Condição de envio (IF/ELSE do fluxo) — só valores válidos; o resto vira "sempre" (null).
+      const condicao = ['comprou', 'nao_comprou'].includes(et.condicao) ? et.condicao : null;
 
       // Etapa de WhatsApp (plan.etapas[].canal === 'whatsapp'): cria a mensagem em
       // whatsapp_messages e o card 'Envio de WhatsApp' — espelha o caminho do e-mail.
@@ -272,9 +274,9 @@ export const KoblyApi = {
           organization_id: orgId, titulo: tituloWa, corpo_texto: texto, created_by: me ? me.id : null,
         }).select().single();
         const { data: st } = await supabase.from('flow_steps').insert({
-          flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, whatsapp_message_id: wm ? wm.id : null,
+          flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, whatsapp_message_id: wm ? wm.id : null, condicao,
         }).select().single();
-        if (st) fluxo.push({ id: st.id, tipo: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, config: { whatsappMessageId: wm ? wm.id : null } });
+        if (st) fluxo.push({ id: st.id, tipo: 'Envio de WhatsApp', nome: tituloWa, posicao: pos, atraso, config: { whatsappMessageId: wm ? wm.id : null, condicao } });
         pos += 1;
         continue;
       }
@@ -291,9 +293,9 @@ export const KoblyApi = {
         organization_id: orgId, titulo: et.assunto || 'E-mail da campanha', assunto: et.assunto || '', corpo_html: html, remetente: brand.name,
       }).select().single();
       const { data: st } = await supabase.from('flow_steps').insert({
-        flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, email_id: em ? em.id : null,
+        flow_id: flow.id, organization_id: orgId, tipo_card: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, email_id: em ? em.id : null, condicao,
       }).select().single();
-      if (st) fluxo.push({ id: st.id, tipo: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, config: { emailId: em ? em.id : null } });
+      if (st) fluxo.push({ id: st.id, tipo: 'Envio de e-mail', nome: et.assunto || 'Envio de e-mail', posicao: pos, atraso, config: { emailId: em ? em.id : null, condicao } });
       pos += 1;
     }
 
@@ -327,6 +329,7 @@ export const KoblyApi = {
         flow_id: flowId, organization_id: orgId, tipo_card: s.tipo, nome: s.nome,
         posicao: s.posicao != null ? s.posicao : i, atraso: s.atraso || 0,
         email_id: cfg.emailId || null, whatsapp_message_id: cfg.whatsappMessageId || null,
+        condicao: cfg.condicao || null,
         tipo_evento: cfg.tipoEvento || null, webhook_id: cfg.webhookId || null, fluxo_alvo_id: fluxoAlvoId,
       }).select().single();
       // Nunca falhar em silêncio: os steps antigos já foram apagados acima — se o

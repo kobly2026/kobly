@@ -129,17 +129,19 @@ export const KoblyAI = {
       return p;
     } catch (e) {
       const soWhats = lista.includes('whatsapp') && !lista.includes('email');
+      // Toques de recuperação nascem com condicao 'nao_comprou' (quem pagar no meio
+      // da cadência para de receber) — o IF/ELSE do fluxo, avaliado no envio.
       const etapas = soWhats
         ? [
-            { canal: 'whatsapp', atraso_min: 30, assunto: 'Carrinho — lembrete', titulo: 'Carrinho — lembrete', texto: 'Oi! Vi que você deixou itens no carrinho e eles ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}', cupom: null },
-            { canal: 'whatsapp', atraso_min: 1440, assunto: 'Carrinho — última chance', titulo: 'Carrinho — última chance', texto: 'Última chance: seus itens saem da reserva hoje.\nGaranta agora: {{cta_link}}', cupom: null },
+            { canal: 'whatsapp', condicao: 'nao_comprou', atraso_min: 30, assunto: 'Carrinho — lembrete', titulo: 'Carrinho — lembrete', texto: 'Oi! Vi que você deixou itens no carrinho e eles ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}', cupom: null },
+            { canal: 'whatsapp', condicao: 'nao_comprou', atraso_min: 1440, assunto: 'Carrinho — última chance', titulo: 'Carrinho — última chance', texto: 'Última chance: seus itens saem da reserva hoje.\nGaranta agora: {{cta_link}}', cupom: null },
           ]
         : [
-            { canal: 'email', atraso_min: 30, assunto: 'Você esqueceu algo no carrinho', eyebrow: 'Recuperação', titulo: 'Seu carrinho ainda está aqui', paragrafos: ['Separamos seus itens e eles continuam reservados — conclua antes que acabem.'], cta: 'Voltar ao carrinho', cupom: null },
+            { canal: 'email', condicao: 'nao_comprou', atraso_min: 30, assunto: 'Você esqueceu algo no carrinho', eyebrow: 'Recuperação', titulo: 'Seu carrinho ainda está aqui', paragrafos: ['Separamos seus itens e eles continuam reservados — conclua antes que acabem.'], cta: 'Voltar ao carrinho', cupom: null },
             ...(lista.includes('whatsapp')
-              ? [{ canal: 'whatsapp', atraso_min: 120, assunto: 'Carrinho — toque no WhatsApp', titulo: 'Carrinho — toque no WhatsApp', texto: 'Oi! Seus itens ainda estão no carrinho. 😉\nFinalize por aqui: {{cta_link}}', cupom: null }]
+              ? [{ canal: 'whatsapp', condicao: 'nao_comprou', atraso_min: 120, assunto: 'Carrinho — toque no WhatsApp', titulo: 'Carrinho — toque no WhatsApp', texto: 'Oi! Seus itens ainda estão no carrinho. 😉\nFinalize por aqui: {{cta_link}}', cupom: null }]
               : []),
-            { canal: 'email', atraso_min: 1440, assunto: 'Última chance: 10% OFF', eyebrow: 'Oferta', titulo: 'Um empurrãozinho pra fechar', paragrafos: ['Use o cupom abaixo e finalize hoje.'], cta: 'Usar cupom', cupom: { codigo: 'VOLTA10', detalhe: '10% de desconto por tempo limitado' } },
+            { canal: 'email', condicao: 'nao_comprou', atraso_min: 1440, assunto: 'Última chance: 10% OFF', eyebrow: 'Oferta', titulo: 'Um empurrãozinho pra fechar', paragrafos: ['Use o cupom abaixo e finalize hoje.'], cta: 'Usar cupom', cupom: { codigo: 'VOLTA10', detalhe: '10% de desconto por tempo limitado' } },
           ];
       return { nome: (objetivo && objetivo.slice(0, 40)) || 'Recuperação de carrinho', gatilho: 'Abandono de carrinho', etapas };
     }

@@ -31,8 +31,8 @@ function reshapeStep(s, flowMap) {
   if (s.tipo_card === 'Gatilho') config = { tipoEvento: s.tipo_evento, webhookId: s.webhook_id };
   else if (s.tipo_card === 'Adicionar Tag') config = { tags: (s.step_add_tags || []).map((t) => t.tag_id) };
   else if (s.tipo_card === 'Remover Tag') config = { tags: (s.step_remove_tags || []).map((t) => t.tag_id) };
-  else if (s.tipo_card === 'Envio de e-mail') config = { emailId: s.email_id };
-  else if (s.tipo_card === 'Envio de WhatsApp') config = { whatsappMessageId: s.whatsapp_message_id };
+  else if (s.tipo_card === 'Envio de e-mail') config = { emailId: s.email_id, condicao: s.condicao || null };
+  else if (s.tipo_card === 'Envio de WhatsApp') config = { whatsappMessageId: s.whatsapp_message_id, condicao: s.condicao || null };
   else if (s.tipo_card === 'Acionar Fluxo') config = { fluxoAlvo: flowMap[s.fluxo_alvo_id] || s.fluxo_alvo_id };
   return { id: s.id, tipo: s.tipo_card, nome: s.nome, posicao: s.posicao, atraso: num(s.atraso), config };
 }

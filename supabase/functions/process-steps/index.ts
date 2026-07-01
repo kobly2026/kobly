@@ -6,6 +6,12 @@
 //    (channel='whatsapp') + lead_metrics.enviados e campaign_stats.whatsapp_enviados
 //    (métrica por canal; NÃO toca emails_enviados) → marca Finalizado.
 //  - Adicionar/Remover Tag: muta lead_tags → marca Finalizado.
+// CONDIÇÃO (IF/ELSE do fluxo): cards de envio podem ter flow_steps.condicao
+// ('comprou' | 'nao_comprou'), avaliada AQUI na hora do envio contra os
+// webhook_events "Compra Aprovada" do lead desde o início desta execução
+// (scheduled_steps.created_at). Não atendida → finaliza como "pulado" (sem
+// envio, sem métrica, sem retry) — quem pagou no meio da cadência para de
+// receber recuperação e pode receber o agradecimento do mesmo fluxo.
 // RETRY: se o envio FALHA (erro do Resend, exceção), NÃO finaliza — reagenda com backoff e
 // attempts++, até MAX_ATTEMPTS; só então desiste (Finalizado + last_error). Isso evita perder
 // e-mail de recuperação por soluço transitório do Resend (ex.: 500 application_error).
@@ -53,13 +59,27 @@ Deno.serve(async (req: Request) => {
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
 
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, flow_steps(id, tipo_card, email_id, whatsapp_message_id, flow_id), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, flow_id, condicao), leads(id, email, nome, telefone, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
   if (error) return json({ error: "query_failed", detail: error.message }, 500);
 
-  let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0;
+  let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0, skipped = 0;
+
+  // Avalia a condição do card no MOMENTO do envio: o lead teve "Compra Aprovada"
+  // desde que esta execução do fluxo começou (created_at do agendamento)?
+  const condicaoAtendida = async (s: any, condicao: string | null) => {
+    if (!condicao || condicao === "sempre") return true;
+    const { count } = await sb.from("webhook_events")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", s.organization_id)
+      .eq("lead_id", s.lead_id)
+      .eq("tipo_evento", "Compra Aprovada")
+      .gte("created_at", s.created_at);
+    const comprou = (count ?? 0) > 0;
+    return condicao === "comprou" ? comprou : !comprou;
+  };
 
   // Marca da org por conta: nome (remetente) + URL de fallback do botão (aba Marca).
   const orgBrandCache = new Map<string, { nome: string | null; link: string | null }>();
@@ -90,6 +110,12 @@ Deno.serve(async (req: Request) => {
     const curAttempts = Number((s as any).attempts) || 0;
     try {
       if (step?.tipo_card === "Envio de e-mail" && step.email_id && lead?.email) {
+        // IF/ELSE do fluxo: condição não atendida → pula sem enviar (e sem retry).
+        if (!(await condicaoAtendida(s, step.condicao ?? null))) {
+          await finalize(s.id, curAttempts + 1, `pulado: condição '${step.condicao}' não atendida`);
+          skipped++; processed++;
+          continue;
+        }
         // resolve a campanha (p/ stats) via flow → campaign
         let campaignId: string | null = null;
         if (step.flow_id) {
@@ -137,6 +163,12 @@ Deno.serve(async (req: Request) => {
           failed++;
         }
       } else if (step?.tipo_card === "Envio de WhatsApp" && step.whatsapp_message_id && lead?.telefone) {
+        // IF/ELSE do fluxo: mesma avaliação de condição do e-mail.
+        if (!(await condicaoAtendida(s, step.condicao ?? null))) {
+          await finalize(s.id, curAttempts + 1, `pulado: condição '${step.condicao}' não atendida`);
+          skipped++; processed++;
+          continue;
+        }
         // resolve a campanha (p/ stats) via flow → campaign — mesmo caminho do e-mail
         let campaignId: string | null = null;
         if (step.flow_id) {
@@ -215,5 +247,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return json({ ok: true, devidas: (due || []).length, processed, sent, tagged, failed, retried, gaveup });
+  return json({ ok: true, devidas: (due || []).length, processed, sent, tagged, failed, retried, gaveup, skipped });
 });
