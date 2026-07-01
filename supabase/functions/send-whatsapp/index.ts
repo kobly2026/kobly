@@ -40,13 +40,32 @@ Deno.serve(async (req: Request) => {
   if (!instanceId || !token)
     return json({ error: "secret_unavailable", detail: "Defina as secrets 'zapi_instance_id' e 'zapi_token' no Vault." }, 500);
 
+  const zapiBase = `https://api.z-api.io/instances/${instanceId}/token/${token}`;
+  const zapiHeaders = { "Content-Type": "application/json", ...(clientToken ? { "Client-Token": clientToken } : {}) };
+
+  // ── Resolve o número CANÔNICO no WhatsApp via phone-exists ──
+  // Números BR antigos são registrados SEM o nono dígito: mandar pro formato com 9
+  // é aceito pela Z-API (devolve id) mas NÃO entrega. O phone-exists devolve o
+  // formato real; usamos ele como destino. Indisponível → segue com o normalizado.
+  let target = normalizePhone(phone);
+  try {
+    const chk = await fetch(`${zapiBase}/phone-exists/${target}`, { headers: zapiHeaders });
+    const chkOut = await chk.json().catch(() => ({}));
+    if (chk.ok && chkOut) {
+      if (chkOut.exists === false) {
+        return json({ error: "phone_not_on_whatsapp", detail: "Este número não tem WhatsApp — confira o DDD e os dígitos." }, 400);
+      }
+      if (typeof chkOut.phone === "string" && chkOut.phone) target = chkOut.phone;
+    }
+  } catch (_) { /* checagem indisponível → tenta o envio mesmo assim */ }
+
   // ── Chamada à Z-API → falha de rede/DNS é 502 (erro do UPSTREAM, não do chamador) ──
   let resp: Response;
   try {
-    resp = await fetch(`https://api.z-api.io/instances/${instanceId}/token/${token}/send-text`, {
+    resp = await fetch(`${zapiBase}/send-text`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(clientToken ? { "Client-Token": clientToken } : {}) },
-      body: JSON.stringify({ phone: normalizePhone(phone), message }),
+      headers: zapiHeaders,
+      body: JSON.stringify({ phone: target, message }),
     });
   } catch (e) {
     return json({ error: "zapi_unreachable", detail: String(e).slice(0, 200) }, 502);

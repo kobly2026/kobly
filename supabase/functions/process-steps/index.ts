@@ -181,15 +181,32 @@ Deno.serve(async (req: Request) => {
         const ctaLink = lead.link_recuperacao || brand.link || "#";
         const message = String(wm?.corpo_texto || wm?.titulo || "").split("{{cta_link}}").join(ctaLink);
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
+        let semWhatsapp = false; // número não existe no WhatsApp → falha DEFINITIVA (sem retry)
         if (zapiInstanceId && zapiToken) {
-          const resp = await fetch(`https://api.z-api.io/instances/${zapiInstanceId}/token/${zapiToken}/send-text`, {
-            method: "POST", headers: { "Content-Type": "application/json", ...(zapiClientToken ? { "Client-Token": zapiClientToken } : {}) },
-            body: JSON.stringify({ phone: normalizePhone(lead.telefone), message }),
-          });
-          const out = await resp.json().catch(() => ({}));
-          // Prefere o messageId (id do WhatsApp): o callback de status da Z-API manda
-          // esse id em ids[], nunca o zaapId — é ele que casa o envio no zapi-webhook.
-          ok = resp.ok; msgId = out?.messageId ?? out?.id ?? out?.zaapId ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
+          const zapiBase = `https://api.z-api.io/instances/${zapiInstanceId}/token/${zapiToken}`;
+          const zapiHeaders = { "Content-Type": "application/json", ...(zapiClientToken ? { "Client-Token": zapiClientToken } : {}) };
+          // Resolve o número CANÔNICO via phone-exists: números BR antigos são
+          // registrados SEM o nono dígito — mandar pro formato com 9 é aceito
+          // (devolve id) mas NÃO entrega. Checagem indisponível → segue normalizado.
+          let target = normalizePhone(lead.telefone);
+          try {
+            const chk = await fetch(`${zapiBase}/phone-exists/${target}`, { headers: zapiHeaders });
+            const chkOut = await chk.json().catch(() => ({}));
+            if (chk.ok && chkOut) {
+              if (chkOut.exists === false) semWhatsapp = true;
+              else if (typeof chkOut.phone === "string" && chkOut.phone) target = chkOut.phone;
+            }
+          } catch (_) { /* segue com o número normalizado */ }
+          if (!semWhatsapp) {
+            const resp = await fetch(`${zapiBase}/send-text`, {
+              method: "POST", headers: zapiHeaders,
+              body: JSON.stringify({ phone: target, message }),
+            });
+            const out = await resp.json().catch(() => ({}));
+            // Prefere o messageId (id do WhatsApp): o callback de status da Z-API manda
+            // esse id em ids[], nunca o zaapId — é ele que casa o envio no zapi-webhook.
+            ok = resp.ok; msgId = out?.messageId ?? out?.id ?? out?.zaapId ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
+          } else { errDetail = "número sem WhatsApp"; }
         } else { errDetail = "zapi secrets ausentes"; }
 
         // Registra o evento SEMPRE (auditoria de tentativas) — mesmo trilho do e-mail,
@@ -213,6 +230,11 @@ Deno.serve(async (req: Request) => {
           }
           await finalize(s.id, curAttempts + 1);
           sent++; processed++;
+        } else if (semWhatsapp) {
+          // Número não existe no WhatsApp → falha DEFINITIVA: finaliza sem retry
+          // (reagendar não muda nada; auditoria fica no email_events 'falhou').
+          await finalize(s.id, curAttempts + 1, errDetail);
+          failed++; processed++;
         } else {
           // Falha de envio → reagenda (não descarta) até o teto (mesmo backoff do e-mail).
           const r = await failStep(s.id, curAttempts, errDetail);
