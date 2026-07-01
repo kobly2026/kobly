@@ -13,11 +13,11 @@ import { useKobly } from '@/store/store.jsx';
 // Layout com variações (tweak: builderVariant = vertical | horizontal | compact).
 // KoblyFlowBuilder
 
-const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Envio de WhatsApp', 'Acionar Fluxo'];
+const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Envio de WhatsApp', 'Condição', 'Acionar Fluxo'];
 
 // Tom/ícone do card com fallback local p/ tipos ainda não mapeados no mockData (ex.: WhatsApp).
-const cardToneOf = (tipo) => KoblyMockDB.cardTone[tipo] || (tipo === 'Envio de WhatsApp' ? 'success' : 'neutral');
-const cardIconOf = (tipo) => KoblyMockDB.cardIcon[tipo] || (tipo === 'Envio de WhatsApp' ? 'message-circle' : 'circle');
+const cardToneOf = (tipo) => KoblyMockDB.cardTone[tipo] || (tipo === 'Envio de WhatsApp' ? 'success' : tipo === 'Condição' ? 'info' : 'neutral');
+const cardIconOf = (tipo) => KoblyMockDB.cardIcon[tipo] || (tipo === 'Envio de WhatsApp' ? 'message-circle' : tipo === 'Condição' ? 'git-branch' : 'circle');
 
 function fmtDelay(min) {
   if (!min) return 'imediato';
@@ -46,12 +46,13 @@ function defaultConfig(tipo, opts) {
     case 'Remover Tag': return { tags: [] };
     case 'Envio de e-mail': return { emailId: (o.emails || [])[0] ? o.emails[0].id : null };
     case 'Envio de WhatsApp': return { whatsappMessageId: (o.whatsappMessages || [])[0] ? o.whatsappMessages[0].id : null };
+    case 'Condição': return { condTipo: 'comprou' }; // v1: única condição — "o lead comprou?"
     case 'Acionar Fluxo': return { fluxoAlvo: '' };
     default: return {};
   }
 }
-function newStep(tipo, opts) {
-  return { id: 'st_' + Date.now() + '_' + Math.floor(Math.random() * 999), tipo, nome: tipo, atraso: tipo === 'Gatilho' ? 0 : 30, config: defaultConfig(tipo, opts) };
+function newStep(tipo, opts, extra) {
+  return { id: 'st_' + Date.now() + '_' + Math.floor(Math.random() * 999), tipo, nome: tipo, atraso: (tipo === 'Gatilho' || tipo === 'Condição') ? 0 : 30, config: defaultConfig(tipo, opts), ...(extra || {}) };
 }
 
 // ----- Paleta -----
@@ -85,6 +86,7 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
     if (step.tipo === 'Adicionar Tag' || step.tipo === 'Remover Tag') return `${(c.tags || []).length} tag(s)`;
     if (step.tipo === 'Envio de e-mail') return ((opts.emails || []).find((e) => e.id === c.emailId) || {}).titulo || 'e-mail';
     if (step.tipo === 'Envio de WhatsApp') return ((opts.whatsappMessages || []).find((m) => m.id === c.whatsappMessageId) || {}).titulo || 'mensagem WhatsApp';
+    if (step.tipo === 'Condição') return 'O lead comprou?';
     if (step.tipo === 'Acionar Fluxo') return ((opts.campaigns || []).find((x) => x.id === c.fluxoAlvo) || {}).nome || 'selecionar fluxo';
     return '';
   })();
@@ -111,6 +113,39 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summary}</div>
       </div>
       {step.tipo !== 'Gatilho' && <IconButton icon="trash-2" size="sm" aria-label="Excluir etapa" onClick={(e) => { e.stopPropagation(); onDelete(step.id); }} />}
+    </div>
+  );
+}
+
+// ----- Ramos do card Condição (redirecionador IF/ELSE) -----
+// Desenha as duas colunas SIM/NÃO abaixo do card Condição. Filhos são steps
+// com parentId = id do card e ramo 'sim'/'nao'; a ordem é a do array de steps.
+// v1: dentro do ramo só cards de ENVIO (e-mail/WhatsApp) — a condição é
+// compilada em flow_steps.condicao no save e o motor só avalia envios.
+const RAMOS = [
+  { key: 'sim', label: 'SIM — já comprou', tone: 'success', icon: 'check' },
+  { key: 'nao', label: 'NÃO — ainda não comprou', tone: 'warning', icon: 'x' },
+];
+function BranchSplit({ cond, steps, selId, onSelect, onDelete, onAddChild, opts, compact }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', marginTop: 4 }}>
+      {RAMOS.map((r) => {
+        const children = steps.filter((s) => s.parentId === cond.id && s.ramo === r.key);
+        return (
+          <div key={r.key} style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface-card)', border: `1px dashed var(--status-${r.tone}-fg)`, borderRadius: 'var(--radius-md)', padding: 10, minHeight: 90 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-semibold)', color: `var(--status-${r.tone}-fg)`, textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)' }}>
+              <Icon name={r.icon} size={13} /> {r.label}
+            </div>
+            {children.map((s, i) => (
+              <StepCard key={s.id} step={s} index={i} selected={selId === s.id} onSelect={onSelect} onDelete={onDelete} onDragStart={() => {}} compact opts={opts} />
+            ))}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Button size="sm" variant="ghost" iconLeft="mail" onClick={() => onAddChild(cond.id, r.key, 'Envio de e-mail')}>+ E-mail</Button>
+              <Button size="sm" variant="ghost" iconLeft="message-circle" onClick={() => onAddChild(cond.id, r.key, 'Envio de WhatsApp')}>+ WhatsApp</Button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -197,21 +232,39 @@ function Inspector({ step, onChange, onEditEmail, opts = {} }) {
       {step.tipo === 'Acionar Fluxo' && (
         <Select label="Fluxo a acionar" value={c.fluxoAlvo || ''} onChange={(e) => setCfg({ fluxoAlvo: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.campaigns || []).map((x) => ({ value: x.id, label: x.nome }))]} />
       )}
-      {(step.tipo === 'Envio de e-mail' || step.tipo === 'Envio de WhatsApp') && (
+      {step.tipo === 'Condição' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Select
-            label="Condição de envio"
-            value={c.condicao || ''}
-            onChange={(e) => setCfg({ condicao: e.target.value || null })}
-            options={CONDICAO_OPTIONS}
-          />
+          <Select label="Condição" value={c.condTipo || 'comprou'} onChange={(e) => setCfg({ condTipo: e.target.value })} options={[{ value: 'comprou', label: 'O lead comprou?' }]} />
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Avaliada na hora do envio: quem pagou no meio da cadência para de receber recuperação ("NÃO comprou") e pode receber o agradecimento ("JÁ comprou") no mesmo fluxo.
+            Divide o fluxo em dois ramos. Cada envio dos ramos é avaliado na SUA hora de envio: quem pagar no meio da cadência migra do ramo NÃO para o ramo SIM automaticamente.
           </div>
         </div>
       )}
+      {(step.tipo === 'Envio de e-mail' || step.tipo === 'Envio de WhatsApp') && (
+        step.parentId ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>Condição de envio</div>
+            <Badge tone={step.ramo === 'sim' ? 'success' : 'warning'} style={{ alignSelf: 'flex-start' }}>
+              Herdada do ramo: {step.ramo === 'sim' ? 'SIM — só se JÁ comprou' : 'NÃO — só se ainda não comprou'}
+            </Badge>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Definida pelo card Condição acima — arraste o card pra raiz do fluxo se quiser uma condição própria.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Select
+              label="Condição de envio"
+              value={c.condicao || ''}
+              onChange={(e) => setCfg({ condicao: e.target.value || null })}
+              options={CONDICAO_OPTIONS}
+            />
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              Avaliada na hora do envio: quem pagou no meio da cadência para de receber recuperação ("NÃO comprou") e pode receber o agradecimento ("JÁ comprou") no mesmo fluxo.
+            </div>
+          </div>
+        )
+      )}
 
-      {step.tipo !== 'Gatilho' && (
+      {step.tipo !== 'Gatilho' && step.tipo !== 'Condição' && (
         <Input label="Atraso (minutos)" type="number" value={step.atraso} onChange={(e) => set({ atraso: Math.max(0, parseInt(e.target.value || '0', 10)) })} hint={`Aguarda ${fmtDelay(step.atraso)} após a etapa anterior.`} />
       )}
     </div>
@@ -246,15 +299,30 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     // alguns navegadores (Firefox) exigem setData p/ o drag iniciar
     try { e.dataTransfer.setData('text/plain', payload); } catch (_) { /* noop */ }
   }
+  // Raiz do fluxo = steps sem parentId (filhos vivem nos ramos do card Condição).
+  const rootSteps = steps.filter((s) => !s.parentId);
+  // Índice de RAIZ → índice no array FLAT (os DropSlots operam sobre a raiz).
+  const rootToFlat = (rootIndex) => {
+    if (rootIndex >= rootSteps.length) return steps.length;
+    return steps.findIndex((s) => s.id === rootSteps[rootIndex].id);
+  };
+
   // Clique na paleta adiciona o card ao FINAL do fluxo (fallback sem DnD).
   function addStep(tipo) {
     const s = newStep(tipo, opts);
     setSteps((arr) => [...arr, s]);
     setSelId(s.id); markDirty();
   }
-  function onDrop(targetIndex) {
+  // Adiciona um card de ENVIO dentro de um ramo do card Condição.
+  function addChild(condId, ramo, tipo) {
+    const s = newStep(tipo, opts, { parentId: condId, ramo });
+    setSteps((arr) => [...arr, s]);
+    setSelId(s.id); markDirty();
+  }
+  function onDrop(targetRootIndex) {
     const payload = dragRef.current; dragRef.current = null; setOver(-1);
     if (!payload) return;
+    const targetIndex = rootToFlat(targetRootIndex);
     if (payload.startsWith('new:')) {
       const tipo = payload.slice(4);
       const s = newStep(tipo, opts);
@@ -267,14 +335,19 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         const next = arr.slice();
         const [moved] = next.splice(from, 1);
         const insertAt = from < targetIndex ? targetIndex - 1 : targetIndex;
-        next.splice(insertAt, 0, moved);
+        // Arrastar pra raiz TIRA o card do ramo (vira etapa raiz na posição do drop).
+        next.splice(insertAt, 0, { ...moved, parentId: null, ramo: null });
         return next;
       });
       markDirty();
     }
   }
   function updateStep(updated) { setSteps((arr) => arr.map((s) => (s.id === updated.id ? updated : s))); markDirty(); }
-  function deleteStep(id) { setSteps((arr) => arr.filter((s) => s.id !== id)); if (selId === id) setSelId(null); markDirty(); }
+  // Excluir um card Condição leva os filhos dos ramos junto (mesmo cascade do banco).
+  function deleteStep(id) {
+    setSteps((arr) => arr.filter((s) => s.id !== id && s.parentId !== id));
+    if (selId === id) setSelId(null); markDirty();
+  }
   function toggleMeta(id) { setTagsMeta((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id])); markDirty(); }
 
   async function save() {
@@ -314,17 +387,21 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     store.notify(ok ? 'success' : 'danger', ok ? 'Nome atualizado' : 'Não foi possível renomear');
   }
 
-  // Renderiza fluxo com slots de inserção entre etapas
+  // Renderiza a RAIZ do fluxo com slots de inserção entre etapas; cards Condição
+  // desenham os dois ramos (SIM/NÃO) logo abaixo, com seus filhos.
   const flowNodes = [];
-  steps.forEach((s, i) => {
+  rootSteps.forEach((s, i) => {
     flowNodes.push(<DropSlot key={'slot-' + i} index={i} over={over === i} onOver={setOver} onDrop={onDrop} horizontal={horizontal} />);
     flowNodes.push(
-      <div key={s.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: horizontal ? 0 : 0 }}>
+      <div key={s.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: s.tipo === 'Condição' ? '100%' : 'auto' }}>
         <StepCard step={s} index={i} selected={selId === s.id} onSelect={setSelId} onDelete={deleteStep} onDragStart={onDragStart} compact={compact} opts={opts} />
+        {s.tipo === 'Condição' && (
+          <BranchSplit cond={s} steps={steps} selId={selId} onSelect={setSelId} onDelete={deleteStep} onAddChild={addChild} opts={opts} compact={compact} />
+        )}
       </div>
     );
   });
-  flowNodes.push(<DropSlot key={'slot-end'} index={steps.length} over={over === steps.length} onOver={setOver} onDrop={onDrop} horizontal={horizontal} />);
+  flowNodes.push(<DropSlot key={'slot-end'} index={rootSteps.length} over={over === rootSteps.length} onOver={setOver} onDrop={onDrop} horizontal={horizontal} />);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -366,7 +443,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         {/* Canvas — drop em qualquer lugar adiciona ao final; os slots inserem no meio. */}
         <div
           onDragOver={(e) => { e.preventDefault(); }}
-          onDrop={(e) => { e.preventDefault(); onDrop(steps.length); }}
+          onDrop={(e) => { e.preventDefault(); onDrop(rootSteps.length); }}
           style={{ background: 'var(--surface-sunken)', border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)', padding: horizontal ? '24px 16px' : '16px 24px', minHeight: 360, overflowX: horizontal ? 'auto' : 'visible' }}>
           {steps.length === 0 ? (
             <div style={{ height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)', textAlign: 'center' }}>

@@ -402,9 +402,11 @@ Deno.serve(async (req: Request) => {
     const casa = steps.some((s: any) => s.tipo_card === "Gatilho" && s.tipo_evento === tipoEvento);
     if (!casa || !leadId) continue;
 
-    // Coleta as ações (exclui o Gatilho), ordena por posição
+    // Coleta as ações (exclui o Gatilho e o card Condição — este é só o marcador
+    // visual do redirecionador; a condição é compilada em flow_steps.condicao dos
+    // filhos e avaliada pelo process-steps na hora do envio), ordena por posição
     const acoes = steps
-      .filter((s: any) => s.tipo_card !== "Gatilho")
+      .filter((s: any) => s.tipo_card !== "Gatilho" && s.tipo_card !== "Condição")
       .sort((a: any, b: any) => a.posicao - b.posicao);
 
     const rows = acoes.map((s: any) => ({

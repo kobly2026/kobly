@@ -318,26 +318,45 @@ export const KoblyApi = {
     const flowId = flowRow.id; const orgId = flowRow.organization_id;
     await supabase.from('flow_steps').delete().eq('flow_id', flowId);
     await supabase.from('flow_meta_tags').delete().eq('flow_id', flowId);
-    for (let i = 0; i < (fluxo || []).length; i++) {
-      const s = fluxo[i]; const cfg = s.config || {};
+    const arr = fluxo || [];
+    const idMap = {}; // id do builder → id novo no banco (p/ parent_step_id dos ramos)
+    const insertStep = async (s, i) => {
+      const cfg = s.config || {};
       let fluxoAlvoId = null;
       if (s.tipo === 'Acionar Fluxo' && cfg.fluxoAlvo) {
         const { data: tf } = await supabase.from('campaign_flows').select('id').eq('campaign_id', cfg.fluxoAlvo).maybeSingle();
         fluxoAlvoId = tf ? tf.id : null;
       }
+      // Ramo do card Condição COMPILA a condição do filho ('sim' → comprou,
+      // 'nao' → nao_comprou) — o motor só conhece flow_steps.condicao (0022);
+      // parent/ramo servem pra redesenhar a árvore no builder. Steps raiz usam
+      // a condição própria do card (cfg.condicao).
+      const condicao = s.parentId
+        ? (s.ramo === 'sim' ? 'comprou' : 'nao_comprou')
+        : (cfg.condicao || null);
+      const parentDbId = s.parentId ? (idMap[s.parentId] || null) : null;
       const { data: st, error: stErr } = await supabase.from('flow_steps').insert({
         flow_id: flowId, organization_id: orgId, tipo_card: s.tipo, nome: s.nome,
-        posicao: s.posicao != null ? s.posicao : i, atraso: s.atraso || 0,
+        // posicao = ordem do ARRAY do builder (fonte da verdade da ordem visual;
+        // s.posicao antigo fica stale depois de drag/reorder).
+        posicao: i, atraso: s.atraso || 0,
         email_id: cfg.emailId || null, whatsapp_message_id: cfg.whatsappMessageId || null,
-        condicao: cfg.condicao || null,
+        condicao,
+        parent_step_id: parentDbId, ramo: parentDbId ? (s.ramo || null) : null,
         tipo_evento: cfg.tipoEvento || null, webhook_id: cfg.webhookId || null, fluxo_alvo_id: fluxoAlvoId,
       }).select().single();
       // Nunca falhar em silêncio: os steps antigos já foram apagados acima — se o
       // insert falhar, avisa o chamador para a UI não fingir que salvou.
       if (stErr) { console.error('saveFlow steps insert failed', stErr); return false; }
+      idMap[s.id] = st.id;
       if (st && s.tipo === 'Adicionar Tag' && (cfg.tags || []).length) await supabase.from('step_add_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
       if (st && s.tipo === 'Remover Tag' && (cfg.tags || []).length) await supabase.from('step_remove_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
-    }
+      return true;
+    };
+    // Duas passadas: raiz primeiro (os filhos dos ramos referenciam o id novo do pai —
+    // o card Condição pode estar DEPOIS dos filhos no array após um drag).
+    for (let i = 0; i < arr.length; i++) if (!arr[i].parentId) { if (!(await insertStep(arr[i], i))) return false; }
+    for (let i = 0; i < arr.length; i++) if (arr[i].parentId) { if (!(await insertStep(arr[i], i))) return false; }
     if ((tagsMeta || []).length) await supabase.from('flow_meta_tags').insert(tagsMeta.map((t) => ({ flow_id: flowId, tag_id: t })));
     resetDb();
     return true;

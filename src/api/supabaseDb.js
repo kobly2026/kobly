@@ -33,8 +33,10 @@ function reshapeStep(s, flowMap) {
   else if (s.tipo_card === 'Remover Tag') config = { tags: (s.step_remove_tags || []).map((t) => t.tag_id) };
   else if (s.tipo_card === 'Envio de e-mail') config = { emailId: s.email_id, condicao: s.condicao || null };
   else if (s.tipo_card === 'Envio de WhatsApp') config = { whatsappMessageId: s.whatsapp_message_id, condicao: s.condicao || null };
+  else if (s.tipo_card === 'Condição') config = { condTipo: 'comprou' }; // v1: única condição
   else if (s.tipo_card === 'Acionar Fluxo') config = { fluxoAlvo: flowMap[s.fluxo_alvo_id] || s.fluxo_alvo_id };
-  return { id: s.id, tipo: s.tipo_card, nome: s.nome, posicao: s.posicao, atraso: num(s.atraso), config };
+  // parentId/ramo reconstroem a árvore de ramos do card Condição no builder.
+  return { id: s.id, tipo: s.tipo_card, nome: s.nome, posicao: s.posicao, atraso: num(s.atraso), config, parentId: s.parent_step_id || null, ramo: s.ramo || null };
 }
 
 function reshapeStats(cs) {
