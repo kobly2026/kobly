@@ -8,7 +8,7 @@ export function NavRail({
   items = [],
   active,
   onNavigate,
-  brand = 'Kobly',
+  brand = 'Koblay',
   markSrc = null,
   workspaceName = 'Agência Demo',
   workspaceMeta = 'Plano starter',

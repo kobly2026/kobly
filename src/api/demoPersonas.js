@@ -8,6 +8,6 @@ export const DEMO_PASSWORD = 'kobly-demo-2026';
 export const DEMO_PERSONAS = {
   Gestor:        { email: 'vitor@dizevolv.com',     contextLabel: 'Agência Dizevolv' },
   Cliente:       { email: 'joao@lojadojoao.com.br', contextLabel: 'Loja do João' },
-  Suporte:       { email: 'marina@kobly.com',       contextLabel: 'Central Kobly' },
-  Administrador: { email: 'daniela@kobly.com',      contextLabel: 'Admin Kobly' },
+  Suporte:       { email: 'marina@kobly.com',       contextLabel: 'Central Koblay' },
+  Administrador: { email: 'daniela@kobly.com',      contextLabel: 'Admin Koblay' },
 };

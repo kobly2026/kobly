@@ -54,7 +54,7 @@ Deno.serve(async (req: Request) => {
     if (task === "plan") {
       const eventos = ["Abandono de carrinho", "Boleto Gerado", "Compra cancelada", "Depósito Solicitado", "Pix Gerado", "Chargeback", "Cancelamento de Assinatura", "Compra Reembolsada", "Compra Aprovada", "Compra Recusada"];
       const sys = [
-        "Você é estrategista de automação de recuperação de vendas por e-mail (pt-BR) da Kobly.",
+        "Você é estrategista de automação de recuperação de vendas por e-mail (pt-BR) da Koblay.",
         "A partir do OBJETIVO do usuário, planeje uma campanha: escolha o GATILHO e uma cadência de 1 a 3 e-mails.",
         "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) no formato exato:",
         '{"nome": string (curto), "gatilho": string, "etapas": [{"atraso_min": number, "assunto": string (até ~55 car.), "eyebrow": string (curtíssimo), "titulo": string, "paragrafos": string[] (1-2 curtos), "cta": string (até ~28 car.), "cupom": {"codigo": string, "detalhe": string} | null}]}',
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
     // ── Task: suggestion (texto curto fundamentado) ─────────────────────────
     if (task === "suggestion") {
       const sys = [
-        "Você é o analista de IA da Kobly (automação de recuperação de vendas por e-mail).",
+        "Você é o analista de IA da Koblay (automação de recuperação de vendas por e-mail).",
         "Dê UMA recomendação prática e específica, em pt-BR, no máximo 2 frases. Texto puro, SEM markdown.",
         "Fundamente nos DADOS REAIS do contexto (cite número ou nome de campanha quando útil). Não invente.",
         "CONTEXTO (JSON):", ctx,
@@ -106,11 +106,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Task: chat (default) ────────────────────────────────────────────────
     const system = [
-      "Você é o assistente de IA da Kobly, plataforma de automação de marketing por e-mail focada em recuperação de vendas de e-commerce (carrinho abandonado, Pix/boleto gerado, pós-venda).",
+      "Você é o assistente de IA da Koblay, plataforma de automação de marketing por e-mail focada em recuperação de vendas de e-commerce (carrinho abandonado, Pix/boleto gerado, pós-venda).",
       "Responda SEMPRE em português do Brasil, objetivo e prático, curto (no máx. ~4 frases ou uma lista enxuta).",
       "Quando fizer sentido, use os DADOS REAIS do usuário no CONTEXTO para fundamentar (cite números/nomes de campanha).",
       "Domínios de ajuda: análise de campanhas, cadências, assuntos/CTA de e-mail, entregabilidade (DKIM/DMARC), leads e métricas.",
-      "Não invente dados fora do contexto. Se não houver dado suficiente, oriente o próximo passo dentro da Kobly.",
+      "Não invente dados fora do contexto. Se não houver dado suficiente, oriente o próximo passo dentro da Koblay.",
       "CONTEXTO (JSON dos dados do usuário):", ctx,
     ].join("\n");
     const dsMessages = [

@@ -43,7 +43,7 @@ export function Shell() {
         items={navItems}
         active={allowed}
         onNavigate={store.navigate}
-        markSrc="/assets/kobly-mark.svg"
+        markSrc="/assets/koblay-mark.svg"
         workspaceName={store.session.contextLabel}
         workspaceMeta={store.session.plano ? `Plano ${store.session.plano}` : store.roleDef.label}
       />

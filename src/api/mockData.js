@@ -82,8 +82,8 @@ const users = [
 const sessionByRole = {
   Gestor:        { userId: 'u_vitor',   empresaId: null,   contextLabel: 'Agência Dizevolv' },
   Cliente:       { userId: 'u_joao',    empresaId: 'emp_1', contextLabel: 'Loja do João' },
-  Suporte:       { userId: 'u_marina',  empresaId: null,   contextLabel: 'Central Kobly' },
-  Administrador: { userId: 'u_daniela', empresaId: null,   contextLabel: 'Admin Kobly' },
+  Suporte:       { userId: 'u_marina',  empresaId: null,   contextLabel: 'Central Koblay' },
+  Administrador: { userId: 'u_daniela', empresaId: null,   contextLabel: 'Admin Koblay' },
 };
 
 // ---------------------------------------------------------------------------
@@ -149,9 +149,9 @@ const dominios = [
 // WEBHOOKS (WebhooksUsuario) — config de entrada de e-commerce
 // ---------------------------------------------------------------------------
 const webhooks = [
-  { id: 'wh_1', nome: 'Hotmart — checkout', descricao: 'Eventos de compra e carrinho da Hotmart', url: 'https://api.kobly.app/wh/emp_1/hotmart_9f3a2c81', secret: 'whsec_8f2a91c0e4', testado: true, desabilitado: false, eventos: ['Abandono de carrinho', 'Pix Gerado', 'Compra Aprovada'] },
-  { id: 'wh_2', nome: 'Braip — checkout', descricao: 'Eventos da Braip', url: 'https://api.kobly.app/wh/emp_1/braip_2c81f3a9', secret: 'whsec_1b77e0aa42', testado: true, desabilitado: false, eventos: ['Boleto Gerado', 'Compra Aprovada', 'Chargeback'] },
-  { id: 'wh_3', nome: 'Loja própria (Shopify)', descricao: 'Webhook custom da loja', url: 'https://api.kobly.app/wh/emp_1/custom_aa42b1c7', secret: 'whsec_55a1c2b3d4', testado: false, desabilitado: true, eventos: ['Compra Aprovada'] },
+  { id: 'wh_1', nome: 'Hotmart — checkout', descricao: 'Eventos de compra e carrinho da Hotmart', url: 'https://api.koblay.io/wh/emp_1/hotmart_9f3a2c81', secret: 'whsec_8f2a91c0e4', testado: true, desabilitado: false, eventos: ['Abandono de carrinho', 'Pix Gerado', 'Compra Aprovada'] },
+  { id: 'wh_2', nome: 'Braip — checkout', descricao: 'Eventos da Braip', url: 'https://api.koblay.io/wh/emp_1/braip_2c81f3a9', secret: 'whsec_1b77e0aa42', testado: true, desabilitado: false, eventos: ['Boleto Gerado', 'Compra Aprovada', 'Chargeback'] },
+  { id: 'wh_3', nome: 'Loja própria (Shopify)', descricao: 'Webhook custom da loja', url: 'https://api.koblay.io/wh/emp_1/custom_aa42b1c7', secret: 'whsec_55a1c2b3d4', testado: false, desabilitado: true, eventos: ['Compra Aprovada'] },
 ];
 
 // ---------------------------------------------------------------------------

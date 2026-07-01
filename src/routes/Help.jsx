@@ -36,7 +36,7 @@ function KoblyHelp() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card title="Tutoriais em vídeo">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {['Primeiros passos no Kobly', 'Conectando seu checkout', 'Montando um fluxo de recuperação'].map((t) => (
+              {['Primeiros passos no Koblay', 'Conectando seu checkout', 'Montando um fluxo de recuperação'].map((t) => (
                 <button key={t} onClick={() => store.notify('info', 'Player de vídeo (demo)')} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'start', cursor: 'pointer', border: '1px solid var(--border-subtle)', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', padding: 12, fontFamily: 'var(--font-sans)' }}>
                   <span style={{ display: 'inline-flex', width: 36, height: 36, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="play" size={16} /></span>
                   <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)', fontWeight: 'var(--fw-medium)' }}>{t}</span>
