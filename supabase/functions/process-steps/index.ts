@@ -16,13 +16,26 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const MAX_ATTEMPTS = 4;        // tentativas totais antes de desistir
 const RETRY_BACKOFF_MIN = 5;   // backoff linear: 5min, 10min, 15min...
 
+// Extrai só o endereço de "Nome <email>" ou de um e-mail puro.
+function extractEmail(s: string | null): string | null {
+  if (!s) return null;
+  const m = String(s).match(/<([^>]+)>/);
+  return (m ? m[1] : String(s)).trim() || null;
+}
+// Sanitiza o nome de exibição do remetente (remove aspas/< >/vírgula que quebram o header From).
+function fromNameSafe(n: string | null | undefined): string {
+  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "Kobly";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   const { data: apiKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
   const { data: fromCfg } = await sb.rpc("get_secret", { p_name: "resend_from" });
-  const sender = fromCfg || "Kobly <onboarding@resend.dev>";
+  // Só o endereço do remetente vem da config (domínio verificado); o NOME de exibição
+  // é o da marca do cliente (loja), resolvido por e-mail/org logo abaixo.
+  const senderEmail = extractEmail(fromCfg) || "onboarding@resend.dev";
 
   const { data: due, error } = await sb.from("scheduled_steps")
     .select("id, organization_id, lead_id, attempts, flow_steps(id, tipo_card, email_id, flow_id), leads(id, email, nome, link_recuperacao)")
@@ -33,14 +46,14 @@ Deno.serve(async (req: Request) => {
 
   let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0;
 
-  // Fallback do link do botão por org (URL da loja/checkout configurada na aba Marca).
-  const orgLinkCache = new Map<string, string | null>();
-  const getOrgLink = async (org: string): Promise<string | null> => {
-    if (orgLinkCache.has(org)) return orgLinkCache.get(org)!;
-    const { data } = await sb.from("org_branding").select("link_loja").eq("organization_id", org).maybeSingle();
-    const link = (data?.link_loja as string) || null;
-    orgLinkCache.set(org, link);
-    return link;
+  // Marca da org por conta: nome (remetente) + URL de fallback do botão (aba Marca).
+  const orgBrandCache = new Map<string, { nome: string | null; link: string | null }>();
+  const getOrgBrand = async (org: string) => {
+    if (orgBrandCache.has(org)) return orgBrandCache.get(org)!;
+    const { data } = await sb.from("org_branding").select("nome, link_loja").eq("organization_id", org).maybeSingle();
+    const brand = { nome: (data?.nome as string) || null, link: (data?.link_loja as string) || null };
+    orgBrandCache.set(org, brand);
+    return brand;
   };
 
   // Finaliza a etapa (sucesso ou desistência definitiva).
@@ -69,14 +82,17 @@ Deno.serve(async (req: Request) => {
           campaignId = cf?.campaign_id ?? null;
         }
         const { data: em } = await sb.from("emails").select("assunto, corpo_html, remetente").eq("id", step.email_id).maybeSingle();
+        const brand = await getOrgBrand(s.organization_id);
         // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
-        const ctaLink = lead.link_recuperacao || (await getOrgLink(s.organization_id)) || "#";
+        const ctaLink = lead.link_recuperacao || brand.link || "#";
         const html = (em?.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
+        // Remetente: NOME da marca do cliente (do e-mail ou da org) + endereço do domínio verificado.
+        const from = `${fromNameSafe(em?.remetente || brand.nome)} <${senderEmail}>`;
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         if (apiKey) {
           const resp = await fetch("https://api.resend.com/emails", {
             method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from: sender, to: [lead.email], subject: em?.assunto || "Kobly", html }),
+            body: JSON.stringify({ from, to: [lead.email], subject: em?.assunto || "Kobly", html }),
           });
           const out = await resp.json().catch(() => ({}));
           ok = resp.ok; msgId = out?.id ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
