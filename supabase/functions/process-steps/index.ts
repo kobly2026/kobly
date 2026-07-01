@@ -46,6 +46,8 @@ Deno.serve(async (req: Request) => {
   // é o da marca do cliente (loja), resolvido por e-mail/org logo abaixo.
   const senderEmail = extractEmail(fromCfg) || "onboarding@resend.dev";
   // Credenciais Z-API (canal WhatsApp) — resolvidas UMA vez por varredura, como o Resend.
+  // Client-Token (conta) é OPCIONAL: header enviado só se a secret existir (a conta
+  // atual não o exige — mesma regra da edge function send-whatsapp).
   const { data: zapiInstanceId } = await sb.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
@@ -147,9 +149,9 @@ Deno.serve(async (req: Request) => {
         const ctaLink = lead.link_recuperacao || brand.link || "#";
         const message = String(wm?.corpo_texto || wm?.titulo || "").split("{{cta_link}}").join(ctaLink);
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
-        if (zapiInstanceId && zapiToken && zapiClientToken) {
+        if (zapiInstanceId && zapiToken) {
           const resp = await fetch(`https://api.z-api.io/instances/${zapiInstanceId}/token/${zapiToken}/send-text`, {
-            method: "POST", headers: { "Client-Token": zapiClientToken, "Content-Type": "application/json" },
+            method: "POST", headers: { "Content-Type": "application/json", ...(zapiClientToken ? { "Client-Token": zapiClientToken } : {}) },
             body: JSON.stringify({ phone: normalizePhone(lead.telefone), message }),
           });
           const out = await resp.json().catch(() => ({}));

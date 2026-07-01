@@ -33,16 +33,19 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: instanceId } = await admin.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: token } = await admin.rpc("get_secret", { p_name: "zapi_token" });
+  // Client-Token (token de segurança da CONTA, aba Segurança da Z-API) é OPCIONAL:
+  // a conta atual não o exige (validado via /status sem o header). Se a secret existir,
+  // o header é enviado — habilitar na Z-API + gravar a secret é o hardening recomendado.
   const { data: clientToken } = await admin.rpc("get_secret", { p_name: "zapi_client_token" });
-  if (!instanceId || !token || !clientToken)
-    return json({ error: "secret_unavailable", detail: "Defina as secrets 'zapi_instance_id', 'zapi_token' e 'zapi_client_token' no Vault." }, 500);
+  if (!instanceId || !token)
+    return json({ error: "secret_unavailable", detail: "Defina as secrets 'zapi_instance_id' e 'zapi_token' no Vault." }, 500);
 
   // ── Chamada à Z-API → falha de rede/DNS é 502 (erro do UPSTREAM, não do chamador) ──
   let resp: Response;
   try {
     resp = await fetch(`https://api.z-api.io/instances/${instanceId}/token/${token}/send-text`, {
       method: "POST",
-      headers: { "Client-Token": clientToken, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(clientToken ? { "Client-Token": clientToken } : {}) },
       body: JSON.stringify({ phone: normalizePhone(phone), message }),
     });
   } catch (e) {
