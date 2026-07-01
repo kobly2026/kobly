@@ -4,7 +4,7 @@ import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Segmented, Modal } from '@/lib/ui.jsx';
+import { Segmented, Modal, PhoneField } from '@/lib/ui.jsx';
 import { renderEmail } from '@/lib/emailTemplate.js';
 import { useKobly } from '@/store/store.jsx';
 
@@ -556,10 +556,10 @@ function WhatsappTab({ empresaId }) {
             Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 220px', maxWidth: 320 }}>
-              <Input label="Telefone de teste" placeholder="Ex.: 5511999999999" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+            <div style={{ flex: '1 1 280px', maxWidth: 380 }}>
+              <PhoneField label="Telefone de teste" value={testPhone} onChange={setTestPhone} />
             </div>
-            <Button variant="primary" iconLeft="send" disabled={sending || !testPhone.trim()} onClick={sendTest}>
+            <Button variant="primary" iconLeft="send" disabled={sending || testPhone.replace(/\D/g, '').length < 10} onClick={sendTest}>
               {sending ? 'Enviando…' : 'Enviar teste'}
             </Button>
           </div>
@@ -570,7 +570,7 @@ function WhatsappTab({ empresaId }) {
             </div>
           )}
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Informe o número com DDI e DDD, só dígitos (ex.: 5511999999999).
+            Escolha o país e digite com DDD — a máscara formata sozinha, e o envio resolve o formato real do número no WhatsApp (com ou sem o nono dígito).
           </div>
         </div>
       </Card>

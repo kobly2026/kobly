@@ -219,4 +219,80 @@ function AISuggestion({ title = 'Sugestão da IA', load }) {
   );
 }
 
-export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, Toast, Segmented, Drawer, Modal, AISuggestion };
+// ---- Campo de telefone: país (DDI) + máscara nacional ----------------------
+// Dropdown de país (bandeira + DDI) e máscara enquanto digita — no Brasil,
+// (98) 98814-8222. Emite via onChange o número COMPLETO só-dígitos com DDI
+// (ex.: 5598988148222), pronto pro backend (que ainda resolve o formato
+// canônico do WhatsApp via phone-exists).
+const PHONE_COUNTRIES = [
+  { code: 'BR', ddi: '55', flag: '🇧🇷', nome: 'Brasil', max: 11, placeholder: '(11) 99999-9999' },
+  { code: 'PT', ddi: '351', flag: '🇵🇹', nome: 'Portugal', max: 9, placeholder: '912 345 678' },
+  { code: 'US', ddi: '1', flag: '🇺🇸', nome: 'EUA/Canadá', max: 10, placeholder: '(555) 123-4567' },
+  { code: 'AR', ddi: '54', flag: '🇦🇷', nome: 'Argentina', max: 11, placeholder: '11 2345-6789' },
+  { code: 'MX', ddi: '52', flag: '🇲🇽', nome: 'México', max: 10, placeholder: '55 1234 5678' },
+  { code: 'ES', ddi: '34', flag: '🇪🇸', nome: 'Espanha', max: 9, placeholder: '612 34 56 78' },
+];
+
+// Máscara BR progressiva: (dd → (dd) dddd → (dd) dddd-dddd → (dd) ddddd-dddd (celular).
+function maskBRPhone(d) {
+  d = d.slice(0, 11);
+  if (!d) return '';
+  if (d.length <= 2) return `(${d}`;
+  const rest = d.slice(2);
+  if (rest.length <= 4) return `(${d.slice(0, 2)}) ${rest}`;
+  const cut = rest.length >= 9 ? 5 : 4; // 9 dígitos locais = celular com nono dígito
+  return `(${d.slice(0, 2)}) ${rest.slice(0, cut)}-${rest.slice(cut)}`;
+}
+
+function PhoneField({ label = 'Telefone', value = '', onChange }) {
+  // Deriva país + parte nacional do valor completo (DDI + nacional).
+  const match = PHONE_COUNTRIES.find((c) => value && value.startsWith(c.ddi)) || PHONE_COUNTRIES[0];
+  const [country, setCountry] = useState(match.code);
+  const c = PHONE_COUNTRIES.find((x) => x.code === country) || PHONE_COUNTRIES[0];
+  const national = value && value.startsWith(c.ddi) ? value.slice(c.ddi.length) : value;
+
+  const emit = (ddi, nat) => onChange && onChange(nat ? `${ddi}${nat}` : '');
+  function onCountry(e) {
+    const next = PHONE_COUNTRIES.find((x) => x.code === e.target.value) || PHONE_COUNTRIES[0];
+    setCountry(next.code);
+    emit(next.ddi, national.slice(0, next.max));
+  }
+  function onDigits(e) {
+    const nat = String(e.target.value).replace(/\D/g, '').slice(0, c.max);
+    emit(c.ddi, nat);
+  }
+
+  const inputStyle = {
+    fontFamily: 'var(--font-sans)', fontSize: 'var(--text-md)', color: 'var(--text-strong)',
+    background: 'var(--surface-card)', border: '1px solid var(--border-default)',
+    borderRadius: 'var(--radius-md)', minHeight: 40, outline: 'none', boxSizing: 'border-box',
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {label && <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>{label}</span>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <select
+          aria-label="País"
+          value={country}
+          onChange={onCountry}
+          className="kbly-input"
+          style={{ ...inputStyle, width: 108, flex: 'none', padding: '9px 8px', cursor: 'pointer', appearance: 'none' }}
+        >
+          {PHONE_COUNTRIES.map((x) => <option key={x.code} value={x.code}>{x.flag} +{x.ddi}</option>)}
+        </select>
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
+          className="kbly-input"
+          placeholder={c.placeholder}
+          value={c.code === 'BR' ? maskBRPhone(national) : national}
+          onChange={onDigits}
+          style={{ ...inputStyle, flex: 1, minWidth: 0, padding: '9px 13px' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };
