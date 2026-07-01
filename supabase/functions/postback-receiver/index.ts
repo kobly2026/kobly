@@ -6,6 +6,9 @@
 // Também aceita nativamente o payload de Webhook da Hotmart (v2), sem tradução manual
 // pelo cliente: { event: "PURCHASE_APPROVED", data: { buyer: {...}, purchase: {...} } }.
 // Mapeamento event → tipo_evento é feito internamente (EVENT_MAP / HOTMART_EVENT_MAP).
+// Link de recuperação: extractRecoveryLink varre o payload por um link de checkout/carrinho
+// (checkout_url, billet_url, link em metadata…) e grava em leads.link_recuperacao → o botão
+// do e-mail ({{cta_link}}) é apontado pra lá no envio.
 // Fluxo core: webhook_events (idempotente) → upsert lead → enfileira steps.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -102,6 +105,38 @@ function normalizePayload(body: any): {
   };
 }
 
+// Varre o payload cru atrás do MELHOR link de recuperação/checkout que a plataforma
+// mandar (varia por provedor: checkout_url, billet_url, link em metadata, etc.).
+// Pontua por relevância da chave e ignora URLs de imagem/logo/callback. Esse link vira
+// o destino do botão do e-mail (trocado no envio pelo process-steps).
+function extractRecoveryLink(payload: any): string | null {
+  const URL_RE = /^https?:\/\/\S+/i;
+  const BAD = /(image|img|photo|logo|avatar|thumb|icon|notif|webhook|callback|postback|terms|privacy|unsub|producer|affiliate|banner|cover)/i;
+  let best: { score: number; url: string } | null = null;
+  const seen = new Set<any>();
+  const consider = (key: string, url: string) => {
+    if (BAD.test(key)) return;
+    let score = 0;
+    if (/(checkout|recover|carrinho|cart)/i.test(key)) score = 4;
+    else if (/(billet|boleto|pix)/i.test(key)) score = 3;
+    else if (/(payment|pay|invoice|offer)/i.test(key)) score = 2;
+    else if (/(link|url)/i.test(key)) score = 1;
+    else return;
+    if (!best || score > best.score) best = { score, url };
+  };
+  const walk = (obj: any, parentKey = "") => {
+    if (!obj || typeof obj !== "object" || seen.has(obj)) return;
+    if (parentKey && BAD.test(parentKey)) return; // não desce em subárvores de imagem/produtor/etc.
+    seen.add(obj);
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === "string" && URL_RE.test(v.trim())) consider(k, v.trim());
+      else if (v && typeof v === "object") walk(v, k);
+    }
+  };
+  walk(payload);
+  return best ? best.url : null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -144,6 +179,8 @@ Deno.serve(async (req: Request) => {
   // ── Idempotência: dedup por external_id (se fornecido) ──
   const idWebhook = norm.externalId ?? `pbk:${crypto.randomUUID()}`;
   const isPix = norm.sourceEvent === "pix_generated"; // só o contrato genérico distingue Pix hoje
+  // Link de recuperação/checkout que a plataforma mandou (se houver) → destino do botão do e-mail.
+  const recoveryLink = extractRecoveryLink(body);
 
   // ── 1) webhook_events (idempotente) ──
   const evt = {
@@ -157,6 +194,7 @@ Deno.serve(async (req: Request) => {
     valor_produto: norm.value,
     metodo_pagamento: norm.paymentMethod,
     pix_gerado: isPix,
+    checkout_url: recoveryLink,
     payload: body,
   };
   const ins = await sb.from("webhook_events").insert(evt).select("id").single();
@@ -179,6 +217,8 @@ Deno.serve(async (req: Request) => {
       valor_compra: norm.value,
       metodo_pagamento: norm.paymentMethod,
       pix_gerado: isPix,
+      // Só sobrescreve o link se este evento trouxe um (não apaga um link válido anterior).
+      ...(recoveryLink ? { link_recuperacao: recoveryLink } : {}),
     }).eq("id", leadId);
   } else {
     const { data: nl } = await sb.from("leads").insert({
@@ -190,6 +230,7 @@ Deno.serve(async (req: Request) => {
       metodo_pagamento: norm.paymentMethod,
       pix_gerado: isPix,
       ultimo_evento: tipoEvento,
+      link_recuperacao: recoveryLink,
     }).select("id").single();
     leadId = nl?.id ?? null;
   }

@@ -493,6 +493,7 @@ function BrandTab({ empresaId }) {
   const [cor, setCor] = useState('#ff6800');
   const [logoUrl, setLogoUrl] = useState('');
   const [modo, setModo] = useState('dark'); // tema do e-mail: dark | light
+  const [linkLoja, setLinkLoja] = useState(''); // URL de fallback do botão dos e-mails
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -507,6 +508,7 @@ function BrandTab({ empresaId }) {
       setCor(b.cor || '#ff6800');
       setLogoUrl(b.logo_url || '');
       setModo(b.modo === 'light' ? 'light' : 'dark');
+      setLinkLoja(b.link_loja || '');
       setLoading(false);
     });
     return () => { alive = false; };
@@ -523,7 +525,7 @@ function BrandTab({ empresaId }) {
   }
   async function save() {
     setSaving(true);
-    const { error } = await KoblyApi.saveBranding(empresaId, { nome, cor, logoUrl, modo });
+    const { error } = await KoblyApi.saveBranding(empresaId, { nome, cor, logoUrl, modo, linkLoja });
     setSaving(false);
     store.notify(error ? 'danger' : 'success', error ? 'Não foi possível salvar' : 'Marca salva — aplicada aos e-mails');
   }
@@ -534,7 +536,7 @@ function BrandTab({ empresaId }) {
     preheader: 'Prévia da sua marca',
     blocks: [
       { type: 'hero', eyebrow: 'Recuperação', title: 'Você esqueceu algo no carrinho', text: 'Finalize sua compra e garanta seu pedido.' },
-      { type: 'button', label: 'Voltar ao carrinho', href: '#' },
+      { type: 'button', label: 'Voltar ao carrinho', href: linkLoja || '#' },
       { type: 'coupon', code: 'VOLTA10', note: '10% de desconto por tempo limitado' },
     ],
   });
@@ -570,6 +572,10 @@ function BrandTab({ empresaId }) {
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Tema do e-mail</div>
             <Segmented value={modo} onChange={setModo} options={[{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }]} />
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Define o fundo dos e-mails enviados aos leads.</div>
+          </div>
+          <div>
+            <Input label="URL da loja / checkout" placeholder="Ex.: https://minhaloja.com/carrinho" value={linkLoja} onChange={(e) => setLinkLoja(e.target.value)} />
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Para onde o botão leva quando o checkout não manda um link próprio. Quando a plataforma envia o link de recuperação do carrinho, ele tem prioridade.</div>
           </div>
           <Button variant="primary" iconLeft="check" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar marca'}</Button>
         </div>

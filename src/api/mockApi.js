@@ -260,7 +260,8 @@ export const KoblyApi = {
         { type: 'hero', eyebrow: et.eyebrow || 'Sua loja', title: et.titulo || et.assunto || 'Você esqueceu algo', text: (et.paragrafos || [])[0] || '' },
         ...((et.paragrafos || []).slice(1).map((p) => ({ type: 'paragraph', text: p }))),
         ...((et.cupom && et.cupom.codigo) ? [{ type: 'coupon', code: et.cupom.codigo, detail: et.cupom.detalhe || '' }] : []),
-        { type: 'button', label: et.cta || 'Concluir compra', href: '#' },
+        // {{cta_link}}: token trocado no envio pelo link de recuperação do lead (process-steps).
+        { type: 'button', label: et.cta || 'Concluir compra', href: '{{cta_link}}' },
       ];
       const html = renderEmail({ brand, preheader: et.assunto || '', blocks });
       const { data: em } = await supabase.from('emails').insert({
@@ -482,14 +483,17 @@ export const KoblyApi = {
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return null;
     const { data } = await supabase.from('org_branding').select('*').eq('organization_id', orgId).maybeSingle();
-    return data || { organization_id: orgId, nome: '', logo_url: '', cor: '#ff6800', modo: 'dark' };
+    return data || { organization_id: orgId, nome: '', logo_url: '', cor: '#ff6800', modo: 'dark', link_loja: '' };
   },
-  async saveBranding(empresaId, { nome, cor, logoUrl, modo }) {
+  async saveBranding(empresaId, { nome, cor, logoUrl, modo, linkLoja }) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return { error: 'no_org' };
+    // Normaliza a URL da loja: adiciona https:// se vier sem esquema.
+    let link = (linkLoja || '').trim();
+    if (link && !/^https?:\/\//i.test(link)) link = `https://${link}`;
     const { error } = await supabase.from('org_branding').upsert(
-      { organization_id: orgId, nome: nome || null, cor: cor || null, logo_url: logoUrl || null, modo: modo === 'light' ? 'light' : 'dark', updated_at: new Date().toISOString() },
+      { organization_id: orgId, nome: nome || null, cor: cor || null, logo_url: logoUrl || null, modo: modo === 'light' ? 'light' : 'dark', link_loja: link || null, updated_at: new Date().toISOString() },
       { onConflict: 'organization_id' },
     );
     resetDb();
@@ -657,7 +661,14 @@ export const KoblyApi = {
 
   // ---- E-mail (envio via Resend, Edge Function send-email) ----------------
   async sendTestEmail({ to, subject, html, text, from }) {
-    const { data, error } = await supabase.functions.invoke('send-email', { body: { to, subject, html, text, from } });
+    // No teste não há lead, então resolve o {{cta_link}} pela URL da loja (ou '#').
+    let testHtml = html || '';
+    if (testHtml.includes('{{cta_link}}')) {
+      let fallback = '#';
+      try { const b = await this.getBranding(); if (b && b.link_loja) fallback = b.link_loja; } catch (e) { /* usa '#' */ }
+      testHtml = testHtml.split('{{cta_link}}').join(fallback);
+    }
+    const { data, error } = await supabase.functions.invoke('send-email', { body: { to, subject, html: testHtml, text, from } });
     if (error) return { error: error.message };
     if (data && data.error) {
       if (data.error === 'secret_unavailable') return { error: 'Resend não configurado (falta a API key).' };

@@ -160,7 +160,8 @@ export const KoblyAI = {
         { type: 'hero', eyebrow: e.eyebrow || 'Sua loja', title: e.titulo || 'Você esqueceu algo', text: (e.paragrafos && e.paragrafos[0]) || '' },
         ...((e.paragrafos || []).slice(1).map((p) => ({ type: 'paragraph', text: p }))),
         ...((e.cupom && e.cupom.codigo) ? [{ type: 'coupon', code: e.cupom.codigo, detail: e.cupom.detalhe || '' }] : []),
-        { type: 'button', label: e.cta || cta, href: '#' },
+        // {{cta_link}}: token trocado no envio (process-steps) pelo link de recuperação do lead.
+        { type: 'button', label: e.cta || cta, href: '{{cta_link}}' },
         { type: 'note', text: note },
       ];
       const html = renderEmail({ brand, preheader: e.assunto || e.titulo || '', blocks });
@@ -169,7 +170,7 @@ export const KoblyAI = {
       const titulo = (brief && brief.titulo) || 'Você esqueceu algo no carrinho';
       const html = renderEmail({ brand, preheader: titulo, blocks: [
         { type: 'hero', eyebrow: 'Sua loja', title: titulo, text: 'Separamos seus itens e eles continuam reservados — conclua antes que o estoque acabe.' },
-        { type: 'button', label: cta, href: '#' },
+        { type: 'button', label: cta, href: '{{cta_link}}' },
         { type: 'note', text: note },
       ] });
       return { html, assunto: '' };

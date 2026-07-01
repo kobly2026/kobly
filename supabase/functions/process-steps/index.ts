@@ -25,13 +25,23 @@ Deno.serve(async (req: Request) => {
   const sender = fromCfg || "Kobly <onboarding@resend.dev>";
 
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, flow_steps(id, tipo_card, email_id, flow_id), leads(id, email, nome)")
+    .select("id, organization_id, lead_id, attempts, flow_steps(id, tipo_card, email_id, flow_id), leads(id, email, nome, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
   if (error) return json({ error: "query_failed", detail: error.message }, 500);
 
   let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0;
+
+  // Fallback do link do botão por org (URL da loja/checkout configurada na aba Marca).
+  const orgLinkCache = new Map<string, string | null>();
+  const getOrgLink = async (org: string): Promise<string | null> => {
+    if (orgLinkCache.has(org)) return orgLinkCache.get(org)!;
+    const { data } = await sb.from("org_branding").select("link_loja").eq("organization_id", org).maybeSingle();
+    const link = (data?.link_loja as string) || null;
+    orgLinkCache.set(org, link);
+    return link;
+  };
 
   // Finaliza a etapa (sucesso ou desistência definitiva).
   const finalize = (id: string, attempts: number, lastError: string | null = null) =>
@@ -59,11 +69,14 @@ Deno.serve(async (req: Request) => {
           campaignId = cf?.campaign_id ?? null;
         }
         const { data: em } = await sb.from("emails").select("assunto, corpo_html, remetente").eq("id", step.email_id).maybeSingle();
+        // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
+        const ctaLink = lead.link_recuperacao || (await getOrgLink(s.organization_id)) || "#";
+        const html = (em?.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         if (apiKey) {
           const resp = await fetch("https://api.resend.com/emails", {
             method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from: sender, to: [lead.email], subject: em?.assunto || "Kobly", html: em?.corpo_html || "<p></p>" }),
+            body: JSON.stringify({ from: sender, to: [lead.email], subject: em?.assunto || "Kobly", html }),
           });
           const out = await resp.json().catch(() => ({}));
           ok = resp.ok; msgId = out?.id ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
