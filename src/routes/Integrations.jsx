@@ -477,9 +477,22 @@ function EmailTemplatesTab({ data, reload }) {
 // ── Aba: WhatsApp (Z-API) — estado da conexão + envio de teste + mensagens ──
 // As credenciais Z-API ficam no Vault (backend); a UI não coleta secrets — a
 // conexão é configurada pelo suporte e aqui só se testa e se editam as mensagens.
+// Formata o número conectado pra exibição: 5517936314125 → +55 (17) 93631-4125.
+function fmtWhatsNumber(digits) {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
+    const dd = d.slice(2, 4); const rest = d.slice(4);
+    const cut = rest.length === 9 ? 5 : 4;
+    return `+55 (${dd}) ${rest.slice(0, cut)}-${rest.slice(cut)}`;
+  }
+  return `+${d}`;
+}
+
 function WhatsappTab({ empresaId }) {
   const store = useKobly();
   const msgs = useAsync(() => KoblyApi.listWhatsappMessages(), [empresaId]);
+  const conn = useAsync(() => KoblyApi.getWhatsappStatus(), []);
   const [testPhone, setTestPhone] = useState('');
   const [sending, setSending] = useState(false);
   const [testResult, setTestResult] = useState(null); // { ok, msg } do último teste
@@ -551,6 +564,31 @@ function WhatsappTab({ empresaId }) {
       {/* Conexão Z-API + envio de teste */}
       <Card title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Estado REAL da conexão: qual número/nome de WhatsApp está plugado */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+            {conn.loading ? (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Verificando conexão…</span>
+            ) : conn.data && !conn.data.error && conn.data.connected ? (
+              <>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--status-success-fg)', flex: 'none' }} />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
+                    Conectado · {fmtWhatsNumber(conn.data.phone)}
+                  </span>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                    {conn.data.name || 'WhatsApp'}{conn.data.smartphoneConnected ? ' · celular pareado' : ' · ⚠ celular fora do ar'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--status-danger-fg)', flex: 'none' }} />
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-body)' }}>
+                  {(conn.data && conn.data.error) || 'WhatsApp desconectado — fale com o suporte para reconectar.'}
+                </span>
+              </>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
             Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.

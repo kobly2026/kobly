@@ -27,8 +27,8 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch (e) {
     return json({ error: "bad_request", detail: String(e).slice(0, 300) }, 400);
   }
-  const { phone, message } = body ?? {};
-  if (!phone || !message) return json({ error: "missing_fields", detail: "phone e message são obrigatórios" }, 400);
+  const { phone, message, action } = body ?? {};
+  if (action !== "status" && (!phone || !message)) return json({ error: "missing_fields", detail: "phone e message são obrigatórios" }, 400);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: instanceId } = await admin.rpc("get_secret", { p_name: "zapi_instance_id" });
@@ -42,6 +42,26 @@ Deno.serve(async (req: Request) => {
 
   const zapiBase = `https://api.z-api.io/instances/${instanceId}/token/${token}`;
   const zapiHeaders = { "Content-Type": "application/json", ...(clientToken ? { "Client-Token": clientToken } : {}) };
+
+  // ── action=status: estado da conexão + número/nome conectado (pra UI mostrar
+  // QUAL WhatsApp está plugado sem precisar abrir o painel da Z-API) ──
+  if (action === "status") {
+    try {
+      const [st, dev] = await Promise.all([
+        fetch(`${zapiBase}/status`, { headers: zapiHeaders }).then((r) => r.json()).catch(() => ({})),
+        fetch(`${zapiBase}/device`, { headers: zapiHeaders }).then((r) => r.json()).catch(() => ({})),
+      ]);
+      return json({
+        ok: true,
+        connected: !!st?.connected,
+        smartphoneConnected: !!st?.smartphoneConnected,
+        phone: dev?.phone ?? null,
+        name: dev?.name ?? null,
+      });
+    } catch (e) {
+      return json({ error: "zapi_unreachable", detail: String(e).slice(0, 200) }, 502);
+    }
+  }
 
   // ── Resolve o número CANÔNICO no WhatsApp via phone-exists ──
   // Números BR antigos são registrados SEM o nono dígito: mandar pro formato com 9

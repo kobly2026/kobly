@@ -792,6 +792,19 @@ export const KoblyApi = {
     return { error: null, id: data && data.id };
   },
 
+  // Estado da conexão WhatsApp (Z-API): conectado? qual número/nome está plugado?
+  // Mostrado na aba WhatsApp pra ninguém precisar abrir o painel da Z-API.
+  async getWhatsappStatus() {
+    const { data, error } = await supabase.functions.invoke('send-whatsapp', { body: { action: 'status' } });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      if (body && body.error === 'secret_unavailable') return { error: 'Z-API não configurada — as credenciais são definidas pelo suporte.' };
+      return { error: (body && (body.detail || body.error)) || error.message };
+    }
+    if (data && data.error) return { error: data.detail || data.error };
+    return { error: null, connected: !!(data && data.connected), smartphoneConnected: !!(data && data.smartphoneConnected), phone: (data && data.phone) || null, name: (data && data.name) || null };
+  },
+
   // ---- Organizações / contas (Gestor cria; membro edita básico) -----------
   async createOrganization({ nome, segmento }) {
     const { data, error } = await supabase.rpc('create_managed_org', { p_nome: nome, p_segmento: segmento });

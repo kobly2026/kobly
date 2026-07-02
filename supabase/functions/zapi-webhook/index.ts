@@ -46,6 +46,24 @@ Deno.serve(async (req: Request) => {
   // Payload típico: { type: 'MessageStatusCallback', status: 'SENT'|'RECEIVED'|'READ',
   //                   ids: [...] | messageId | zaapId, phone, momment }
   const rawStatus = String(body?.status ?? body?.type ?? "").toUpperCase();
+  // Observabilidade: todo callback fica no log da função (status real de entrega
+  // é a ÚNICA fonte da verdade — a Z-API não tem endpoint de consulta de status).
+  console.log("zapi-callback", JSON.stringify({
+    type: body?.type ?? null, status: rawStatus || null,
+    ids: body?.ids ?? body?.messageId ?? body?.zaapId ?? null, phone: body?.phone ?? null,
+  }).slice(0, 500));
+  // TEMP DEBUG: captura TODO callback no banco p/ diagnóstico de entrega
+  // (get_logs não expõe console.log). Remover após o diagnóstico.
+  {
+    const dbgIds = [...(Array.isArray(body?.ids) ? body.ids : []), body?.messageId, body?.zaapId]
+      .filter((v: unknown): v is string => typeof v === "string" && v.length > 0);
+    const dbg = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await dbg.from("email_events").insert({
+      event: "status", channel: "whatsapp", status: `dbg:${rawStatus.toLowerCase()}`.slice(0, 24),
+      sg_message_id: dbgIds[0] ?? null, reason: JSON.stringify(body).slice(0, 240),
+      "timestamp": new Date().toISOString(),
+    });
+  }
   // SENT: a linha de send do process-steps já registra o envio — não insere nada.
   if (rawStatus === "SENT") return json({ ok: true, ignored: true });
   const mapped = STATUS_MAP[rawStatus];
