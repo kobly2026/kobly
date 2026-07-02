@@ -1,10 +1,10 @@
-/* Kobly — Color tokens.
-   Brand palette confirmed by the user: a DARK theme with an orange primary.
-     Primário     Laranja Primário  #FF6800
-     Cinza        Cinza Escuro      #1A1A1A   ·  Cinza Claro #808080
-     Background   Preto Background  #000000   ·  Branco Background #F9F9F9
-     Texto        Texto Preto       #000000
-   Base ramps first, semantic aliases below. */
+/* Kobly — Color tokens · direção "Carvão Quente".
+   Dark + laranja continuam a identidade, mas o preto puro achatado dá lugar a uma
+   escala de carvão levemente aquecida (matiz ~25°) com passos de luminância REAIS
+   entre superfícies — o laranja #FF6800 "mora" naturalmente nesse fundo.
+     Primário   Laranja Primário  #FF6800
+     Canvas     #0E0D0B  ·  Nav #090808  ·  Card #171512  ·  Overlay #1C1A17
+   Base ramps first, semantic aliases below (nomes estáveis — components usam os aliases). */
 
 :root {
   /* ---- Brand: Orange (primary, accent, links, active) ---- */
@@ -17,19 +17,20 @@
   --orange-100: #ffd9bd;
   --orange-tint: rgba(255, 104, 0, 0.14); /* soft fill on dark */
 
-  /* ---- Neutral: Ink ramp (higher number = darker) ---- */
-  --ink-1000: #000000; /* Preto Background ★ */
-  --ink-900:  #0d0d0d;
-  --ink-850:  #141414;
-  --ink-800:  #1a1a1a; /* Cinza Escuro ★ — cards */
-  --ink-700:  #242424;
-  --ink-600:  #2e2e2e;
-  --ink-500:  #3a3a3a; /* borders */
-  --ink-400:  #555555;
-  --ink-300:  #808080; /* Cinza Claro ★ — muted text */
-  --ink-200:  #a8a8a8;
-  --ink-100:  #cfcfcf;
-  --ink-50:   #f9f9f9; /* Branco Background ★ — primary text/light */
+  /* ---- Neutral: Ink ramp (warm charcoal; higher number = darker) ---- */
+  --ink-1000: #070606;
+  --ink-900:  #0e0d0b; /* canvas ★ */
+  --ink-850:  #131110;
+  --ink-800:  #171512; /* cards ★ */
+  --ink-750:  #1c1a17; /* overlay */
+  --ink-700:  #211e1a; /* raised */
+  --ink-600:  #2b2824;
+  --ink-500:  #3b3731;
+  --ink-400:  #57524b;
+  --ink-300:  #948e85; /* muted text (AA sobre card) */
+  --ink-200:  #b5afa7;
+  --ink-100:  #cfcac3;
+  --ink-50:   #f7f4f0; /* texto forte */
   --white:    #ffffff;
 
   /* ---- Semantic status ramps (tuned to read on dark surfaces) ---- */
@@ -41,43 +42,45 @@
   /* Semantic aliases — use these in components            */
   /* ===================================================== */
 
-  /* Surfaces */
-  --surface-app:       var(--ink-1000); /* #000 */
-  --surface-nav:       var(--ink-900);  /* #0d0d0d */
-  --surface-card:      var(--ink-800);  /* #1a1a1a */
-  --surface-sunken:    var(--ink-900);  /* wells / inputs */
-  --surface-raised:    var(--ink-700);  /* chips / hover */
+  /* Surfaces — cada passo agora tem contraste visível */
+  --surface-app:       var(--ink-900);  /* canvas do conteúdo */
+  --surface-nav:       #090808;         /* rail: mais escuro, recua atrás do conteúdo */
+  --surface-card:      var(--ink-800);  /* card claramente elevado sobre o app */
+  --surface-sunken:    #0b0a09;         /* wells / inputs DENTRO de cards */
+  --surface-raised:    var(--ink-700);  /* chips / hover de linha */
+  --surface-overlay:   var(--ink-750);  /* modais/drawers (mais claro que card = empilha) */
   --surface-nav-hover: var(--ink-800);
   --surface-nav-active:var(--orange-tint);
   --surface-inverse:   var(--ink-50);
 
   /* Text */
-  --text-strong:   var(--ink-50);   /* #f9f9f9 */
-  --text-body:     var(--ink-100);  /* #cfcfcf */
-  --text-muted:    var(--ink-300);  /* #808080 */
-  --text-subtle:   var(--ink-400);  /* #555 */
+  --text-strong:   var(--ink-50);   /* #f7f4f0 */
+  --text-body:     var(--ink-100);  /* #cfcac3 */
+  --text-muted:    var(--ink-300);  /* #948e85 — subiu p/ AA sobre o card */
+  --text-subtle:   #6b655d;
   --text-on-dark:  var(--ink-50);
   --text-on-dark-muted: var(--ink-300);
-  --text-on-accent:var(--ink-800);  /* dark text on orange */
+  --text-on-accent:#1b0d02;         /* quase-preto quente sobre laranja */
   --text-link:     var(--orange-400);
 
-  /* Borders */
-  --border-subtle: #242424;
-  --border-default:var(--ink-500);
-  --border-strong: var(--ink-400);
-  --border-nav:    rgba(255, 255, 255, 0.07);
+  /* Borders — branco translúcido: lê em QUALQUER superfície (a correção mais barata) */
+  --border-subtle:  rgba(255, 255, 255, 0.09);
+  --border-default: rgba(255, 255, 255, 0.14);
+  --border-strong:  rgba(255, 255, 255, 0.22);
+  --border-accent:  rgba(255, 104, 0, 0.45);
+  --border-nav:     rgba(255, 255, 255, 0.07);
 
   /* Accent / interactive */
   --accent:         var(--orange-500);
   --accent-hover:   var(--orange-400);
   --accent-soft:    var(--orange-tint);
-  --accent-contrast:var(--ink-800);
+  --accent-contrast:#1b0d02;
 
   /* Primary action — the orange, per brand */
   --primary-bg:        var(--orange-500);
   --primary-bg-hover:  var(--orange-400);
   --primary-bg-active: var(--orange-600);
-  --primary-fg:        var(--ink-800); /* dark label on orange */
+  --primary-fg:        #1b0d02; /* label escuro sobre laranja */
 
   /* Focus ring */
   --ring: rgba(255, 104, 0, 0.5);

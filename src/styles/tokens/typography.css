@@ -10,6 +10,7 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   /* Type scale (1.250 major-third-ish, tuned for dense dashboards) */
+  --text-4xl: 38px;  /* métrica hero (Dashboard) */
   --text-3xl: 30px;  /* page hero / big metric */
   --text-2xl: 24px;  /* section / route title */
   --text-xl:  20px;  /* card title */

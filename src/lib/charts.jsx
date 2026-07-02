@@ -6,11 +6,11 @@ import ApexCharts from 'apexcharts';
 // ApexCharts desenha SVG com as cores passadas em JS, então usamos hex reais
 // (CSS vars não resolvem em atributos setados via script).
 
-// Paleta resolvida (espelha tokens/colors.css)
+// Paleta resolvida (espelha tokens/colors.css — "Carvão Quente")
 const C = {
   accent: '#ff6800', accent400: '#ff8128', green: '#3ddc84', amber: '#ffb020',
-  red: '#ff6a61', textMuted: '#808080', textSubtle: '#6b6b6b', textStrong: '#f9f9f9',
-  grid: '#242424', card: '#1a1a1a', track: '#0d0d0d',
+  red: '#ff6a61', textMuted: '#948e85', textSubtle: '#6b655d', textStrong: '#f7f4f0',
+  grid: '#2b2824', card: '#171512', track: '#0b0a09',
 };
 export const KoblyChartColors = C;
 

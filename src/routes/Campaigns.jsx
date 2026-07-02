@@ -5,7 +5,6 @@ import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, DataTable, Icon, IconButton, Input, Select, TemplateCard } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
 import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
-import { useKoblyTweak } from '@/lib/tweaks.jsx';
 import { KoblyFlowBuilder } from '@/routes/FlowBuilder.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -136,7 +135,7 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
 function KoblyCampaigns() {
   const store = useKobly();
   const DB = KoblyMockDB;
-  const variant = useKoblyTweak('builderVariant', 'vertical');
+  const variant = 'vertical'; // layout único do builder (o painel de tweaks foi removido)
   const isGestor = store.role === 'Gestor';
   const empresaId = store.session.empresaId;
   const a = useAsync(() => KoblyApi.listCampaigns(empresaId), [store.role]);

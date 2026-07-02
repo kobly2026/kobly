@@ -76,6 +76,46 @@ function SkeletonDashboard() {
   );
 }
 
+// Loading shape for a card-wrapped table: header bar + N rows.
+function SkeletonTable({ rows = 5 }) {
+  return (
+    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <Skeleton w={160} h={14} />
+        <Skeleton w={96} h={30} r="var(--radius-md)" />
+      </div>
+      <div style={{ padding: '4px 20px 12px' }}>
+        {Array.from({ length: rows }).map((_, i) => <SkeletonRow key={i} />)}
+      </div>
+    </div>
+  );
+}
+
+// Loading shape for a KPI row: `count` shimmer blocks on the responsive kpi grid.
+function SkeletonCards({ count = 4, height = 120 }) {
+  return (
+    <div className="kbly-grid-kpi" style={{ gap: 16 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} w="100%" h={height} r="var(--radius-md)" />
+      ))}
+    </div>
+  );
+}
+
+// Loading shape for a form: `fields` label + input pairs.
+function SkeletonForm({ fields = 4 }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {Array.from({ length: fields }).map((_, i) => (
+        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <Skeleton w={110} h={11} />
+          <Skeleton w="100%" h={40} r="var(--radius-md)" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---- Drawn empty state -----------------------------------------------------
 function EmptyState({ icon = 'inbox', title, message, action, tone = 'accent', compact = false }) {
   const ring = tone === 'danger' ? 'var(--status-danger-bg)' : 'var(--accent-soft)';
@@ -169,7 +209,7 @@ function Drawer({ open, onClose, title, subtitle, width = 460, children, footer 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 70, display: 'flex', justifyContent: 'flex-end' }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', animation: 'kbly-fade var(--dur-fast) ease both' }} />
-      <aside style={{ position: 'relative', width, maxWidth: '94vw', height: '100%', background: 'var(--surface-card)', borderInlineStart: '1px solid var(--border-default)', boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', animation: 'kbly-slide-in var(--dur-med) var(--ease-out) both' }}>
+      <aside style={{ position: 'relative', width, maxWidth: '94vw', height: '100%', background: 'var(--surface-overlay)', borderInlineStart: '1px solid var(--border-default)', boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column', animation: 'kbly-slide-in var(--dur-med) var(--ease-out) both' }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 22px', borderBottom: '1px solid var(--border-subtle)', flex: 'none' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', lineHeight: 1.2 }}>{title}</div>
@@ -190,7 +230,7 @@ function Modal({ open, onClose, title, subtitle, width = 460, children, footer }
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', animation: 'kbly-fade var(--dur-fast) ease both' }} />
-      <div style={{ position: 'relative', width, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-pop)', padding: 24, animation: 'kbly-toast-in var(--dur-med) var(--ease-out) both' }}>
+      <div style={{ position: 'relative', width, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', background: 'var(--surface-overlay)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-pop)', padding: 24, animation: 'kbly-toast-in var(--dur-med) var(--ease-out) both' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{title}</h3>
@@ -220,7 +260,7 @@ function AISuggestion({ title = 'Sugestão da IA', load }) {
   }
   useEffect(() => { run(); }, []);
   return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="kbly-ai-card" style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="sparkles" size={15} /></span>
         <span style={{ flex: 1, fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{title}</span>
@@ -292,7 +332,8 @@ function PhoneField({ label = 'Telefone', value = '', onChange }) {
           className="kbly-input"
           style={{ ...inputStyle, width: 108, flex: 'none', padding: '9px 8px', cursor: 'pointer', appearance: 'none' }}
         >
-          {PHONE_COUNTRIES.map((x) => <option key={x.code} value={x.code}>{x.flag} +{x.ddi}</option>)}
+          {/* <option> não renderiza SVG e emoji quebra a linguagem visual → texto "+55 · BR". */}
+          {PHONE_COUNTRIES.map((x) => <option key={x.code} value={x.code}>+{x.ddi} · {x.code}</option>)}
         </select>
         <input
           type="tel"
@@ -309,4 +350,4 @@ function PhoneField({ label = 'Telefone', value = '', onChange }) {
   );
 }
 
-export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, ErrorState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };
+export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, SkeletonTable, SkeletonCards, SkeletonForm, EmptyState, ErrorState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };

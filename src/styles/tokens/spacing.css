@@ -20,3 +20,17 @@
   --content-max:   1180px;
   --content-pad:   var(--space-8);
 }
+
+/* ── Responsividade via tokens ──────────────────────────────────────────────
+   Os estilos inline consomem estes tokens, então redefini-los por breakpoint
+   propaga a adaptação de graça (sem media query em cada componente).
+   Breakpoints canônicos: 1280 / 1024 / 860 / 640. */
+@media (max-width: 1280px) {
+  :root { --content-pad: var(--space-6); }
+}
+@media (max-width: 1024px) {
+  :root { --sidebar-width: 72px; --content-pad: var(--space-5); }
+}
+@media (max-width: 640px) {
+  :root { --content-pad: var(--space-4); --topbar-height: 60px; }
+}

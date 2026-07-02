@@ -5,7 +5,7 @@ import { useKobly } from '@/store/store.jsx';
 // Kobly — Topbar. Eyebrow + título da rota + slot de ações + avatar + sair.
 // (O seletor de papel foi removido; troca-se de conta por logout + login.) KoblyTopbar
 
-function Topbar({ eyebrow, title, actions }) {
+function Topbar({ eyebrow, title, actions, onMenu }) {
   const store = useKobly();
   return (
     <header style={{
@@ -13,9 +13,12 @@ function Topbar({ eyebrow, title, actions }) {
       height: 'var(--topbar-height)', padding: '0 var(--content-pad)',
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-nav)', flex: 'none',
     }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)', whiteSpace: 'nowrap' }}>{eyebrow}</div>
-        <Reveal key={title} y={4} style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)', marginTop: 2 }}>{title}</Reveal>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        {onMenu && <IconButton icon="menu" variant="secondary" aria-label="Abrir menu" onClick={onMenu} />}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)', whiteSpace: 'nowrap' }}>{eyebrow}</div>
+          <Reveal key={title} y={4} style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)', marginTop: 2 }}>{title}</Reveal>
+        </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
         {actions}

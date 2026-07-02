@@ -1,5 +1,7 @@
-/* Kobly — Radius, border & shadow tokens.
-   Spec: thin borders, 8px radius, light flat surfaces with soft elevation. */
+/* Kobly — Radius, border, shadow, glow & gradient tokens.
+   Elevação em DARK não lê com sombra preta sobre preto: aqui elevação =
+   borda + highlight interno no topo + sombra ambiente. Glows e gradientes
+   entram como "momentos de design" pontuais (primary, hero, IA). */
 
 :root {
   /* Corner radii */
@@ -13,12 +15,21 @@
   /* Borders */
   --border-width: 1px; /* @kind other */
 
-  /* Shadows — black-based for the dark theme; depth mostly reads via surface contrast + borders */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.55), 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.45);
-  --shadow-pop: 0 24px 60px rgba(0, 0, 0, 0.7);
+  /* Shadows — elevação dark real (inset highlight + ambiente) */
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.55);
+  --shadow-sm:  inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md:  inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --shadow-lg:  inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 20px 48px -12px rgba(0, 0, 0, 0.7);
+  --shadow-pop: 0 32px 80px -16px rgba(0, 0, 0, 0.8);
+
+  /* Glows — sombras COM cor para momentos de destaque (primary, seleção, hero) */
+  --glow-accent:      0 0 0 1px rgba(255, 104, 0, 0.35), 0 8px 28px -8px rgba(255, 104, 0, 0.4);
+  --glow-accent-soft: 0 4px 20px -6px rgba(255, 104, 0, 0.25);
+
+  /* Gradients */
+  --grad-accent: linear-gradient(135deg, #ff8128, #ff6800 60%, #f05a00);
+  --grad-hero:   radial-gradient(900px 320px at 15% -10%, rgba(255, 104, 0, 0.1), transparent 60%);
+  --grad-sheen:  linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px);
 
   /* Focus ring composite */
   --ring-width: 3px; /* @kind other */

@@ -1,6 +1,11 @@
 /* Kobly — global app styles + motion keyframes + chart/scrollbar polish.
    Ported from the prototype's inline <style>. Tokens live in ./tokens/*. */
 
+/* Reset mínimo: border-box em tudo (a ausência já causou bug real de layout —
+   StepCard vazando da coluna do ramo) + form controls herdando a fonte. */
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -18,6 +23,10 @@ body {
 @keyframes kbly-toast-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes kbly-fade     { from { opacity: 0; } to { opacity: 1; } }
 @keyframes kbly-slide-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+/* Flash para itens recém-chegados (eventos ao vivo em Integrações, mensagens novas). */
+@keyframes kbly-flash    { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+/* Spinner circular (ds/Spinner · Button loading). Rotação contínua; reduced-motion o congela. */
+@keyframes kbly-spin     { to { transform: rotate(360deg); } }
 
 .kbly-seg:hover { color: var(--text-body) !important; }
 
