@@ -500,7 +500,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
         {/* Inspetor + meta */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={() => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade })} />
+          <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={(force) => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade }, force)} />
           <Card style={{ minHeight: 200 }}>
             <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} />
           </Card>

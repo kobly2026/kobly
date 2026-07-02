@@ -251,10 +251,12 @@ function Modal({ open, onClose, title, subtitle, width = 460, children, footer }
 function AISuggestion({ title = 'Sugestão da IA', load }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(true);
-  async function run() {
+  // `force` chega ao load (KoblyAI.suggestFor*): a montagem usa o cache de sugestões;
+  // só o botão "Gerar de novo" força uma chamada nova à IA.
+  async function run(force = false) {
     if (!load) return;
     setBusy(true);
-    try { const t = await load(); setText(t || 'Sem sugestão no momento.'); }
+    try { const t = await load(force); setText(t || 'Sem sugestão no momento.'); }
     catch (e) { setText('Não consegui gerar a sugestão agora.'); }
     finally { setBusy(false); }
   }
@@ -264,7 +266,7 @@ function AISuggestion({ title = 'Sugestão da IA', load }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="sparkles" size={15} /></span>
         <span style={{ flex: 1, fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{title}</span>
-        <IconButton icon="refresh-cw" size="sm" aria-label="Gerar de novo" onClick={run} disabled={busy} />
+        <IconButton icon="refresh-cw" size="sm" aria-label="Gerar de novo" onClick={() => run(true)} disabled={busy} />
       </div>
       {busy
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}><Skeleton w="100%" h={11} /><Skeleton w="78%" h={11} /></div>

@@ -227,7 +227,7 @@ function KoblyCampaigns() {
         />
       )}
       {targetOrgId && <OnboardingChecklist steps={onboardingSteps} />}
-      <AISuggestion title="Sugestão da IA — campanhas" load={() => KoblyAI.suggestForDashboard(store.view)} />
+      <AISuggestion title="Sugestão da IA — campanhas" load={(force) => KoblyAI.suggestForDashboard(store.view, force)} />
       {a.status === 'loading' ? (
         <SkeletonTable />
       ) : (

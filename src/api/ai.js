@@ -64,37 +64,58 @@ const suggestionsByCriticidade = {
   ],
 };
 
+// Cache de sugestões por chave (tela/campanha), com TTL. O roteamento por view-state
+// REMONTA a tela a cada navegação (e o StrictMode do dev monta 2×) — sem cache, cada
+// visita ao Dashboard/Campanhas dispara uma chamada nova ao DeepSeek e estoura o rate
+// limit da ai-chat (10/min → 429). Guardamos a PROMISE (dedupe de chamadas
+// concorrentes); o botão "Gerar de novo" passa force=true e ignora o cache.
+const _suggCache = new Map(); // key -> { p: Promise<string>, at: ms }
+const SUGG_TTL_MS = 5 * 60_000;
+function cachedSuggestion(key, force, fn) {
+  const hit = _suggCache.get(key);
+  if (!force && hit && Date.now() - hit.at < SUGG_TTL_MS) return hit.p;
+  const p = fn();
+  _suggCache.set(key, { p, at: Date.now() });
+  return p;
+}
+
 export const KoblyAI = {
   // Sugestão para uma campanha — DeepSeek REAL (ai-chat task=suggestion); fallback enlatado.
-  async suggestForCampaign(campaign) {
-    try {
-      const context = await buildContext('campaign');
-      const nome = (campaign && (campaign.nome || campaign.name)) || 'esta campanha';
-      const crit = (campaign && campaign.criticidade) || '';
-      const brief = `Analise especificamente a campanha "${nome}"${crit ? ` (criticidade ${crit})` : ''} e dê 1 recomendação prática para melhorá-la.`;
-      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief } });
-      if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
-      return data.suggestion;
-    } catch (e) {
-      const pool = suggestionsByCriticidade[campaign && campaign.criticidade] || suggestionsByCriticidade['Bom'];
-      return pick(pool);
-    }
+  // `force` (botão "Gerar de novo") ignora o cache de 5 min.
+  async suggestForCampaign(campaign, force = false) {
+    const nome = (campaign && (campaign.nome || campaign.name)) || 'esta campanha';
+    const crit = (campaign && campaign.criticidade) || '';
+    return cachedSuggestion(`camp:${nome}:${crit}`, force, async () => {
+      try {
+        const context = await buildContext('campaign');
+        const brief = `Analise especificamente a campanha "${nome}"${crit ? ` (criticidade ${crit})` : ''} e dê 1 recomendação prática para melhorá-la.`;
+        const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief } });
+        if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
+        return data.suggestion;
+      } catch (e) {
+        const pool = suggestionsByCriticidade[campaign && campaign.criticidade] || suggestionsByCriticidade['Bom'];
+        return pick(pool);
+      }
+    });
   },
 
   // Sugestão consolidada (dashboard) — DeepSeek REAL; fallback enlatado.
-  async suggestForDashboard(view) {
-    try {
-      const context = await buildContext(view || 'dashboard');
-      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief: 'Olhando todas as campanhas e métricas, dê a recomendação mais impactante agora.' } });
-      if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
-      return data.suggestion;
-    } catch (e) {
-      return pick([
-        'Reduza o atraso da 1ª etapa do fluxo de carrinho para até 30 min — a intenção de compra cai rápido.',
-        'Priorize a campanha de criticidade mais alta: revise o assunto e adicione um 2º toque com cupom.',
-        'Personalize o assunto com o nome do produto abandonado para subir a taxa de abertura.',
-      ]);
-    }
+  // `force` (botão "Gerar de novo") ignora o cache de 5 min.
+  async suggestForDashboard(view, force = false) {
+    return cachedSuggestion(`dash:${view || 'dashboard'}`, force, async () => {
+      try {
+        const context = await buildContext(view || 'dashboard');
+        const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'suggestion', context, brief: 'Olhando todas as campanhas e métricas, dê a recomendação mais impactante agora.' } });
+        if (error || !data || !data.suggestion) throw error || new Error('sem sugestão');
+        return data.suggestion;
+      } catch (e) {
+        return pick([
+          'Reduza o atraso da 1ª etapa do fluxo de carrinho para até 30 min — a intenção de compra cai rápido.',
+          'Priorize a campanha de criticidade mais alta: revise o assunto e adicione um 2º toque com cupom.',
+          'Personalize o assunto com o nome do produto abandonado para subir a taxa de abertura.',
+        ]);
+      }
+    });
   },
 
   // Resposta do assistente IA flutuante — DeepSeek REAL via Edge Function `ai-chat`.

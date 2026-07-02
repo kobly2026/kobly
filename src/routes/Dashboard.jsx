@@ -90,7 +90,7 @@ function KoblyDashboard() {
           </div>
 
           {/* IA em destaque (AI-first) */}
-          <AISuggestion title="Insight da IA" load={() => KoblyAI.suggestForDashboard('painel')} />
+          <AISuggestion title="Insight da IA" load={(force) => KoblyAI.suggestForDashboard('painel', force)} />
 
           {/* Funil + colunas */}
           <div className="kbly-grid-main" style={{ gap: 18 }}>
