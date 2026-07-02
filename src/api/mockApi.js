@@ -318,10 +318,13 @@ export const KoblyApi = {
     const db = await loadDB();
     const funnel = await this.getFunnel(empresaId);
     const camps = (db.campanhas || []).filter((c) => !empresaId || c.empresaId === empresaId);
-    const leads = (db.leads || []).filter((l) => !empresaId || l.empresaId === empresaId);
+    // Contagem de leads via COUNT no banco (o hydrate é cortado em 1000 pelo PostgREST).
+    let lq = supabase.from('leads').select('id', { count: 'exact', head: true });
+    if (empresaId) lq = lq.eq('organization_id', empresaId);
+    const { count: leadsCount } = await lq;
     const enviados = funnel.enviados;
     const kpis = {
-      leads: leads.length,
+      leads: leadsCount || 0,
       enviados,
       abertura: enviados ? funnel.abertos / enviados : 0,
       ctr: enviados ? funnel.clicados / enviados : 0,
@@ -363,26 +366,38 @@ export const KoblyApi = {
     const metByStep = {};
     (mets || []).forEach((m) => { if (m.etapa_email_origem_id) metByStep[m.etapa_email_origem_id] = m; });
 
-    // 3) E-mails do fluxo (agendados/enviados) — resolve assunto via flow_steps→emails
+    // 3) Envios do fluxo (e-mail/WhatsApp) — resolve assunto via flow_steps→emails.
+    // VERDADE do envio: 'Finalizado' também cobre DESISTÊNCIA após retries e pulo por
+    // condição — só é "Enviado" se lead_metrics registrou envio REAL naquela etapa.
     const { data: steps } = await supabase.from('scheduled_steps')
-      .select('id, status_agendamento, run_at, updated_at, created_at, step_id, flow_steps!step_id(nome, tipo_card, emails(assunto, titulo), campaign_flows!flow_id(campaigns(nome)))')
+      .select('id, status_agendamento, attempts, last_error, run_at, updated_at, created_at, step_id, flow_steps!step_id(nome, tipo_card, emails(assunto, titulo), campaign_flows!flow_id(campaigns(nome)))')
       .eq('lead_id', leadId)
       .order('run_at', { ascending: false });
     (steps || []).forEach((s) => {
       const fs = s.flow_steps || {};
+      // Cards sem envio (Gatilho/Acionar Fluxo/Condição/Tags) não são itens de jornada.
+      if (fs.tipo_card && fs.tipo_card !== 'Envio de e-mail' && fs.tipo_card !== 'Envio de WhatsApp') return;
       const email = fs.emails || {};
       const camp = fs.campaign_flows && fs.campaign_flows.campaigns ? fs.campaign_flows.campaigns.nome : null;
-      const enviado = s.status_agendamento === 'Finalizado';
+      const canal = fs.tipo_card === 'Envio de WhatsApp' ? 'whatsapp' : 'email';
       const m = metByStep[s.step_id];
+      const finalizado = s.status_agendamento === 'Finalizado';
+      const pulado = finalizado && typeof s.last_error === 'string' && s.last_error.startsWith('pulado');
+      const enviado = finalizado && !pulado && !!(m && Number(m.enviados) > 0);
+      const falhou = finalizado && !pulado && !enviado;
       const flags = [];
       if (m && m.aberturas > 0) flags.push('aberto');
       if (m && m.cliques > 0) flags.push('clicado');
+      const estado = enviado ? 'Enviado'
+        : pulado ? 'Pulado (condição não atendida)'
+        : falhou ? `Falha no envio${s.attempts ? ` · ${s.attempts} tentativa${s.attempts === 1 ? '' : 's'}` : ''}`
+        : `Agendado (${s.status_agendamento})`;
       items.push({
-        id: 'st_' + s.id, kind: 'email',
-        at: enviado ? (s.updated_at || s.run_at) : s.run_at,
-        titulo: email.assunto || fs.nome || 'E-mail',
-        sub: [camp, enviado ? 'Enviado' : `Agendado (${s.status_agendamento})`, ...flags].filter(Boolean).join(' · '),
-        status: s.status_agendamento, enviado, flags,
+        id: 'st_' + s.id, kind: 'email', canal,
+        at: finalizado ? (s.updated_at || s.run_at) : s.run_at,
+        titulo: email.assunto || fs.nome || (canal === 'whatsapp' ? 'WhatsApp' : 'E-mail'),
+        sub: [camp, estado, ...flags].filter(Boolean).join(' · '),
+        status: s.status_agendamento, enviado, falhou, pulado, flags,
       });
     });
 
@@ -399,6 +414,54 @@ export const KoblyApi = {
     // Ordena tudo por tempo (mais recente primeiro) e formata a data
     items.sort((a, b) => new Date(b.at) - new Date(a.at));
     return items.map((it) => ({ ...it, quando: it.at ? fmtDateTime(it.at) : '—' }));
+  },
+
+  // ---- Leads paginados no servidor (RPCs da 0029; RLS do usuário se aplica) ----
+  // Reshape de uma linha do RPC leads_page pro shape que a UI (cards/drawer) consome.
+  _leadRow(r) {
+    return {
+      id: r.id, empresaId: r.organization_id,
+      nome: r.nome, sobrenome: r.sobrenome, email: r.email, telefone: r.telefone,
+      produto: r.produto, valorCompra: Number(r.valor_compra) || 0, metodoPagamento: r.metodo_pagamento,
+      ultimoEvento: r.ultimo_evento, criadoEm: fmtDate(r.created_at), createdAt: r.created_at,
+      metricas: { enviados: Number(r.enviados) || 0, aberturas: Number(r.aberturas) || 0, cliques: Number(r.cliques) || 0 },
+      tags: r.tag_ids || [], stage: r.stage,
+    };
+  },
+  // Página de leads com filtros server-side. Retorna { rows, total }.
+  async getLeadsPage({ empresaId = null, stage = null, search = null, evento = null, limit = 25, offset = 0 } = {}) {
+    const { data, error } = await supabase.rpc('leads_page', {
+      p_org: empresaId || null, p_stage: stage || null,
+      p_search: (search || '').trim() || null, p_evento: evento || null,
+      p_limit: limit, p_offset: offset,
+    });
+    if (error) throw new Error(error.message);
+    const rows = (data || []).map((r) => this._leadRow(r));
+    const total = data && data.length ? Number(data[0].total_count) : 0;
+    return { rows, total };
+  },
+  // Contagem + valor por estágio (headers do kanban). Retorna { [stage]: {total, valor} }.
+  async getPipelineCounts(empresaId = null) {
+    const { data, error } = await supabase.rpc('pipeline_counts', { p_org: empresaId || null });
+    if (error) throw new Error(error.message);
+    const out = {};
+    (data || []).forEach((r) => { out[r.stage] = { total: Number(r.total) || 0, valor: Number(r.valor) || 0 }; });
+    return out;
+  },
+  // Cards de status de e-mail da tela de Leads (contagens reais, sem carregar leads).
+  async getLeadStatus() {
+    const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    const [enviados, rejeitados, fila] = await Promise.all([
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
+    ]);
+    return { processados: enviados + rejeitados, enviados, rejeitados, adiados: fila };
+  },
+  // Tags da org (nomes p/ o drawer) — lista pequena, via hydrate cacheado.
+  async getTags() {
+    const db = await loadDB();
+    return clone(db.tags);
   },
 
   // Listas de apoio do construtor de fluxo (ids reais escopados por RLS).

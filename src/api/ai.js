@@ -12,9 +12,14 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 async function buildContext(view) {
   try {
     const db = await loadDB();
-    // Contagem REAL de leads por org (o org.leads_count é um contador congelado do seed).
+    // Contagem VIVA de leads por org via RPC (o hydrate é cortado em 1000 pelo
+    // PostgREST e o organizations.leads_count é um contador congelado do seed).
     const leadsPorOrg = {};
-    db.leads.forEach((l) => { leadsPorOrg[l.empresaId] = (leadsPorOrg[l.empresaId] || 0) + 1; });
+    let leadsTotal = 0;
+    try {
+      const { data: counts } = await supabase.rpc('leads_count_by_org');
+      (counts || []).forEach((r) => { leadsPorOrg[r.organization_id] = Number(r.total) || 0; leadsTotal += Number(r.total) || 0; });
+    } catch (e) { /* contexto segue sem contagens */ }
     return {
       papel: view,
       campanhas: db.campanhas.map((c) => ({
@@ -22,7 +27,7 @@ async function buildContext(view) {
         emailsEnviados: c.stats.emailsEnviados, vendasRecuperadas: c.stats.vendasRecuperadas, criticidade: c.stats.criticidade,
       })),
       contas: db.empresas.map((e) => ({ nome: e.nome, segmento: e.segmento, criticidade: e.criticidade, leads: leadsPorOrg[e.id] || 0 })),
-      leadsTotal: db.leads.length,
+      leadsTotal,
     };
   } catch (e) {
     return { papel: view };

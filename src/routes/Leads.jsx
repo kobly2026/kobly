@@ -18,13 +18,18 @@ const STATUS_CARDS = [
   { key: 'adiados', label: 'Na fila de envio', icon: 'clock', tone: 'warning' },
 ];
 
-// Cada tipo de item da timeline tem ícone + cor próprios.
+// Cada tipo de item da timeline tem ícone + cor próprios. Envios têm 4 estados
+// honestos: Enviado (success) · Agendado (warning) · Falha no envio (danger) ·
+// Pulado por condição (neutral) — "Finalizado" no banco NÃO significa enviado.
 function timelineVisual(item, DB) {
   if (item.kind === 'evento') {
     return { icon: 'zap', tone: DB.eventTone[item.tipoEvento] || 'info' };
   }
   if (item.kind === 'email') {
-    return { icon: 'mail', tone: item.enviado ? 'success' : 'warning' };
+    const base = item.canal === 'whatsapp' ? 'message-circle' : 'mail';
+    if (item.falhou) return { icon: item.canal === 'whatsapp' ? 'message-circle-x' : 'mail-x', tone: 'danger' };
+    if (item.pulado) return { icon: 'circle-slash', tone: 'neutral' };
+    return { icon: base, tone: item.enviado ? 'success' : 'warning' };
   }
   return { icon: 'tag', tone: 'info' }; // tag
 }
@@ -118,33 +123,41 @@ function LeadDrawer({ lead, onClose, tags = [] }) {
 function KoblyLeads() {
   const store = useKobly();
   const isGestor = store.role === 'Gestor';
-  const a = useAsync(() => KoblyApi.listLeads(), [store.role]);
+  // Cards de status (contagens reais) e tags (p/ o drawer) — leves, separados da lista.
+  const meta = useAsync(() => KoblyApi.getLeadStatus(), [store.role]);
+  const tagsA = useAsync(() => KoblyApi.getTags(), []);
   const clients = useAsync(() => (isGestor ? KoblyApi.listClients() : Promise.resolve([])), [store.role]);
   const [q, setQ] = useState('');
-  const [evt, setEvt] = useState('');       // filtro por último evento
+  const [qDeb, setQDeb] = useState('');       // busca com debounce (vai pro servidor)
+  const [evt, setEvt] = useState('');         // filtro por último evento
   const [contaId, setContaId] = useState(''); // conta em foco (Gestor); '' = todas
   const [page, setPage] = useState(1);
   const [sel, setSel] = useState(null);
   const DB = KoblyMockDB;
 
-  const rows = (a.data && a.data.rows) || [];
-  const status = (a.data && a.data.status) || {};
+  // Debounce da busca — evita 1 round-trip por tecla.
+  React.useEffect(() => {
+    const t = setTimeout(() => setQDeb(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Lista paginada NO SERVIDOR (RPC leads_page): busca/filtme/escopo viram parâmetros,
+  // o navegador só recebe a página atual — escala com qualquer volumetria.
+  const orgScope = isGestor ? (contaId || null) : (store.session.empresaId || null);
+  const a = useAsync(
+    () => KoblyApi.getLeadsPage({ empresaId: orgScope, search: qDeb, evento: evt, limit: PAGE, offset: (page - 1) * PAGE }),
+    [store.role, orgScope, qDeb, evt, page],
+  );
+
+  const slice = (a.data && a.data.rows) || [];
+  const total = (a.data && a.data.total) || 0;
+  const status = meta.data || {};
   const contaNome = useMemo(() => Object.fromEntries((clients.data || []).map((c) => [c.id, c.nome])), [clients.data]);
-  const eventosPresentes = useMemo(() => Array.from(new Set(rows.map((l) => l.ultimoEvento).filter(Boolean))), [rows]);
+  // Opções de evento = catálogo fixo (a lista carregada não representa mais o todo).
+  const eventosPresentes = useMemo(() => Object.keys(DB.eventTone || {}), [DB]);
 
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    return rows.filter((l) => {
-      if (isGestor && contaId && l.empresaId !== contaId) return false;
-      if (evt && l.ultimoEvento !== evt) return false;
-      if (t && !`${l.nome} ${l.sobrenome || ''} ${l.email} ${l.produto || ''}`.toLowerCase().includes(t)) return false;
-      return true;
-    });
-  }, [rows, q, evt, contaId, isGestor]);
-
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const pages = Math.max(1, Math.ceil(total / PAGE));
   const cur = Math.min(page, pages);
-  const slice = filtered.slice((cur - 1) * PAGE, cur * PAGE);
   const hasFilters = !!(q.trim() || evt || (isGestor && contaId));
 
   const inputW = { minWidth: 0 };
@@ -187,8 +200,8 @@ function KoblyLeads() {
           </button>
         )}
         {a.status === 'success' && (
-          <span style={{ marginInlineStart: 'auto', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'}
+          <span className="kbly-num" style={{ marginInlineStart: 'auto', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {KoblyApi.br(total)} {total === 1 ? 'lead' : 'leads'}
           </span>
         )}
       </div>
@@ -227,14 +240,14 @@ function KoblyLeads() {
           )}
       </div>
 
-      {filtered.length > PAGE && (
+      {total > PAGE && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Página {cur} de {pages} · {filtered.length} leads</span>
+          <span className="kbly-num" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Página {cur} de {pages} · {KoblyApi.br(total)} leads</span>
           <IconButton icon="chevron-left" variant="secondary" size="sm" aria-label="Anterior" disabled={cur <= 1} onClick={() => setPage(cur - 1)} />
           <IconButton icon="chevron-right" variant="secondary" size="sm" aria-label="Próxima" disabled={cur >= pages} onClick={() => setPage(cur + 1)} />
         </div>
       )}
-      {sel && <LeadDrawer lead={sel} onClose={() => setSel(null)} tags={(a.data && a.data.tags) || []} />}
+      {sel && <LeadDrawer lead={sel} onClose={() => setSel(null)} tags={tagsA.data || []} />}
     </div>
   );
 }
