@@ -4,7 +4,7 @@ import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { useAsync } from '@/lib/hooks.jsx';
-import { AISuggestion } from '@/lib/ui.jsx';
+import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
 import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -323,6 +323,8 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const dragRef = useRef(null);
   const horizontal = variant === 'horizontal';
   const compact = variant === 'compact';
+
+  if (optsA.status === 'error') return <ErrorState message={optsA.error} onRetry={optsA.reload} />;
 
   const selStep = steps.find((s) => s.id === selId) || null;
   const markDirty = () => setDirty(true);

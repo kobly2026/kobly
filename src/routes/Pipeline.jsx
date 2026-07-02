@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Icon, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Segmented } from '@/lib/ui.jsx';
+import { ErrorState, Segmented } from '@/lib/ui.jsx';
 import { LeadDrawer } from '@/routes/Leads.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -74,6 +74,8 @@ function KoblyPipeline() {
     scoped.forEach((l) => { (g[stageOf(l)] = g[stageOf(l)] || []).push(l); });
     return g;
   }, [scoped]);
+
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>

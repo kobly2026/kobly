@@ -3,6 +3,7 @@ import { KoblyMockDB } from '@/api/mockData.js';
 import { KoblyApi } from '@/api/mockApi.js';
 import { supabase } from '@/api/supabaseClient.js';
 import { KoblyAuthScreen } from '@/shell/Login.jsx';
+import { KoblyOnboarding } from '@/shell/Onboarding.jsx';
 
 // Kobly — store global + AUTENTICAÇÃO REAL (Supabase Auth).
 // Fases: loading → login → app (e recovery quando o usuário chega pelo link de
@@ -23,7 +24,7 @@ function LoadingScreen({ label }) {
 
 function KoblyStoreProvider({ children }) {
   const DB = KoblyMockDB;
-  const [phase, setPhase] = useState('loading'); // loading | login | recovery | app
+  const [phase, setPhase] = useState('loading'); // loading | login | recovery | onboarding | app
   const [role, setRoleState] = useState(null);
   const [session, setSession] = useState(null);
   const [view, setView] = useState(null);
@@ -42,12 +43,24 @@ function KoblyStoreProvider({ children }) {
     if (s) {
       setSession(s);
       setRoleState(s.role);
+      // Cliente sem organização = cadastro self-service recém-confirmado →
+      // onboarding cria a org antes de entrar no app.
+      if (s.role === 'Cliente' && !s.empresaId) { setPhase('onboarding'); return; }
       setView(((DB.roles[s.role] || DB.roles.Cliente)).home);
       setPhase('app');
     } else {
       setPhase('login');
     }
   }, [DB]);
+
+  // Onboarding: cria a org própria e re-hidrata (a sessão nova já vem com empresaId).
+  const completeOnboarding = useCallback(async ({ nome, segmento, nichos }) => {
+    const r = await KoblyApi.createOwnOrg({ nome, segmento });
+    if (r.error) return r;
+    if (nichos && nichos.length) { try { await KoblyApi.saveCuradoria(nichos); } catch (e) { /* opcional */ } }
+    await hydrate();
+    return r;
+  }, [hydrate]);
 
   useEffect(() => {
     // onAuthStateChange dispara INITIAL_SESSION na montagem (sessão restaurada ou null),
@@ -85,6 +98,7 @@ function KoblyStoreProvider({ children }) {
     resetPassword: (email) => KoblyApi.resetPassword(email),
     updatePassword: (pw) => KoblyApi.updatePassword(pw),
     signOut: () => KoblyApi.signOut(),
+    completeOnboarding,
     toast, notify: fireToast, dismissToast: () => setToast(null),
   };
 
@@ -92,6 +106,7 @@ function KoblyStoreProvider({ children }) {
   if (phase === 'loading') content = React.createElement(LoadingScreen, { label: 'Carregando…' });
   else if (phase === 'login') content = React.createElement(KoblyAuthScreen, { mode: 'login' });
   else if (phase === 'recovery') content = React.createElement(KoblyAuthScreen, { mode: 'recovery' });
+  else if (phase === 'onboarding') content = React.createElement(KoblyOnboarding);
   else content = children;
 
   return React.createElement(Ctx.Provider, { value }, content);

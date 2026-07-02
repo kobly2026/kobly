@@ -4,7 +4,7 @@ import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Icon, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { AISuggestion } from '@/lib/ui.jsx';
+import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
 import { LeadFunnel } from '@/routes/Funnel.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -52,6 +52,8 @@ function KoblyDashboard() {
 
   const d = a.data || { kpis: {}, funnel: {}, recent: [], topCampaigns: [] };
   const k = d.kpis || {};
+
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

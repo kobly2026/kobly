@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, DataTable, Icon, IconButton, Input, Select } from '@/ds';
 import { Field, useAsync } from '@/lib/hooks.jsx';
-import { Drawer, SkeletonRow } from '@/lib/ui.jsx';
+import { Drawer, ErrorState, SkeletonRow } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Leads (CRM). 4 cards de status de e-mail no topo + tabela paginada com
@@ -48,6 +48,7 @@ function LeadTimeline({ leadId }) {
   const items = t.data || [];
 
   if (t.status === 'loading') return <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', padding: '4px 0' }}>Carregando jornada…</div>;
+  if (t.status === 'error') return <ErrorState message={t.error} onRetry={t.reload} compact />;
   if (!items.length) return <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', padding: '4px 0' }}>Nenhuma atividade registrada ainda para este lead.</div>;
 
   return (
@@ -151,6 +152,9 @@ function KoblyLeads() {
   const hasFilters = !!(q.trim() || evt || (isGestor && contaId));
 
   const inputW = { minWidth: 0 };
+
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>

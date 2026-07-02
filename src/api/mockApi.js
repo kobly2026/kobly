@@ -2,9 +2,8 @@
 // a UI depende só destas assinaturas async. Antes lia de um mock em memória; agora lê
 // do Supabase via loadDB() (escopado por RLS multi-tenant) e escreve via supabase-js.
 // Toda a SÍNTESE de séries/gráficos foi preservada — só a FONTE dos dados mudou.
-import { supabase } from './supabaseClient.js';
+import { supabase, SUPABASE_URL } from './supabaseClient.js';
 import { loadDB, resetDb, currentProfile, firstOrgId, fmtDate, fmtDateTime } from './supabaseDb.js';
-import { DEMO_PERSONAS, DEMO_PASSWORD } from './demoPersonas.js';
 import { renderEmail } from '../lib/emailTemplate.js';
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -40,7 +39,7 @@ function buildSession(profile, db) {
   const role = profile.tipo_user_geral;
   const org = db.empresas.find((e) => e.id === profile.organization_id);
   const plano = org ? (db.planos.find((p) => p.id === org.planoId) || {}).nome : undefined;
-  const contextLabel = (DEMO_PERSONAS[role] && DEMO_PERSONAS[role].contextLabel) || (org && org.nome) || role;
+  const contextLabel = (org && org.nome) || role;
   return { userId: profile.id, empresaId: profile.organization_id, contextLabel, role, name: profile.nome, email: profile.email, plano };
 }
 
@@ -54,8 +53,11 @@ export const KoblyApi = {
     if (!error) resetDb();
     return { error: error ? error.message : null };
   },
-  // Atalho de demonstração: entra como a persona do papel (mesmo login por senha).
+  // Atalho de demonstração (DEV-only): entra como a persona do papel. O import
+  // dinâmico sob o guard mantém as credenciais demo fora do bundle de produção.
   async signInAsRole(role) {
+    if (!import.meta.env.DEV) return { error: 'Disponível apenas em desenvolvimento' };
+    const { DEMO_PERSONAS, DEMO_PASSWORD } = await import('./demoPersonas.js');
     const persona = DEMO_PERSONAS[role];
     if (!persona) return { error: 'Papel desconhecido: ' + role };
     return this.signIn(persona.email, DEMO_PASSWORD);
@@ -88,103 +90,6 @@ export const KoblyApi = {
   async getSession() { return this.loadAppSession(); },
   async signOut() { await supabase.auth.signOut(); resetDb(); return true; },
 
-  // ---- Dashboard ----------------------------------------------------------
-  async getDashboard(role, empresaId, range = '30d') {
-    const db = await loadDB();
-    const consolidated = role === 'Gestor' || role === 'Administrador';
-    // Com RLS, db.campanhas já está escopado ao usuário; o filtro por empresaId
-    // do Cliente continua válido (empresaId === organization_id) e é no-op p/ consolidado.
-    const scopeCamps = consolidated ? db.campanhas : db.campanhas.filter((c) => !empresaId || c.empresaId === empresaId);
-    const ativas = db.campanhas.filter((c) => c.status === 'Ativa');
-    const f = rangeFactor(range);
-    const labels = axisLabels(range);
-
-    const agg = scopeCamps.reduce((a, c) => {
-      a.enviados += c.stats.emailsEnviados; a.vendas += c.stats.vendasRecuperadas;
-      a.abSum += c.stats.taxaAbertura * (c.stats.emailsEnviados || 1);
-      a.ctrSum += c.stats.ctr * (c.stats.emailsEnviados || 1);
-      a.w += (c.stats.emailsEnviados || 1);
-      return a;
-    }, { enviados: 0, vendas: 0, abSum: 0, ctrSum: 0, w: 0 });
-    const taxaAbertura = agg.w ? agg.abSum / agg.w : 0;
-    const ctr = agg.w ? agg.ctrSum / agg.w : 0;
-    const enviadosP = Math.round(agg.enviados * f);
-    const vendasP = Math.round(agg.vendas * f);
-
-    const sEnviados = series(11, range, enviadosP, 0.4);
-    const sVendas = series(23, range, vendasP, 0.5);
-    const sAbertura = labels.map((_, i) => +(taxaAbertura * (0.85 + (i / labels.length) * 0.3)).toFixed(3));
-    const sCtr = labels.map((_, i) => +(ctr * (0.8 + (i / labels.length) * 0.4)).toFixed(3));
-
-    const metrics = consolidated ? [
-      { key: 'contas', label: 'Contas gerenciadas', value: br(db.empresas.length), icon: 'building-2', spark: series(7, range, db.empresas.length * 10), unit: 'int' },
-      { key: 'ativas', label: 'Campanhas ativas', value: br(ativas.length), icon: 'megaphone', accent: true, spark: series(9, range, ativas.length * 8), unit: 'int' },
-      { key: 'abertura', label: 'Taxa de abertura', value: pct(taxaAbertura), icon: 'mail-open', delta: '+4,2%', deltaTone: 'up', spark: sAbertura, unit: 'pct' },
-      { key: 'ctr', label: 'CTR médio', value: pct(ctr), icon: 'mouse-pointer-click', spark: sCtr, unit: 'pct' },
-      { key: 'vendas', label: 'Vendas recuperadas', value: br(vendasP), icon: 'trending-up', delta: '+18', deltaTone: 'up', spark: sVendas, unit: 'int' },
-    ] : [
-      { key: 'abertura', label: 'Taxa de abertura', value: pct(taxaAbertura), icon: 'mail-open', delta: '+3,1%', deltaTone: 'up', spark: sAbertura, unit: 'pct' },
-      { key: 'ctr', label: 'CTR médio', value: pct(ctr), icon: 'mouse-pointer-click', delta: '+0,8%', deltaTone: 'up', spark: sCtr, unit: 'pct' },
-      { key: 'enviados', label: 'E-mails enviados', value: br(enviadosP), icon: 'send', spark: sEnviados, unit: 'int' },
-      { key: 'vendas', label: 'Vendas recuperadas', value: br(vendasP), icon: 'trending-up', accent: true, spark: sVendas, unit: 'int' },
-      { key: 'ativas', label: 'Campanhas ativas', value: br(ativas.length), icon: 'megaphone', spark: series(9, range, ativas.length * 8), unit: 'int' },
-    ];
-
-    const trend = { labels, enviados: sEnviados, recuperadas: sVendas };
-
-    const metricDrill = {
-      enviados: { title: 'E-mails enviados', labels, series: sEnviados, unit: 'int', color: 'var(--accent)' },
-      vendas: { title: 'Vendas recuperadas', labels, series: sVendas, unit: 'int', color: '#3ddc84' },
-      abertura: { title: 'Taxa de abertura', labels, series: sAbertura.map((v) => +(v * 100).toFixed(1)), unit: 'pct', color: '#ffb020' },
-      ctr: { title: 'CTR médio', labels, series: sCtr.map((v) => +(v * 100).toFixed(1)), unit: 'pct', color: '#ff8128' },
-      ativas: { title: 'Campanhas ativas', labels, series: series(9, range, ativas.length * 8), unit: 'int', color: 'var(--accent)' },
-      contas: { title: 'Contas gerenciadas', labels, series: series(7, range, db.empresas.length * 10), unit: 'int', color: 'var(--accent)' },
-    };
-
-    const evCount = {};
-    scopeCamps.forEach((c) => { const g = (c.fluxo.find((s) => s.tipo === 'Gatilho') || {}).nome || 'Outros'; evCount[g] = (evCount[g] || 0) + Math.round(c.stats.emailsEnviados * f); });
-    const breakdown = Object.entries(evCount).map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor);
-
-    const funnel = [
-      { etapa: 'Eventos aceitos', valor: Math.round(enviadosP * 1.18) },
-      { etapa: 'E-mails enviados', valor: enviadosP },
-      { etapa: 'Abertos', valor: Math.round(enviadosP * taxaAbertura) },
-      { etapa: 'Cliques', valor: Math.round(enviadosP * ctr) },
-      { etapa: 'Vendas recuperadas', valor: vendasP },
-    ];
-
-    const onboarding = [
-      { label: 'Configurar perfil', done: true },
-      { label: 'Autenticar domínio de envio', done: true },
-      { label: 'Criar primeira campanha', done: db.campanhas.length > 0 },
-      { label: 'Conectar webhook de checkout', done: db.webhooks.some((w) => w.testado) },
-    ];
-
-    return {
-      consolidated, range, metrics, trend, breakdown, funnel, metricDrill,
-      events: clone(db.webhookEvents),
-      campaigns: scopeCamps.map((c) => ({ id: c.id, nome: c.nome, status: c.status, ...c.stats })),
-      accounts: db.empresas.map((e) => ({ ...e, plano: planoById(db, e.planoId).nome })),
-      onboarding,
-    };
-  },
-
-  async getCampaignDrill(id, range = '30d') {
-    const db = await loadDB();
-    const c = db.campanhas.find((x) => x.id === id);
-    if (!c) return null;
-    const labels = axisLabels(range);
-    const f = rangeFactor(range);
-    const seed = String(id).split('').reduce((s, ch) => s + ch.charCodeAt(0), 0);
-    return {
-      id: c.id, nome: c.nome, status: c.status, stats: clone(c.stats),
-      labels,
-      enviados: series(seed, range, Math.round(c.stats.emailsEnviados * f), 0.45),
-      recuperadas: series(seed + 5, range, Math.round(c.stats.vendasRecuperadas * f), 0.6),
-      etapas: c.fluxo.length,
-    };
-  },
-
   // ---- Campanhas ----------------------------------------------------------
   async listCampaigns() {
     const db = await loadDB();
@@ -198,6 +103,7 @@ export const KoblyApi = {
   async createCampaign(tpl, empresaId, nome) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) throw new Error('Sua conta ainda não tem organização configurada.');
     const finalNome = (nome && nome.trim()) || (tpl.blank ? 'Nova campanha' : tpl.nome);
     const { data: camp, error } = await supabase.from('campaigns').insert({
       organization_id: orgId, nome: finalNome, status_campanha: 'Rascunho',
@@ -232,7 +138,8 @@ export const KoblyApi = {
   async createCampaignFromPlan(plan, empresaId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
-    if (!orgId || !plan) return null;
+    if (!plan) return null;
+    if (!orgId) throw new Error('Sua conta ainda não tem organização configurada.');
     // marca white-label da org p/ renderizar os e-mails
     let brand = { name: 'Sua Loja' };
     try {
@@ -625,15 +532,10 @@ export const KoblyApi = {
     if (error) return [];
     return data || [];
   },
-  async verifyDmarc(domId) {
-    await supabase.from('domains').update({ validado: true }).eq('id', domId);
-    await supabase.from('domain_dns_records').update({ status: 'verificado' }).eq('domain_id', domId);
-    resetDb();
-    return true;
-  },
   async createTag(tag) {
     const me = await currentProfile();
     const orgId = await firstOrgId(me);
+    if (!orgId) throw new Error('Sua conta ainda não tem organização configurada.');
     const { data, error } = await supabase.from('tags').insert({
       organization_id: orgId, nome: tag.nome, descricao: tag.descricao, tipo_evento: tag.tipoEvento || null,
     }).select().single();
@@ -653,35 +555,13 @@ export const KoblyApi = {
     return { error: error ? error.message : null };
   },
 
-  // ---- Domínios (create + DNS) --------------------------------------------
-  async createDomain(url) {
-    const me = await currentProfile();
-    const orgId = await firstOrgId(me);
-    const clean = (url || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    const u = Math.floor(10000 + Math.random() * 89999);
-    const sg = 'sg_d_' + u;
-    const { data: dom, error } = await supabase.from('domains').insert({
-      organization_id: orgId, url: clean, validado: false, id_sendgrid: sg,
-    }).select().single();
-    if (error) throw error;
-    const recs = [
-      { tipo: 'CNAME', host: `em${Math.floor(1000 + Math.random() * 8999)}.${clean}`, valor: `u${u}.wl.sendgrid.net`, record_role: 'mail_cname' },
-      { tipo: 'CNAME', host: `s1._domainkey.${clean}`, valor: `s1.domainkey.u${u}.wl.sendgrid.net`, record_role: 'dkim1' },
-      { tipo: 'CNAME', host: `s2._domainkey.${clean}`, valor: `s2.domainkey.u${u}.wl.sendgrid.net`, record_role: 'dkim2' },
-      { tipo: 'TXT', host: `_dmarc.${clean}`, valor: 'v=DMARC1; p=none;', record_role: 'dmarc' },
-    ].map((r) => ({ ...r, domain_id: dom.id, status: 'pendente' }));
-    await supabase.from('domain_dns_records').insert(recs);
-    resetDb();
-    return { id: dom.id, url: clean, validado: false, idSendGrid: sg, empresaId: orgId, registros: recs.map((r) => ({ tipo: r.tipo, host: r.host, valor: r.valor, status: 'pendente' })) };
-  },
-
   // ---- Webhooks (create + provider + secret + signing_secret + eventos) ----
   async createWebhook({ nome, descricao, eventos, provider, signingSecret }) {
     const me = await currentProfile();
     const orgId = await firstOrgId(me);
     const rand = Math.random().toString(16).slice(2, 14);
     const prov = provider || 'generic';
-    const base = import.meta.env.VITE_SUPABASE_URL || 'https://hvkuymprmfrjrgpqaxbw.supabase.co';
+    const base = SUPABASE_URL;
     const secret = 'whsec_' + rand;
     // generic = legado (secret no corpo). Demais plataformas = postback identificado por token na URL.
     const url = prov === 'generic'
@@ -697,6 +577,36 @@ export const KoblyApi = {
     }
     resetDb();
     return { id: wh.id, nome, descricao: descricao || '', url, secret, provider: prov, testado: false, desabilitado: false, eventos: eventos || [] };
+  },
+
+  // ---- E-mail (create de template) -----------------------------------------
+  // Cria um template novo com corpo base renderizado na marca da org — antes o
+  // "Novo template" da UI só chamava updateEmail e não criava nada.
+  async createEmail({ titulo, assunto, remetente, corpoHtml }, empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return { error: 'Sua conta ainda não tem organização configurada.', id: null };
+    let html = (corpoHtml || '').trim();
+    if (!html) {
+      let brand = { name: remetente || 'Sua loja' };
+      try {
+        const b = await this.getBranding(orgId);
+        if (b) brand = { name: b.nome || brand.name, logoUrl: b.logo_url || undefined, color: b.cor || undefined, mode: b.modo || 'dark' };
+      } catch (e) { /* usa default */ }
+      html = renderEmail({
+        brand, preheader: assunto || '',
+        blocks: [
+          { type: 'hero', title: titulo || 'Você esqueceu algo', text: '' },
+          { type: 'button', label: 'Concluir compra', href: '{{cta_link}}' },
+        ],
+      });
+    }
+    const { data, error } = await supabase.from('emails').insert({
+      organization_id: orgId, titulo: titulo || 'Novo template', assunto: assunto || '',
+      remetente: remetente || null, corpo_html: html, created_by: me ? me.id : null,
+    }).select().single();
+    resetDb();
+    return { error: error ? error.message : null, id: data ? data.id : null };
   },
 
   // ---- E-mail (update do template) ----------------------------------------
@@ -755,7 +665,7 @@ export const KoblyApi = {
     }
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
-    if (!orgId) return { error: 'Sem organização', id: null };
+    if (!orgId) return { error: 'Sua conta ainda não tem organização configurada.', id: null };
     const { data, error } = await supabase.from('whatsapp_messages').insert({
       organization_id: orgId, titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, created_by: me ? me.id : null,
     }).select().single();
@@ -803,6 +713,22 @@ export const KoblyApi = {
     }
     if (data && data.error) return { error: data.detail || data.error };
     return { error: null, connected: !!(data && data.connected), smartphoneConnected: !!(data && data.smartphoneConnected), phone: (data && data.phone) || null, name: (data && data.name) || null };
+  },
+
+  // ---- Onboarding self-service (Cliente sem org cria a própria) -----------
+  async createOwnOrg({ nome, segmento }) {
+    const { data, error } = await supabase.rpc('create_own_org', { p_nome: nome, p_segmento: segmento || null });
+    resetDb();
+    if (error) return { error: error.message, org: null };
+    return { error: null, org: data };
+  },
+  // Nichos de interesse escolhidos no onboarding (profiles.curadoria text[]).
+  async saveCuradoria(nichos) {
+    const me = await currentProfile();
+    if (!me) return { error: 'Sem sessão' };
+    const { error } = await supabase.from('profiles').update({ curadoria: nichos || [] }).eq('id', me.id);
+    resetDb();
+    return { error: error ? error.message : null };
   },
 
   // ---- Organizações / contas (Gestor cria; membro edita básico) -----------

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
+import { SUPABASE_URL } from '@/api/supabaseClient.js';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Segmented, Modal, PhoneField } from '@/lib/ui.jsx';
+import { Segmented, Modal, PhoneField, ErrorState } from '@/lib/ui.jsx';
 import { renderEmail } from '@/lib/emailTemplate.js';
 import { useKobly } from '@/store/store.jsx';
 
@@ -158,8 +159,7 @@ function PostbackTab({ data, empresaId }) {
     setCreating(false);
   }
 
-  const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hvkuymprmfrjrgpqaxbw.supabase.co';
-  const postbackUrl = token ? `${baseUrl}/functions/v1/postback-receiver?token=${token.token}` : '';
+  const postbackUrl = token ? `${SUPABASE_URL}/functions/v1/postback-receiver?token=${token.token}` : '';
 
   // Dispara um evento de teste contra a própria URL de postback (dado que VOCÊ escolhe,
   // diferente do botão de teste da Hotmart que manda payload enlatado deles).
@@ -415,7 +415,7 @@ function PostbackTab({ data, empresaId }) {
 }
 
 // ── Aba 2: Templates de Email ──
-function EmailTemplatesTab({ data, reload }) {
+function EmailTemplatesTab({ data, reload, empresaId }) {
   const store = useKobly();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -436,8 +436,11 @@ function EmailTemplatesTab({ data, reload }) {
   async function save() {
     if (!form.titulo.trim() || !form.assunto.trim()) return;
     if (editing) {
-      await KoblyApi.updateEmail(editing.id, form);
-      store.notify('success', 'E-mail atualizado');
+      const { error } = await KoblyApi.updateEmail(editing.id, form);
+      store.notify(error ? 'danger' : 'success', error ? 'Não foi possível atualizar.' : 'E-mail atualizado');
+    } else {
+      const { error } = await KoblyApi.createEmail(form, empresaId);
+      store.notify(error ? 'danger' : 'success', error || 'Template criado');
     }
     setModal(false);
     reload();
@@ -814,6 +817,7 @@ function KoblyIntegrations() {
   const [contaId, setContaId] = useState(null); // conta em foco (Gestor)
   const empresaId = isGestor ? contaId : store.session.empresaId;
   if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)' }}>Carregando integrações...</div>;
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   const tabs = [
     { value: 'postback', label: 'Postback URL' },
@@ -841,7 +845,7 @@ function KoblyIntegrations() {
         : (<>
             {tab === 'postback' && <PostbackTab data={a.data} empresaId={empresaId} />}
             {tab === 'marca' && <BrandTab empresaId={empresaId} />}
-            {tab === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} />}
+            {tab === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} empresaId={empresaId} />}
             {tab === 'whatsapp' && <WhatsappTab empresaId={empresaId} />}
             {tab === 'tags' && <TagsTab data={a.data} reload={a.reload} />}
           </>)}

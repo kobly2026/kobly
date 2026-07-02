@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Icon, IconButton, StatusLine } from '@/ds';
+import { Button, Icon, IconButton, StatusLine } from '@/ds';
 
 // Kobly — UI primitives the design system doesn't ship: loading skeletons, drawn
 // empty states, an animated toast, and a small segmented control.
@@ -97,6 +97,20 @@ function EmptyState({ icon = 'inbox', title, message, action, tone = 'accent', c
       </div>
       {action}
     </div>
+  );
+}
+
+// ---- Error state (falha de carregamento com retry) --------------------------
+// Par do EmptyState para o caminho de erro do useAsync: as telas fazem
+// `if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload}/>`.
+function ErrorState({ title = 'Não foi possível carregar', message, onRetry, compact = false }) {
+  return (
+    <EmptyState
+      icon="alert-triangle" tone="danger" compact={compact}
+      title={title}
+      message={message || 'Verifique sua conexão e tente novamente.'}
+      action={onRetry ? <Button variant="secondary" iconLeft="refresh-cw" onClick={onRetry}>Tentar novamente</Button> : null}
+    />
   );
 }
 
@@ -295,4 +309,4 @@ function PhoneField({ label = 'Telefone', value = '', onChange }) {
   );
 }
 
-export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };
+export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, EmptyState, ErrorState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };

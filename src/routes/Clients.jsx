@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
-import { KoblyMockDB } from '@/api/mockData.js';
+import { KoblyMockDB, SEGMENTOS } from '@/api/mockData.js';
 import { Avatar, Badge, Button, DataTable, IconButton, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
 import { Modal } from '@/lib/ui.jsx';
@@ -8,8 +8,6 @@ import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Clientes (Gestor/Admin). Lista e gerencia contas de cliente (Empresa).
 // Criar conta = RPC create_managed_org (vincula a agência como membro). KoblyClients
-
-const SEGMENTOS = ['Suplementos', 'Infoproduto', 'Beleza', 'Moda', 'Serviços', 'Outro'];
 
 function AccountModal({ account, onClose, onSubmit }) {
   const editing = !!account;

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { Icon, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
+import { ErrorState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Funil de recuperação. Visão visual das etapas com DADO REAL do banco:
@@ -89,6 +90,8 @@ function KoblyFunnel() {
 
   // taxa de conversão total (recuperados / eventos)
   const convTotal = topo > 0 ? d.recuperados / topo : 0;
+
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

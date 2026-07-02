@@ -4,7 +4,7 @@ import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, DataTable, Icon, IconButton, Input, Select, TemplateCard } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { AISuggestion } from '@/lib/ui.jsx';
+import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
 import { useKoblyTweak } from '@/lib/tweaks.jsx';
 import { KoblyFlowBuilder } from '@/routes/FlowBuilder.jsx';
 import { useKobly } from '@/store/store.jsx';
@@ -189,6 +189,8 @@ function KoblyCampaigns() {
   if (mode === 'new') {
     return <NewCampaign templates={a.data ? a.data.templates : []} onPick={create} onGenerate={generateAI} onCancel={() => setMode('list')} />;
   }
+
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

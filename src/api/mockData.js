@@ -5,6 +5,9 @@
 // ---------------------------------------------------------------------------
 // OPTION SETS (15) — valores + tom de cor para badges
 // ---------------------------------------------------------------------------
+// Segmentos de organização (onboarding self-service e criação de conta pelo Gestor).
+export const SEGMENTOS = ['Suplementos', 'Infoproduto', 'Beleza', 'Moda', 'Serviços', 'Outro'];
+
 const optionSets = {
   StatusCampanha: {
     Ativa: 'success', Pausada: 'warning', Finalizada: 'neutral', Inativa: 'neutral', Pendente: 'info',

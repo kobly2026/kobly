@@ -3,6 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Avatar, Badge, Button, Card, Icon, Input } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
+import { ErrorState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Perfil + meu plano. Editar dados do usuário e ver plano. KoblyProfile
@@ -14,6 +15,7 @@ function KoblyProfile() {
   const [form, setForm] = useState(null);
   useEffect(() => { if (a.data) setForm({ nome: a.data.user.nome, email: a.data.user.email, celular: a.data.user.celular, local: a.data.user.local }); }, [a.data]);
 
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
   if (a.status === 'loading' || !form) return <div style={{ color: 'var(--text-muted)' }}>Carregando perfil…</div>;
   const { user, empresa, plano } = a.data;
 
@@ -31,7 +33,7 @@ function KoblyProfile() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Input label="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
-            <Input label="E-mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input label="E-mail" value={form.email} disabled hint="O e-mail de login é gerenciado pela autenticação." />
             <Input label="Celular" value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} />
             <Input label="Localização" value={form.local} onChange={(e) => setForm({ ...form, local: e.target.value })} />
           </div>
