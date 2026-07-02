@@ -25,6 +25,15 @@ function relTime(s) {
   return fmtDate(s);
 }
 
+// ---- reshape de mensagem de suporte (usado no hydrate e pelo Realtime) -----
+export function reshapeSupportMessage(m) {
+  return {
+    id: m.id, autor: m.autor, nome: m.nome, texto: m.mensagem,
+    when: fmtTime(m.created_at), createdAt: m.created_at, profileId: m.profile_id || null,
+    conversationId: m.conversation_id || null,
+  };
+}
+
 // ---- reshape de etapa de fluxo (config por @TipoCardFluxo) -----------------
 function reshapeStep(s, flowMap) {
   let config = {};
@@ -150,10 +159,15 @@ async function hydrate() {
     })),
     conversas: convs.map((c) => ({
       id: c.id, clienteId: c.cliente_id, clienteNome: profMap[c.cliente_id] || '', empresa: orgMap[c.organization_id] || '',
-      tipo: c.tipo_chamado, status: c.status_chamado, prioridade: c.prioridade_chamado, atualizadoEm: relTime(c.updated_at),
+      empresaId: c.organization_id,
+      assignedTo: c.assigned_to || null, assignedToNome: profMap[c.assigned_to] || null,
+      origem: c.origem || 'manual',
+      clienteLastReadAt: c.cliente_last_read_at || null, supportLastReadAt: c.support_last_read_at || null,
+      tipo: c.tipo_chamado, status: c.status_chamado, prioridade: c.prioridade_chamado,
+      atualizadoEm: relTime(c.updated_at), updatedAtIso: c.updated_at,
       assunto: c.assunto,
       mensagens: (c.support_messages || []).slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        .map((m) => ({ id: m.id, autor: m.autor, nome: m.nome, texto: m.mensagem, when: fmtTime(m.created_at) })),
+        .map(reshapeSupportMessage),
     })),
     transacoes: txs.map((t) => ({
       id: t.id, userId: t.profile_id, planoId: t.plano_id, valorPago: num(t.valor_pago), formaPagamento: t.forma_pagamento,

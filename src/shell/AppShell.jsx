@@ -1,5 +1,5 @@
-// Kobly — application shell v2. Simplificado: NavRail + Topbar + rota ativa.
-// Removidos: AIAssistant, Onboarding, TweaksPanel, telas não-core.
+// Kobly — application shell: NavRail + Topbar + rota ativa (com ErrorBoundary por rota),
+// SupportProvider (conversas + Realtime) e SupportWidget (FAB de suporte IA/humano).
 import React from 'react';
 import { NavRail } from '@/ds';
 import { Toast } from '@/lib/ui.jsx';
@@ -20,6 +20,8 @@ import { KoblySecurity } from '@/routes/Security.jsx';
 import { KoblyTickets } from '@/routes/Tickets.jsx';
 import { KoblyHelp } from '@/routes/Help.jsx';
 import { ErrorBoundary } from '@/shell/ErrorBoundary.jsx';
+import { SupportProvider, useSupport } from '@/shell/SupportProvider.jsx';
+import { SupportWidget } from '@/shell/SupportWidget.jsx';
 
 // Route id -> screen component (FlowBuilder / EmailEditor are sub-screens of Campanhas).
 const SCREENS = {
@@ -37,21 +39,27 @@ const SCREENS = {
   perfil: KoblyProfile,
 };
 
-export function Shell() {
+function ShellInner() {
   const store = useKobly();
+  const support = useSupport();
   const DB = KoblyMockDB;
 
   const role = store.roleDef;
   const view = store.view;
   // Ensure the current route is allowed for the role; otherwise fall back to home.
   const allowed = role.nav.includes(view) ? view : role.home;
-  const navItems = role.nav.map((id) => DB.NAV[id]);
+  // Badge de não-lidas no item "Chamados" (fonte: SupportProvider/Realtime).
+  const navItems = role.nav.map((id) => (
+    id === 'chamados' && support && support.unreadTotal > 0
+      ? { ...DB.NAV[id], badge: support.unreadTotal }
+      : DB.NAV[id]
+  ));
   const Screen = SCREENS[allowed];
   const title = DB.routeTitle[allowed] || '';
   const eyebrow = `${store.role} · ${store.session.contextLabel}`;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface-app)' }}>
+    <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden', background: 'var(--surface-app)' }}>
       <NavRail
         items={navItems}
         active={allowed}
@@ -71,12 +79,21 @@ export function Shell() {
           </Reveal>
         </main>
       </div>
+      <SupportWidget />
       {store.toast && (
         <Toast key={store.toast.key} tone={store.toast.tone} onClose={store.dismissToast}>
           {store.toast.msg}
         </Toast>
       )}
     </div>
+  );
+}
+
+export function Shell() {
+  return (
+    <SupportProvider>
+      <ShellInner />
+    </SupportProvider>
   );
 }
 

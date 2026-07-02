@@ -780,17 +780,51 @@ export const KoblyApi = {
     const db = await loadDB();
     return clone(db.conversas);
   },
-  async sendMessage(convId, texto, autor, nome) {
+  // Cria chamado (manual ou escalado do chat IA). `transcript` = mensagens do widget
+  // ({from:'user'|'ai', text}) que entram como autor='sistema' via RPC SECURITY DEFINER
+  // (a RLS proíbe o Cliente de postar autor≠'cliente' direto).
+  async createConversation({ assunto, tipo = 'Dúvidas', prioridade = 'Média', origem = 'manual', mensagem = null, transcript = [] }) {
+    const { data: convId, error } = await supabase.rpc('create_support_conversation', {
+      p_assunto: assunto || '',
+      p_tipo: tipo,
+      p_prioridade: prioridade,
+      p_origem: origem,
+      p_mensagem: mensagem,
+      p_transcript: (transcript || []).map((m) => ({ from: m.from, text: String(m.text || '').slice(0, 4000) })),
+    });
+    resetDb();
+    if (error) return { error: error.message, id: null };
+    return { error: null, id: convId };
+  },
+  // Atribui a conversa a um atendente (null = desatribuir).
+  async assignConversation(convId, profileId) {
+    const { error } = await supabase.from('support_conversations').update({ assigned_to: profileId || null }).eq('id', convId);
+    resetDb();
+    return !error;
+  },
+  // Marca como lida do lado do chamador (a coluna depende do papel).
+  async markConversationRead(convId) {
+    const me = await currentProfile();
+    if (!me) return false;
+    const isStaff = me.tipo_user_geral === 'Suporte' || me.tipo_user_geral === 'Administrador';
+    const col = isStaff ? 'support_last_read_at' : 'cliente_last_read_at';
+    const { error } = await supabase.from('support_conversations').update({ [col]: new Date().toISOString() }).eq('id', convId);
+    return !error;
+  },
+  // Envia mensagem e retorna a row inserida (append otimista no client; o Realtime
+  // cuida do outro lado). Autor/nome resolvidos pelo perfil — nada hardcoded.
+  async sendMessage(convId, texto) {
     const me = await currentProfile();
     const isStaff = me && (me.tipo_user_geral === 'Suporte' || me.tipo_user_geral === 'Administrador');
-    const finalAutor = isStaff ? (autor || 'suporte') : 'cliente';
-    await supabase.from('support_messages').insert({
-      conversation_id: convId, autor: finalAutor, profile_id: me ? me.id : null, nome: nome || (me ? me.nome : null), mensagem: texto,
-    });
+    const { data: msg, error } = await supabase.from('support_messages').insert({
+      conversation_id: convId, autor: isStaff ? 'suporte' : 'cliente',
+      profile_id: me ? me.id : null, nome: me ? me.nome : null,
+      mensagem: String(texto || '').slice(0, 8000),
+    }).select().single();
+    // Toca o updated_at p/ reordenar a fila e emitir o UPDATE no Realtime.
     await supabase.from('support_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
     resetDb();
-    const db = await loadDB();
-    return db.conversas.find((c) => c.id === convId) || null;
+    return error ? null : msg; // row snake_case; reshape no consumidor
   },
   async resolveConversation(convId) {
     const { error } = await supabase.from('support_conversations').update({ status_chamado: 'Resolvida' }).eq('id', convId);

@@ -115,6 +115,25 @@ export const KoblyAI = {
     }
   },
 
+  // Resposta do AGENTE DE SUPORTE (task=support): multi-turn com conhecimento do
+  // produto + dados reais do usuário. Retorna { text, failed } — `failed` faz o
+  // widget destacar o botão "Falar com atendente" (inclusive no 429 do rate limit).
+  async answerSupport(messages, view) {
+    try {
+      const history = (Array.isArray(messages) ? messages : [])
+        .filter((m) => m && m.text)
+        .map((m) => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text }));
+      const context = await buildContext(view);
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'support', messages: history, context } });
+      if (error || !data || !data.answer) {
+        return { text: 'Não consegui falar com a IA agora. Quer falar com um atendente?', failed: true };
+      }
+      return { text: data.answer, failed: false };
+    } catch (e) {
+      return { text: 'Tive um problema ao consultar a IA. Quer falar com um atendente?', failed: true };
+    }
+  },
+
   // Planeja uma campanha COMPLETA a partir de um objetivo: DeepSeek (ai-chat task=plan)
   // escolhe o gatilho + cadência + textos. `canais` (['email','whatsapp']) define os
   // canais da cadência — cada etapa volta com `canal` (whatsapp → campo `texto`).

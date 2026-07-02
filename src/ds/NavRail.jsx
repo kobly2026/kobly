@@ -76,6 +76,7 @@ export function NavRail({
             key={it.id}
             icon={it.icon}
             label={it.label}
+            badge={it.badge || 0}
             active={active === it.id}
             onClick={() => onNavigate && onNavigate(it.id)}
           />

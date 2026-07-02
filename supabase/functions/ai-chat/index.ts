@@ -5,11 +5,16 @@
 //
 // Tasks (campo `task` no corpo):
 //   'chat'       (default) — assistente conversacional, multi-turn, resposta curta.
+//   'support'    — agente de SUPORTE do produto (multi-turn); conhece o Koblay e indica
+//                  o botão "Falar com atendente" quando a solução exige ação interna.
 //   'email'      — redige um e-mail de recuperação: JSON {assunto,titulo,paragrafos,cta,cupom}.
 //   'whatsapp'   — redige UMA mensagem de WhatsApp: JSON {titulo,texto} (com {{cta_link}}).
 //   'suggestion' — UMA recomendação prática (1-2 frases) fundamentada no contexto real.
 //   'plan'       — planeja campanha completa; aceita `canais` (['email','whatsapp']) e
 //                  gera etapas com campo `canal` (whatsapp → campo `texto` com {{cta_link}}).
+//
+// Hardening: entrada sanitizada/truncada (20 msgs × 4000 chars; brief 2000) e rate
+// limit de 10 req/min por usuário via tabela ai_usage (service role; 429 ao estourar).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -45,13 +50,55 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { messages = [], context = {}, task = "chat", brief = "", brand = "", canais = [] } = await req.json();
+    const body = await req.json();
+    const { context = {}, task = "chat", brand = "", canais = [] } = body;
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    // ── Sanitização de entrada (vale para todas as tasks) ────────────────────
+    const safeMessages = (Array.isArray(body.messages) ? body.messages : [])
+      .filter((m: any) => m && m.role && m.content)
+      .slice(-20)
+      .map((m: any) => ({ role: m.role === "user" ? "user" : "assistant", content: String(m.content).slice(0, 4000) }));
+    const brief = String(body.brief ?? "").slice(0, 2000);
+
+    // ── Rate limit: 10 req/min por usuário (ai_usage; fail-open em erro) ─────
+    try {
+      const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+      const { data: u } = await admin.auth.getUser(jwt);
+      if (u?.user?.id) {
+        const oneMinAgo = new Date(Date.now() - 60_000).toISOString();
+        const { count } = await admin.from("ai_usage")
+          .select("id", { count: "exact", head: true })
+          .eq("auth_id", u.user.id).gte("created_at", oneMinAgo);
+        if ((count ?? 0) >= 10) return json({ error: "rate_limited" }, 429);
+        await admin.from("ai_usage").insert({ auth_id: u.user.id, task });
+      }
+    } catch (_e) { /* fail-open: rate limit nunca derruba a função */ }
+
     const { data: apiKey, error: keyErr } = await admin.rpc("get_secret", { p_name: "deepseek_api_key" });
     if (keyErr || !apiKey) return json({ error: "secret_unavailable", detail: keyErr?.message }, 500);
 
     const ctx = JSON.stringify(context).slice(0, 6000);
+
+    // ── Task: support (agente de suporte do produto, multi-turn) ────────────
+    if (task === "support") {
+      const sys = [
+        "Você é o agente de SUPORTE da Koblay (pt-BR), plataforma de automação de recuperação de vendas de e-commerce.",
+        "CONHECIMENTO DO PRODUTO:",
+        "- Campanhas: fluxos com um Gatilho (Abandono de carrinho, Pix Gerado, Boleto Gerado, Compra Aprovada etc.) + etapas de Envio de e-mail / Envio de WhatsApp / Adicionar-Remover Tag / Condição (comprou / não comprou) / Acionar Fluxo, cada etapa com atraso em minutos.",
+        "- Tags-meta encerram o lead no fluxo quando o evento correspondente chega.",
+        "- Criticidade: índice 0–1 (Crítico→Excelente) calculado de abertura, CTR e vendas recuperadas.",
+        "- Integrações: postback/webhook de checkout (Hotmart, Kiwify, NexusPayt etc.) — URL com token na tela Integrações; envio de e-mail via provedor gerenciado; WhatsApp via Z-API (credenciais configuradas pelo suporte).",
+        "- Planos: limites de campanhas e execuções; upgrade em Planos & cobrança → Falar com o comercial.",
+        "REGRAS: responda curto (máx. ~4 frases), prático e passo-a-passo quando for instrução de tela. Use os DADOS REAIS do CONTEXTO quando útil. Não invente.",
+        "Se o problema exigir ação interna (cobrança, credenciais Z-API/e-mail, bug, dados que você não vê) ou o usuário pedir um humano, oriente explicitamente a tocar no botão 'Falar com atendente' logo abaixo — a conversa será anexada ao chamado.",
+        "CONTEXTO (JSON dos dados do usuário):", ctx,
+      ].join("\n");
+      const r = await callDeepSeek(apiKey, [{ role: "system", content: sys }, ...safeMessages], { maxTokens: 500 });
+      if ((r as any).error) return json({ error: "deepseek_error", ...(r as any).error }, 502);
+      return json({ answer: (r as any).content || "Não consegui responder agora." });
+    }
 
     // ── Task: email (JSON estruturado) ──────────────────────────────────────
     if (task === "plan") {
@@ -154,7 +201,7 @@ Deno.serve(async (req: Request) => {
     ].join("\n");
     const dsMessages = [
       { role: "system", content: system },
-      ...(Array.isArray(messages) ? messages : []).filter((m: any) => m && m.role && m.content),
+      ...safeMessages,
     ];
     const r = await callDeepSeek(apiKey, dsMessages, { maxTokens: 600 });
     if ((r as any).error) return json({ error: "deepseek_error", ...(r as any).error }, 502);

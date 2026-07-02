@@ -69,11 +69,15 @@ function KoblyStoreProvider({ children }) {
     // onAuthStateChange dispara INITIAL_SESSION na montagem (sessão restaurada ou null),
     // além de SIGNED_IN / SIGNED_OUT / PASSWORD_RECOVERY / TOKEN_REFRESHED.
     const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      // Garante que o Realtime avalie as RLS (WALRUS) com o JWT atual — inclusive
+      // após TOKEN_REFRESHED; sem isso a subscription pode ficar com token vencido.
+      try { supabase.realtime.setAuth(sess ? sess.access_token : null); } catch (e) { /* noop */ }
       if (event === 'PASSWORD_RECOVERY') { setPhase('recovery'); return; }
       if (event === 'SIGNED_OUT' || !sess) {
         setSession(null); setRoleState(null); setView(null); setPhase('login'); setAuthBusy(false);
         return;
       }
+      if (event === 'TOKEN_REFRESHED') return; // sessão já hidratada; só o token mudou
       hydrate().finally(() => setAuthBusy(false));
     });
     return () => { try { sub.subscription.unsubscribe(); } catch (e) { /* noop */ } };
