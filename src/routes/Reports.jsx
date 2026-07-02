@@ -4,7 +4,7 @@ import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Card, DataTable, StatusLine } from '@/ds';
 import { Chart, KoblyChartColors } from '@/lib/charts.jsx';
 import { useAsync } from '@/lib/hooks.jsx';
-import { Segmented } from '@/lib/ui.jsx';
+import { Segmented, ErrorState, EmptyState } from '@/lib/ui.jsx';
 
 // Kobly — Relatórios globais (Gestor/Admin). 3 gráficos consolidados + métricas de
 // entrega + insights da IA + tabela por conta. KoblyReports
@@ -43,7 +43,7 @@ function DeliveryCard({ entrega }) {
 
 function InsightsCard({ insights }) {
   return (
-    <Card title="Melhores perfis de uso" subtitle="Recomendações da IA" action={<Badge tone="info" dot>IA</Badge>}>
+    <Card title="Destaques do período" subtitle="Derivados dos dados reais" action={<Badge tone="info" dot>Automático</Badge>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {insights.map((it, i) => <StatusLine key={i} tone={it.tone} icon={it.icon}>{it.text}</StatusLine>)}
       </div>
@@ -56,6 +56,7 @@ function KoblyReports() {
   const [range, setRange] = React.useState('90d');
   const a = useAsync(() => KoblyApi.getReports(range), [range]);
 
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
   if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)', padding: 8 }}>Carregando relatórios…</div>;
   const d = a.data;
   const rows = d.porConta;
@@ -69,16 +70,15 @@ function KoblyReports() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
-        <Card title="Disparos por canal" subtitle="E-mail · WhatsApp · SMS">
+        <Card title="Disparos por canal" subtitle="E-mail · WhatsApp — envios reais do período">
           <Chart
             type="area" height={300}
             series={[
               { name: 'E-mail', data: d.disparosPorCanal.email },
               { name: 'WhatsApp', data: d.disparosPorCanal.whatsapp },
-              { name: 'SMS', data: d.disparosPorCanal.sms },
             ]}
             options={{
-              colors: [C.accent, C.green, C.amber],
+              colors: [C.accent, C.green],
               stroke: { curve: 'smooth', width: 2 },
               fill: { type: 'gradient', gradient: { opacityFrom: 0.25, opacityTo: 0.02 } },
               xaxis: axisX(d.disparosPorCanal.labels),
@@ -89,19 +89,23 @@ function KoblyReports() {
             }}
           />
         </Card>
-        <Card title="Conversões por canal" subtitle="Vendas recuperadas no período">
-          <Chart
-            type="donut" height={300}
-            series={d.conversoesPorCanal.map((c) => c.valor)}
-            options={{
-              labels: d.conversoesPorCanal.map((c) => c.canal),
-              colors: [C.accent, C.green, C.amber],
-              stroke: { colors: ['var(--surface-card)'], width: 2 },
-              legend: { position: 'bottom', fontSize: '12px' },
-              plotOptions: { pie: { donut: { size: '64%', labels: { show: true, total: { show: true, label: 'Recuperadas', color: C.textMuted, formatter: (w) => KoblyApi.br(w.globals.seriesTotals.reduce((a, b) => a + b, 0)) }, value: { color: C.textStrong, fontWeight: 700, formatter: (v) => KoblyApi.br(v) } } } } },
-              tooltip: { y: { formatter: (v) => KoblyApi.br(v) } },
-            }}
-          />
+        <Card title="Recuperadas por conta" subtitle="Vendas recuperadas no período">
+          {d.recuperadasPorConta.length ? (
+            <Chart
+              type="donut" height={300}
+              series={d.recuperadasPorConta.map((c) => c.valor)}
+              options={{
+                labels: d.recuperadasPorConta.map((c) => c.nome),
+                colors: [C.accent, C.green, C.amber, '#7aa7ff', '#c58bff', '#5fd4c8'],
+                stroke: { colors: ['var(--surface-card)'], width: 2 },
+                legend: { position: 'bottom', fontSize: '12px' },
+                plotOptions: { pie: { donut: { size: '64%', labels: { show: true, total: { show: true, label: 'Recuperadas', color: C.textMuted, formatter: (w) => KoblyApi.br(w.globals.seriesTotals.reduce((a, b) => a + b, 0)) }, value: { color: C.textStrong, fontWeight: 700, formatter: (v) => KoblyApi.br(v) } } } } },
+                tooltip: { y: { formatter: (v) => KoblyApi.br(v) } },
+              }}
+            />
+          ) : (
+            <EmptyState compact icon="chart-pie" title="Sem recuperações no período" message="Quando as campanhas recuperarem vendas, a distribuição por conta aparece aqui." />
+          )}
         </Card>
       </div>
 

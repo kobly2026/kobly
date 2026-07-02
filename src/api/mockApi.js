@@ -16,23 +16,17 @@ const empresaNome = (db, id) => (db.empresas.find((e) => e.id === id) || {}).nom
 const userById = (db, id) => db.users.find((u) => u.id === id) || {};
 const planoById = (db, id) => db.planos.find((p) => p.id === id) || {};
 
-// ---- Séries temporais sintéticas (determinísticas por seed) ----------------
-function seeded(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
-const RANGES = { hoje: 24, '7d': 7, '30d': 30, '90d': 90 };
-function axisLabels(range) {
-  const n = RANGES[range] || 30;
-  if (range === 'hoje') return Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`);
-  const out = []; const today = new Date(2026, 5, 25);
-  for (let i = n - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); out.push(`${d.getDate()}/${d.getMonth() + 1}`); }
-  return out;
+// ---- Eixo temporal (dias reais do período) ---------------------------------
+// Chaves ISO (YYYY-MM-DD) + rótulos curtos (D/M) para agrupar eventos por dia.
+function dayAxis(days) {
+  const keys = []; const labels = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    keys.push(d.toISOString().slice(0, 10));
+    labels.push(`${d.getDate()}/${d.getMonth() + 1}`);
+  }
+  return { keys, labels };
 }
-function series(seed, range, total, volatility = 0.35) {
-  const n = RANGES[range] || 30; const rnd = seeded(seed);
-  const base = []; let acc = 0;
-  for (let i = 0; i < n; i++) { const trend = 0.6 + (i / n) * 0.7; const noise = 1 + (rnd() - 0.5) * volatility * 2; const v = Math.max(0, trend * noise); base.push(v); acc += v; }
-  return base.map((v) => Math.round((v / acc) * total));
-}
-const rangeFactor = (range) => ({ hoje: 0.06, '7d': 0.28, '30d': 1, '90d': 2.7 }[range] || 1);
 
 // ---- Sessão derivada do perfil autenticado --------------------------------
 function buildSession(profile, db) {
@@ -84,6 +78,12 @@ export const KoblyApi = {
   async loadAppSession() {
     const profile = await currentProfile();
     if (!profile) return null;
+    // Usuário desabilitado pelo Admin não entra: encerra a sessão de auth na hora.
+    if (profile.status_user === 'Desabilitado') {
+      await supabase.auth.signOut();
+      resetDb();
+      return null;
+    }
     const db = await loadDB();
     return buildSession(profile, db);
   },
@@ -748,15 +748,20 @@ export const KoblyApi = {
   async getPlans() {
     const db = await loadDB();
     const me = await currentProfile();
-    const org = db.empresas.find((e) => e.id === (me && me.organization_id)) || db.empresas[0];
-    const plano = (org && db.planos.find((p) => p.id === org.planoId)) || db.planos.find((p) => p.nome === 'Pro') || db.planos[0] || {};
-    const usoCamp = db.campanhas.filter((c) => !org || c.empresaId === org.id).length;
-    const { data: uc } = await supabase.from('usage_counters').select('*');
-    const usage = (uc && uc[0]) || null;
+    // Staff (Suporte/Admin) não tem org: visão plataforma (todos os planos + transações),
+    // sem card de uso — nada de escolher uma org arbitrária.
+    const org = db.empresas.find((e) => e.id === (me && me.organization_id)) || null;
+    const plano = (org && db.planos.find((p) => p.id === org.planoId)) || null;
+    const usoCamp = org ? db.campanhas.filter((c) => c.empresaId === org.id).length : 0;
+    let usage = null;
+    if (org) {
+      const { data: uc } = await supabase.from('usage_counters').select('*').eq('organization_id', org.id).maybeSingle();
+      usage = uc || null;
+    }
     return {
       planos: clone(db.planos),
-      atual: clone(plano),
-      uso: { campanhas: usoCamp, limiteCampanhas: plano.limiteCampanhas, execucoes: usage ? Number(usage.numero_execucoes) : 0, limiteExecucoes: plano.limiteExecucoes },
+      atual: plano ? clone(plano) : null,
+      uso: plano ? { campanhas: usoCamp, limiteCampanhas: plano.limiteCampanhas, execucoes: usage ? Number(usage.numero_execucoes) : 0, limiteExecucoes: plano.limiteExecucoes } : null,
       transacoes: db.transacoes.map((t) => ({ ...t, usuario: userById(db, t.userId).nome, plano: planoById(db, t.planoId).nome })),
     };
   },
@@ -817,10 +822,14 @@ export const KoblyApi = {
     return !error;
   },
 
-  // ---- Relatórios globais -------------------------------------------------
+  // ---- Relatórios globais — 100% dados reais (email_events / campaigns / stats)
   async getReports(range = '90d') {
     const db = await loadDB();
-    const labels = axisLabels(range);
+    const days = range === '30d' ? 30 : 90;
+    const { keys, labels } = dayAxis(days);
+    const sinceIso = new Date(Date.now() - days * 864e5).toISOString();
+
+    // Desempenho por conta (campaign_stats já hidratado e escopado por RLS)
     const porConta = db.empresas.map((e) => {
       const camps = db.campanhas.filter((c) => c.empresaId === e.id);
       const enviados = camps.reduce((s, c) => s + c.stats.emailsEnviados, 0);
@@ -830,27 +839,76 @@ export const KoblyApi = {
     });
     const totalEnviados = porConta.reduce((s, r) => s + r.enviados, 0);
     const totalVendas = porConta.reduce((s, r) => s + r.vendas, 0);
-    const f = rangeFactor(range);
 
-    const campanhasCriadas = { labels, series: series(31, range, db.campanhas.length * 6) };
+    // Disparos por canal — envios reais agrupados por dia × canal (sem SMS: canal não existe)
+    const { data: sends } = await supabase.from('email_events')
+      .select('created_at, channel')
+      .eq('event', 'send').eq('status', 'enviado')
+      .gte('created_at', sinceIso)
+      .limit(10000);
+    const byDay = { email: {}, whatsapp: {} };
+    (sends || []).forEach((r) => {
+      const k = String(r.created_at).slice(0, 10);
+      const ch = r.channel === 'whatsapp' ? 'whatsapp' : 'email';
+      byDay[ch][k] = (byDay[ch][k] || 0) + 1;
+    });
     const disparosPorCanal = {
       labels,
-      email: series(41, range, Math.round(totalEnviados * f)),
-      sms: series(42, range, Math.round(totalEnviados * f * 0.18)),
-      whatsapp: series(43, range, Math.round(totalEnviados * f * 0.31)),
+      email: keys.map((k) => byDay.email[k] || 0),
+      whatsapp: keys.map((k) => byDay.whatsapp[k] || 0),
     };
-    const conversoesPorCanal = [
-      { canal: 'E-mail', valor: Math.round(totalVendas * f * 0.74) },
-      { canal: 'WhatsApp', valor: Math.round(totalVendas * f * 0.19) },
-      { canal: 'SMS', valor: Math.round(totalVendas * f * 0.07) },
-    ];
-    const entrega = { abertura: 0.47, cliques: 0.19, bounce: 0.024 };
-    const insights = [
-      { tone: 'warning', icon: 'alert-triangle', text: 'A conta "Studio Marília" está em criticidade Crítico — priorize revisão de domínio e assuntos.' },
-      { tone: 'info', icon: 'sparkles', text: 'Campanhas de Pix convertem 23% acima da média. Replique a cadência em outros gatilhos.' },
-      { tone: 'success', icon: 'trending-up', text: 'WhatsApp cresceu como canal de conversão no período. Avalie ampliar o investimento.' },
-    ];
-    return { porConta, totalEnviados, totalVendas, range, campanhasCriadas, disparosPorCanal, conversoesPorCanal, entrega, insights };
+
+    // Métricas de entrega reais do período
+    const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    const evCount = (extra) => {
+      let q = supabase.from('email_events').select('id', { count: 'exact', head: true }).gte('created_at', sinceIso);
+      Object.entries(extra).forEach(([k, v]) => { q = q.eq(k, v); });
+      return countOf(q);
+    };
+    const [nEnv, nOpen, nClick, nFail] = await Promise.all([
+      evCount({ event: 'send', status: 'enviado' }),
+      evCount({ event: 'open' }),
+      evCount({ event: 'click' }),
+      evCount({ status: 'falhou' }),
+    ]);
+    const entrega = {
+      abertura: nEnv ? nOpen / nEnv : 0,
+      cliques: nEnv ? nClick / nEnv : 0,
+      bounce: (nEnv + nFail) ? nFail / (nEnv + nFail) : 0,
+    };
+
+    // Campanhas criadas por dia (real)
+    const { data: camps } = await supabase.from('campaigns')
+      .select('created_at').gte('created_at', sinceIso).limit(2000);
+    const campByDay = {};
+    (camps || []).forEach((r) => { const k = String(r.created_at).slice(0, 10); campByDay[k] = (campByDay[k] || 0) + 1; });
+    const campanhasCriadas = { labels, series: keys.map((k) => campByDay[k] || 0) };
+
+    // Donut: recuperadas por conta (substitui "conversões por canal" — não há
+    // atribuição de venda por canal no modelo de dados)
+    const recuperadasPorConta = porConta
+      .filter((r) => r.vendas > 0)
+      .sort((a, b) => b.vendas - a.vendas)
+      .slice(0, 6)
+      .map((r) => ({ nome: r.conta, valor: r.vendas }));
+
+    // Insights derivados dos dados (sem IA — regras determinísticas)
+    const insights = [];
+    const criticas = porConta.filter((r) => r.criticidade === 'Crítico');
+    if (criticas.length) {
+      insights.push({
+        tone: 'warning', icon: 'alert-triangle',
+        text: criticas.length === 1
+          ? `A conta "${criticas[0].conta}" está em criticidade Crítico — priorize revisão dos fluxos e assuntos.`
+          : `${criticas.length} contas estão em criticidade Crítico — priorize revisão dos fluxos e assuntos.`,
+      });
+    }
+    const top = [...porConta].sort((a, b) => b.vendas - a.vendas)[0];
+    if (top && top.vendas > 0) insights.push({ tone: 'success', icon: 'trending-up', text: `"${top.conta}" lidera em vendas recuperadas no período (${br(top.vendas)}).` });
+    if (nEnv > 0) insights.push({ tone: 'info', icon: 'mail-open', text: `Taxa média de abertura no período: ${pct(entrega.abertura)} em ${br(nEnv)} envios.` });
+    if (!insights.length) insights.push({ tone: 'info', icon: 'sparkles', text: 'Ainda não há dados suficientes no período para gerar insights.' });
+
+    return { porConta, totalEnviados, totalVendas, range, campanhasCriadas, disparosPorCanal, recuperadasPorConta, entrega, insights };
   },
 
   // ---- Perfil -------------------------------------------------------------

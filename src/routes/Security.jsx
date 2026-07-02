@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Avatar, Badge, Button, DataTable } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Segmented } from '@/lib/ui.jsx';
+import { Segmented, ErrorState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Segurança (painel Admin). Usuários (ativar/desabilitar), sessões ativas,
@@ -14,6 +14,7 @@ function KoblySecurity() {
   const DB = KoblyMockDB;
   const a = useAsync(() => KoblyApi.getSecurity(), []);
   const [tab, setTab] = useState('users');
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
   if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)' }}>Carregando painel…</div>;
   const d = a.data;
 
@@ -62,7 +63,7 @@ function KoblySecurity() {
           ]} rows={d.users} />
         )}
         {tab === 'sessions' && (
-          <DataTable rowKey="id" empty="Nenhuma sessão ativa." columns={[
+          <DataTable rowKey="id" empty="Nenhuma sessão registrada ainda — o rastreamento de sessões chega em breve." columns={[
             { key: 'nome', header: 'Usuário', render: (r) => <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{r.nome}</span> },
             { key: 'dispositivo', header: 'Dispositivo' },
             { key: 'ip', header: 'IP', render: (r) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{r.ip}</span> },
@@ -71,7 +72,7 @@ function KoblySecurity() {
           ]} rows={d.sessoes} />
         )}
         {tab === 'history' && (
-          <DataTable rowKey="id" columns={[
+          <DataTable rowKey="id" empty="Nenhum registro de acesso ainda — a auditoria de logins chega em breve." columns={[
             { key: 'nome', header: 'Usuário', render: (r) => <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{r.nome}</span> },
             { key: 'tipoLog', header: 'Evento', render: (r) => <Badge tone={r.tipoLog === 'Login falho' ? 'danger' : 'success'} dot>{r.tipoLog}</Badge> },
             { key: 'ip', header: 'IP', render: (r) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{r.ip}</span> },

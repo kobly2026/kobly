@@ -30,6 +30,9 @@ function KoblyStoreProvider({ children }) {
   const [view, setView] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  // Prefill de chamado (ex.: Plans → "Falar com o comercial" → tela Chamados abre o
+  // form de novo chamado preenchido). Consumido e limpo pela tela de Chamados.
+  const [ticketPrefill, setTicketPrefill] = useState(null);
   const toastTimer = useRef(null);
 
   const fireToast = useCallback((tone, msg) => {
@@ -99,6 +102,7 @@ function KoblyStoreProvider({ children }) {
     updatePassword: (pw) => KoblyApi.updatePassword(pw),
     signOut: () => KoblyApi.signOut(),
     completeOnboarding,
+    ticketPrefill, setTicketPrefill,
     toast, notify: fireToast, dismissToast: () => setToast(null),
   };
 

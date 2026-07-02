@@ -13,14 +13,27 @@ import { KoblyCampaigns } from '@/routes/Campaigns.jsx';
 import { KoblyLeads } from '@/routes/Leads.jsx';
 import { KoblyIntegrations } from '@/routes/Integrations.jsx';
 import { KoblyProfile } from '@/routes/Profile.jsx';
+import { KoblyClients } from '@/routes/Clients.jsx';
+import { KoblyReports } from '@/routes/Reports.jsx';
+import { KoblyPlans } from '@/routes/Plans.jsx';
+import { KoblySecurity } from '@/routes/Security.jsx';
+import { KoblyTickets } from '@/routes/Tickets.jsx';
+import { KoblyHelp } from '@/routes/Help.jsx';
+import { ErrorBoundary } from '@/shell/ErrorBoundary.jsx';
 
 // Route id -> screen component (FlowBuilder / EmailEditor are sub-screens of Campanhas).
 const SCREENS = {
   painel: KoblyDashboard,
+  clientes: KoblyClients,
   pipeline: KoblyPipeline,
   campanhas: KoblyCampaigns,
   leads: KoblyLeads,
   integracoes: KoblyIntegrations,
+  relatorios: KoblyReports,
+  planos: KoblyPlans,
+  seguranca: KoblySecurity,
+  chamados: KoblyTickets,
+  ajuda: KoblyHelp,
   perfil: KoblyProfile,
 };
 
@@ -51,7 +64,10 @@ export function Shell() {
         <KoblyTopbar eyebrow={eyebrow} title={title} />
         <main style={{ flex: 1, overflowY: 'auto', padding: 'var(--content-pad)' }}>
           <Reveal key={allowed + store.role} y={6} style={{ maxWidth: 'var(--content-max)', margin: '0 auto' }}>
-            {Screen ? <Screen /> : null}
+            {/* Boundary por rota: crash de tela não derruba nav/topbar; o key reseta ao navegar. */}
+            <ErrorBoundary key={allowed} variant="screen" onHome={() => store.navigate(role.home)}>
+              {Screen ? <Screen /> : null}
+            </ErrorBoundary>
           </Reveal>
         </main>
       </div>

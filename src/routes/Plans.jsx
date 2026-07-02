@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, DataTable, Icon, Input } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Modal } from '@/lib/ui.jsx';
+import { Modal, ErrorState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Planos & cobrança. Plano atual + uso vs. limites, planos disponíveis,
@@ -46,7 +46,7 @@ function PlanCard({ p, current, onChoose }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="megaphone" size={15} style={{ color: 'var(--accent)' }} />{KoblyApi.br(p.limiteCampanhas)} campanhas</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="zap" size={15} style={{ color: 'var(--accent)' }} />{KoblyApi.br(p.limiteExecucoes)} execuções/mês</span>
       </div>
-      {!current && p.status === 'Ativo' && <Button variant="secondary" fullWidth onClick={() => onChoose(p)}>Mudar para {p.nome}</Button>}
+      {!current && p.status === 'Ativo' && <Button variant="secondary" fullWidth onClick={() => onChoose(p)}>Falar com o comercial</Button>}
     </div>
   );
 }
@@ -75,9 +75,15 @@ function KoblyPlans() {
       store.notify('danger', 'Não foi possível criar o plano.');
     } finally { setBusy(false); }
   }
+  if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
   if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)' }}>Carregando planos…</div>;
   const d = a.data;
   const canCreate = store.can.createPlan;
+  // Upgrade/troca de plano sem gateway na v1: abre um chamado pro comercial já tipado.
+  const falarComComercial = (assunto) => {
+    store.setTicketPrefill({ tipo: 'Pagamento', assunto });
+    store.navigate('chamados');
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -85,8 +91,8 @@ function KoblyPlans() {
         {canCreate ? 'Gestão de planos da plataforma e histórico de cobrança das contas.' : 'Seu plano atual, consumo do período e histórico de cobrança.'}
       </PageIntro>
 
-      {!canCreate && (
-        <Card title={`Plano ${d.atual.nome}`} subtitle="Consumo do período atual" action={<Button variant="primary" size="sm" iconLeft="arrow-up-circle" onClick={() => store.notify('success', 'Solicitação de upgrade enviada')}>Fazer upgrade</Button>}>
+      {!canCreate && d.atual && (
+        <Card title={`Plano ${d.atual.nome}`} subtitle="Consumo do período atual" action={<Button variant="primary" size="sm" iconLeft="arrow-up-circle" onClick={() => falarComComercial(`Upgrade do plano ${d.atual.nome}`)}>Falar com o comercial</Button>}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <UsageBar label="Campanhas" used={d.uso.campanhas} limit={d.uso.limiteCampanhas} />
             <UsageBar label="Execuções (eventos processados)" used={d.uso.execucoes} limit={d.uso.limiteExecucoes} />
@@ -96,7 +102,7 @@ function KoblyPlans() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         {d.planos.filter((p) => !p.deleted).map((p) => (
-          <PlanCard key={p.id} p={p} current={p.id === d.atual.id && !canCreate} onChoose={(pl) => store.notify('success', `Plano alterado para ${pl.nome}`)} />
+          <PlanCard key={p.id} p={p} current={!!d.atual && p.id === d.atual.id && !canCreate} onChoose={(pl) => falarComComercial(`Mudança para o plano ${pl.nome}`)} />
         ))}
       </div>
 
@@ -111,7 +117,7 @@ function KoblyPlans() {
             { key: 'valorPago', header: 'Valor', align: 'end', render: (r) => KoblyApi.money(r.valorPago) },
             { key: 'status', header: 'Status', render: (r) => <Badge tone={DB.optionSets.StatusPagamento[r.status] || 'neutral'} dot>{r.status}</Badge> },
           ]}
-          rows={canCreate ? d.transacoes : d.transacoes.filter((t) => t.usuario === store.session.name)}
+          rows={canCreate ? d.transacoes : d.transacoes.filter((t) => t.userId === store.session.userId)}
         />
       </Card>
 

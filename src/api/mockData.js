@@ -342,10 +342,16 @@ const faq = [
 // v2: Simplificado — foco em automação pura (Campanhas, Leads, Integrações, Perfil).
 const NAV = {
   painel:       { id: 'painel',       icon: 'layout-dashboard', label: 'Dashboard' },
+  clientes:     { id: 'clientes',     icon: 'building-2',       label: 'Clientes' },
   pipeline:     { id: 'pipeline',     icon: 'kanban',           label: 'Pipeline' },
   campanhas:    { id: 'campanhas',    icon: 'megaphone',        label: 'Campanhas' },
   leads:        { id: 'leads',        icon: 'users-round',      label: 'Leads' },
   integracoes:  { id: 'integracoes',  icon: 'plug',             label: 'Integrações' },
+  relatorios:   { id: 'relatorios',   icon: 'chart-column',     label: 'Relatórios' },
+  planos:       { id: 'planos',       icon: 'credit-card',      label: 'Planos & cobrança' },
+  seguranca:    { id: 'seguranca',    icon: 'shield',           label: 'Segurança' },
+  chamados:     { id: 'chamados',     icon: 'messages-square',  label: 'Chamados' },
+  ajuda:        { id: 'ajuda',        icon: 'life-buoy',        label: 'Ajuda' },
   perfil:       { id: 'perfil',       icon: 'user-round',       label: 'Perfil' },
 };
 
@@ -354,36 +360,38 @@ const roles = {
   Cliente: {
     label: 'Cliente',
     descricao: 'Dono da conta — dashboard, pipeline, campanhas, leads, integrações.',
-    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'planos', 'chamados', 'ajuda', 'perfil'],
     home: 'painel',
     can: { editCampaign: true, viewAllAccounts: false, createPlan: false, manageUsers: false, answerTickets: false },
   },
   Gestor: {
     label: 'Gestor',
     descricao: 'Agência — visão consolidada de várias contas.',
-    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    nav: ['painel', 'clientes', 'pipeline', 'campanhas', 'leads', 'integracoes', 'relatorios', 'chamados', 'ajuda', 'perfil'],
     home: 'painel',
     can: { editCampaign: true, viewAllAccounts: true, createPlan: false, manageUsers: false, answerTickets: false },
   },
   Suporte: {
     label: 'Suporte',
     descricao: 'Atende chamados e chat de suporte.',
-    nav: ['leads', 'perfil'],
-    home: 'leads',
+    nav: ['chamados', 'leads', 'ajuda', 'perfil'],
+    home: 'chamados',
     can: { editCampaign: false, viewAllAccounts: true, createPlan: false, manageUsers: false, answerTickets: true },
   },
   Administrador: {
     label: 'Administrador',
     descricao: 'Plataforma — usuários, planos, segurança, auditoria.',
-    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'perfil'],
+    nav: ['painel', 'clientes', 'relatorios', 'planos', 'seguranca', 'chamados', 'perfil'],
     home: 'painel',
-    can: { editCampaign: false, viewAllAccounts: true, createPlan: true, manageUsers: true, answerTickets: false },
+    can: { editCampaign: false, viewAllAccounts: true, createPlan: true, manageUsers: true, answerTickets: true },
   },
 };
 
 // Títulos de rota (topbar)
 const routeTitle = {
-  painel: 'Dashboard', pipeline: 'Pipeline', campanhas: 'Campanhas', leads: 'Leads', integracoes: 'Integrações', perfil: 'Perfil',
+  painel: 'Dashboard', clientes: 'Clientes', pipeline: 'Pipeline', campanhas: 'Campanhas',
+  leads: 'Leads', integracoes: 'Integrações', relatorios: 'Relatórios', planos: 'Planos & cobrança',
+  seguranca: 'Segurança', chamados: 'Chamados', ajuda: 'Central de ajuda', perfil: 'Perfil',
 };
 
 // ---------------------------------------------------------------------------

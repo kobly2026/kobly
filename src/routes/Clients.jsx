@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB, SEGMENTOS } from '@/api/mockData.js';
 import { Avatar, Badge, Button, DataTable, IconButton, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Modal } from '@/lib/ui.jsx';
+import { Modal, ErrorState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Clientes (Gestor/Admin). Lista e gerencia contas de cliente (Empresa).
@@ -63,7 +63,9 @@ function KoblyClients() {
         Contas de cliente que você gerencia como agência. Cada conta isola leads, campanhas e domínios de envio.
       </PageIntro>
       <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-        {a.status === 'loading'
+        {a.status === 'error'
+          ? <ErrorState message={a.error} onRetry={a.reload} compact />
+          : a.status === 'loading'
           ? <div style={{ padding: 28, color: 'var(--text-muted)' }}>Carregando…</div>
           : (
             <DataTable
@@ -84,10 +86,9 @@ function KoblyClients() {
                 { key: 'leads', header: 'Leads', align: 'end', render: (r) => KoblyApi.br(r.leads) },
                 { key: 'campanhasAtivas', header: 'Ativas', align: 'end' },
                 { key: 'criticidade', header: 'Criticidade', render: (r) => <Badge tone={DB.optionSets.StatusCriticidade[r.criticidade] || 'neutral'} dot>{r.criticidade}</Badge> },
-                { key: 'acao', header: '', align: 'end', width: 90, render: (r) => (
+                { key: 'acao', header: '', align: 'end', width: 60, render: (r) => (
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                     <IconButton icon="pencil" size="sm" aria-label="Editar" onClick={() => setEditing(r)} />
-                    <IconButton icon="log-in" size="sm" aria-label="Acessar conta" onClick={() => store.notify('info', `Acessar "${r.nome}" — em breve (visão por conta)`)} />
                   </div>
                 ) },
               ]}
