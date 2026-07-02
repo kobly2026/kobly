@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyAI } from '@/api/ai.js';
-import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, Icon, Select } from '@/ds';
+import { Card, Icon, MetricCard, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
+import { AISuggestion, ErrorState, SkeletonDashboard } from '@/lib/ui.jsx';
 import { LeadFunnel } from '@/routes/Funnel.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -13,31 +12,22 @@ import { useKobly } from '@/store/store.jsx';
 const pctFmt = (n) => (n * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
 const intFmt = (n) => Number(n || 0).toLocaleString('pt-BR');
 
-function Kpi({ icon, label, value, tone = 'info' }) {
-  const fg = tone === 'accent' ? 'var(--accent)' : `var(--status-${tone}-fg)`;
-  const bg = tone === 'accent' ? 'var(--accent-soft)' : `var(--status-${tone}-bg)`;
-  return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-      <span style={{ display: 'inline-flex', width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: bg, color: fg }}>
-        <Icon name={icon} size={17} />
-      </span>
-      <div>
-        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', lineHeight: 1.05 }}>{value}</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
+// bg/fg de uma bolha de ícone a partir de um tom semântico (mesmo mapa do DS).
+const toneColors = (tone) =>
+  tone === 'accent'
+    ? { bg: 'var(--accent-soft)', fg: 'var(--accent)' }
+    : { bg: `var(--status-${tone}-bg)`, fg: `var(--status-${tone}-fg)` };
 
-function Panel({ title, children, pad = 18 }) {
-  return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{title}</span>
-      </div>
-      <div style={{ padding: pad }}>{children}</div>
-    </div>
-  );
+// Ícone + tom por família de evento de checkout (mais específico → mais genérico).
+function eventVisual(tipo) {
+  const t = (tipo || '').toLowerCase();
+  if (t.includes('abandono')) return { icon: 'shopping-cart', tone: 'warning' };
+  if (t.includes('pix')) return { icon: 'qr-code', tone: 'info' };
+  if (t.includes('boleto')) return { icon: 'receipt', tone: 'info' };
+  if (t.includes('cancel') || t.includes('recusad') || t.includes('chargeback') || t.includes('reembols') || t.includes('estorn'))
+    return { icon: 'x-circle', tone: 'danger' };
+  if (t.includes('compra') || t.includes('aprovad') || t.includes('venda')) return { icon: 'shopping-bag', tone: 'success' };
+  return { icon: 'zap', tone: 'accent' };
 }
 
 function KoblyDashboard() {
@@ -48,15 +38,23 @@ function KoblyDashboard() {
   const [contaId, setContaId] = useState('');
   const targetOrg = isGestor ? (contaId || undefined) : (empresaId || undefined);
   const a = useAsync(() => KoblyApi.getDashboard(targetOrg), [store.role, targetOrg]);
-  const DB = KoblyMockDB;
 
   const d = a.data || { kpis: {}, funnel: {}, recent: [], topCampaigns: [] };
   const k = d.kpis || {};
+  const loading = a.status === 'loading';
+  // Maior recuperação do ranking → escala das mini-barras de proporção.
+  const maxRec = Math.max(1, ...(d.topCampaigns || []).map((c) => Number(c.recuperadas) || 0));
 
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ position: 'relative', isolation: 'isolate', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Momento de design: brasa quente atrás da faixa de KPIs (carvão quente). */}
+      <div
+        aria-hidden="true"
+        style={{ position: 'absolute', top: 0, insetInline: 0, height: 320, background: 'var(--grad-hero)', pointerEvents: 'none', zIndex: -1 }}
+      />
+
       <PageIntro>
         Visão geral da sua recuperação de vendas — métricas reais, funil e as campanhas que mais convertem.
       </PageIntro>
@@ -71,65 +69,137 @@ function KoblyDashboard() {
         />
       )}
 
-      {/* KPIs reais */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
-        <Kpi icon="users-round" label="Leads" tone="info" value={intFmt(k.leads)} />
-        <Kpi icon="send" label="E-mails enviados" tone="accent" value={intFmt(k.enviados)} />
-        <Kpi icon="mail-open" label="Taxa de abertura" tone="warning" value={pctFmt(k.abertura || 0)} />
-        <Kpi icon="mouse-pointer-click" label="CTR" tone="info" value={pctFmt(k.ctr || 0)} />
-        <Kpi icon="circle-check" label="Vendas recuperadas" tone="success" value={intFmt(k.recuperados)} />
-        <Kpi icon="megaphone" label="Campanhas ativas" tone="info" value={intFmt(k.ativas)} />
-      </div>
+      {loading ? (
+        <SkeletonDashboard />
+      ) : (
+        <>
+          {/* KPIs reais — "Vendas recuperadas" é o número herói (destaque + brilho quente). */}
+          <div className="kbly-grid-kpi" style={{ gap: 16 }}>
+            <MetricCard
+              variant="hero"
+              icon="circle-check"
+              label="Vendas recuperadas"
+              value={intFmt(k.recuperados)}
+              style={{ gridColumn: 'span 2' }}
+            />
+            <MetricCard icon="users-round" iconTone="info" label="Leads" value={intFmt(k.leads)} />
+            <MetricCard icon="send" iconTone="accent" label="E-mails enviados" value={intFmt(k.enviados)} />
+            <MetricCard icon="mail-open" iconTone="warning" label="Taxa de abertura" value={pctFmt(k.abertura || 0)} />
+            <MetricCard icon="mouse-pointer-click" iconTone="info" label="CTR" value={pctFmt(k.ctr || 0)} />
+            <MetricCard icon="megaphone" iconTone="accent" label="Campanhas ativas" value={intFmt(k.ativas)} />
+          </div>
 
-      {/* IA em destaque (AI-first) */}
-      <AISuggestion title="Insight da IA" load={() => KoblyAI.suggestForDashboard('painel')} />
+          {/* IA em destaque (AI-first) */}
+          <AISuggestion title="Insight da IA" load={() => KoblyAI.suggestForDashboard('painel')} />
 
-      {/* Funil + colunas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Funil de recuperação</div>
-          {a.status === 'loading' ? <div style={{ color: 'var(--text-muted)', padding: 20 }}>Carregando…</div> : <LeadFunnel data={d.funnel} />}
-        </div>
+          {/* Funil + colunas */}
+          <div className="kbly-grid-main" style={{ gap: 18 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Funil de recuperação</div>
+              <LeadFunnel data={d.funnel} />
+            </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <Panel title="Campanhas que mais recuperam" pad={0}>
-            {(d.topCampaigns || []).length === 0 ? (
-              <div style={{ padding: 18, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Nenhuma campanha ainda.</div>
-            ) : (
-              <div>
-                {d.topCampaigns.map((c) => (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{intFmt(c.enviados)} enviados · {pctFmt(c.taxaAbertura || 0)} abertura</div>
-                    </div>
-                    <div style={{ textAlign: 'end', flex: 'none' }}>
-                      <div style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: c.recuperadas ? 'var(--status-success-fg)' : 'var(--text-muted)' }}>{intFmt(c.recuperadas)}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)' }}>recuperadas</div>
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <Card title="Campanhas que mais recuperam" icon="trophy" pad={false}>
+                {(d.topCampaigns || []).length === 0 ? (
+                  <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Nenhuma campanha ainda.</div>
+                ) : (
+                  <div>
+                    {d.topCampaigns.map((c, i) => {
+                      const rec = Number(c.recuperadas) || 0;
+                      const barPct = Math.max(4, (rec / maxRec) * 100);
+                      const leader = i === 0;
+                      return (
+                        <div
+                          key={c.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 12,
+                            padding: '13px 20px',
+                            borderBottom: i === d.topCampaigns.length - 1 ? 'none' : '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              flex: 'none',
+                              width: 24,
+                              height: 24,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 'var(--radius-sm)',
+                              background: leader ? 'var(--accent-soft)' : 'var(--surface-sunken)',
+                              color: leader ? 'var(--accent)' : 'var(--text-muted)',
+                              fontSize: 'var(--text-xs)',
+                              fontWeight: 'var(--fw-bold)',
+                              marginTop: 1,
+                            }}
+                          >
+                            {i + 1}º
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</span>
+                              <span className="kbly-num" style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: rec ? 'var(--status-success-fg)' : 'var(--text-muted)', flex: 'none' }}>
+                                {intFmt(rec)}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginTop: 1 }}>
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{intFmt(c.enviados)} enviados · {pctFmt(c.taxaAbertura || 0)} abertura</span>
+                              <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-subtle)', flex: 'none' }}>recuperadas</span>
+                            </div>
+                            {/* mini-barra proporcional ao líder do ranking */}
+                            <div style={{ height: 4, borderRadius: 'var(--radius-pill)', background: 'var(--surface-sunken)', overflow: 'hidden', marginTop: 8 }}>
+                              <div style={{ height: '100%', width: `${barPct}%`, background: 'var(--grad-accent)', borderRadius: 'var(--radius-pill)', transition: 'width var(--dur-med, .4s) ease' }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-            )}
-          </Panel>
+                )}
+              </Card>
 
-          <Panel title="Atividade recente" pad={0}>
-            {(d.recent || []).length === 0 ? (
-              <div style={{ padding: 18, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Nenhum evento recebido ainda.</div>
-            ) : (
-              <div>
-                {d.recent.map((ev) => (
-                  <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <Badge tone={DB.eventTone[ev.tipo_evento] || 'neutral'} dot>{ev.tipo_evento}</Badge>
-                    <div style={{ flex: 1, minWidth: 0, fontSize: 'var(--text-sm)', color: 'var(--text-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.email}</div>
-                    {ev.valor_produto ? <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', flex: 'none' }}>{KoblyApi.money(ev.valor_produto)}</span> : null}
+              <Card title="Atividade recente" icon="activity" pad={false}>
+                {(d.recent || []).length === 0 ? (
+                  <div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Nenhum evento recebido ainda.</div>
+                ) : (
+                  <div>
+                    {d.recent.map((ev, i) => {
+                      const v = eventVisual(ev.tipo_evento);
+                      const c = toneColors(v.tone);
+                      return (
+                        <div
+                          key={ev.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '11px 20px',
+                            borderBottom: i === d.recent.length - 1 ? 'none' : '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', flex: 'none', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: c.bg, color: c.fg }}>
+                            <Icon name={v.icon} size={16} />
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.tipo_evento}</div>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.email}</div>
+                          </div>
+                          {ev.valor_produto != null ? (
+                            <span className="kbly-num" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', flex: 'none' }}>{KoblyApi.money(ev.valor_produto)}</span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-      </div>
+                )}
+              </Card>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

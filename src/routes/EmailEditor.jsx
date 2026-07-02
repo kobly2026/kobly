@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyApi } from '@/api/mockApi.js';
-import { Button, Icon, IconButton, Input } from '@/ds';
+import { Button, Icon, IconButton, Input, Spinner } from '@/ds';
 import { Segmented } from '@/lib/ui.jsx';
+import { useBreakpoint } from '@/lib/responsive.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Editor de e-mail com geração de HTML por IA (legado: n8n /generate_html),
@@ -19,6 +20,8 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
   const [brief, setBrief] = useState('');
   const [sending, setSending] = useState(false);
   const [testTo, setTestTo] = useState(store.session.email || '');
+  // ≤860px o editor empilha o formulário sobre o preview (modal fica estreito).
+  const stacked = useBreakpoint().isNarrow;
 
   async function sendTest() {
     const to = (testTo || '').trim();
@@ -62,9 +65,9 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
           <IconButton icon="x" aria-label="Fechar" onClick={onClose} />
         </header>
 
-        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)' }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: stacked ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)', gridTemplateRows: stacked ? 'auto minmax(220px, 1fr)' : undefined }}>
           {/* Form + IA */}
-          <div style={{ borderInlineEnd: '1px solid var(--border-subtle)', padding: 20, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
+          <div style={{ [stacked ? 'borderBottom' : 'borderInlineEnd']: '1px solid var(--border-subtle)', padding: 20, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
             <Input label="Título interno" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
             <Input label="Assunto" placeholder="Ex.: Você esqueceu algo no carrinho" value={assunto} onChange={(e) => setAssunto(e.target.value)} />
             <Input label="Remetente" value={remetente} onChange={(e) => setRemetente(e.target.value)} />
@@ -93,7 +96,13 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
               />
               <Button variant="secondary" size="sm" iconLeft="send" disabled={sending} onClick={sendTest}>{sending ? 'Enviando…' : 'Enviar teste'}</Button>
             </div>
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', background: tab === 'preview' ? '#e9e9ec' : 'var(--surface-sunken)' }}>
+            <div style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', background: tab === 'preview' ? '#e9e9ec' : 'var(--surface-sunken)' }}>
+              {aiBusy && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'color-mix(in srgb, var(--surface-card) 82%, transparent)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', color: 'var(--text-strong)' }}>
+                  <Spinner size={28} style={{ color: 'var(--accent)' }} />
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)' }}>Gerando e-mail…</span>
+                </div>
+              )}
               {tab === 'preview'
                 ? (html
                   ? <iframe title="Prévia do e-mail" srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} />

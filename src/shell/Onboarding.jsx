@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Input, Select } from '@/ds';
+import { Button, Input, Select, Banner, Icon } from '@/ds';
 import { useKobly } from '@/store/store.jsx';
 import { SEGMENTOS } from '@/api/mockData.js';
 
@@ -13,6 +13,41 @@ const NICHOS = [
   'Arquitetura / Engenharia', 'Infoprodutos', 'Startups', 'Lançamentos', 'Afiliados',
 ];
 
+// Mesma "brasa quente" do Login: filete de 2px em gradiente accent no topo do card.
+const cardTopEdge = {
+  position: 'absolute', insetInlineStart: 0, insetInlineEnd: 0, top: 0, height: 2,
+  background: 'var(--grad-accent)',
+  borderTopLeftRadius: 'var(--radius-lg)', borderTopRightRadius: 'var(--radius-lg)',
+};
+
+// Indicador de progresso em 2 segmentos: passo atual e concluídos acendem no accent,
+// os seguintes ficam num trilho neutro. O rótulo textual vive no aria-label para o
+// leitor de tela; os segmentos são puramente visuais.
+function StepProgress({ step, total }) {
+  return (
+    <div
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={step}
+      aria-label={`Passo ${step} de ${total}`}
+      style={{ display: 'flex', gap: 6, marginBottom: 18 }}
+    >
+      {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
+        <span
+          key={n}
+          aria-hidden
+          style={{
+            flex: 1, height: 5, borderRadius: 'var(--radius-pill)',
+            background: n <= step ? 'var(--grad-accent)' : 'var(--border-default)',
+            transition: 'background var(--dur-med) var(--ease-out)',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function Chip({ on, children, onClick }) {
   return (
     <button
@@ -20,6 +55,7 @@ function Chip({ on, children, onClick }) {
       onClick={onClick}
       aria-pressed={on}
       style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
         cursor: 'pointer', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)',
         fontWeight: 'var(--fw-semibold)', padding: '9px 14px', borderRadius: 'var(--radius-pill)',
         lineHeight: 1.25, transition: 'all var(--dur-fast)',
@@ -28,6 +64,7 @@ function Chip({ on, children, onClick }) {
         color: on ? 'var(--accent)' : 'var(--text-body)',
       }}
     >
+      {on && <Icon name="check" size={14} />}
       {children}
     </button>
   );
@@ -61,17 +98,17 @@ function KoblyOnboarding() {
   const canNext = nome.trim().length >= 2;
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--grad-hero), var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
       <div style={{ width: '100%', maxWidth: 460 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, justifyContent: 'center' }}>
           <img src="/assets/koblay-mark.svg" alt="Koblay" width={34} height={34} />
           <span style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Koblay</span>
         </div>
 
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>
-          <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 'var(--fw-bold)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 8 }}>
-            Passo {step} de 2
-          </div>
+        <div style={{ position: 'relative', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>
+          <span aria-hidden style={cardTopEdge} />
+
+          <StepProgress step={step} total={2} />
 
           {step === 1 && (
             <>
@@ -79,7 +116,7 @@ function KoblyOnboarding() {
               <p style={{ margin: '6px 0 20px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                 Bem-vindo{store.session && store.session.name ? `, ${store.session.name.split(' ')[0]}` : ''}! Conte pra gente onde você vai recuperar vendas.
               </p>
-              {err && <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--status-danger-bg)', color: 'var(--status-danger-fg)', fontSize: 'var(--text-sm)' }}>{err}</div>}
+              {err && <Banner tone="danger" style={{ marginBottom: 14 }}>{err}</Banner>}
               <form onSubmit={(e) => { e.preventDefault(); if (canNext) setStep(2); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <Input label="Nome da empresa / loja" placeholder="Ex.: Loja da Maria" value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
                 <Select label="Segmento" value={segmento} onChange={(e) => setSegmento(e.target.value)}

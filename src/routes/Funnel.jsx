@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
-import { Icon, Select } from '@/ds';
+import { Card, Icon, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { ErrorState } from '@/lib/ui.jsx';
+import { EmptyState, ErrorState, SkeletonCards } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Funil de recuperação. Visão visual das etapas com DADO REAL do banco:
@@ -20,6 +20,8 @@ const STAGES = [
 const pct = (n) => (n * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
 const toneVar = (t) => (t === 'accent' ? 'var(--accent)' : `var(--status-${t}-fg)`);
 const toneBg = (t) => (t === 'accent' ? 'var(--accent-soft)' : `var(--status-${t}-bg)`);
+// Preenchimento da barra: gradiente do tom → mesmo tom 22% mais escuro (dá volume).
+const toneFill = (t) => `linear-gradient(90deg, ${toneVar(t)}, color-mix(in srgb, ${toneVar(t)} 78%, #000))`;
 
 function FunnelBar({ stage, value, topo, prev, isFirst }) {
   const widthPct = topo > 0 ? Math.max(3, (value / topo) * 100) : 3;
@@ -38,7 +40,7 @@ function FunnelBar({ stage, value, topo, prev, isFirst }) {
           </div>
         </div>
         <div style={{ textAlign: 'end', flex: 'none' }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', lineHeight: 1.1 }}>{value.toLocaleString('pt-BR')}</div>
+          <div className="kbly-num" style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', lineHeight: 1.1 }}>{value.toLocaleString('pt-BR')}</div>
           {!isFirst && (
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
               {pct(doTopo)} do topo{conv != null ? ` · ${pct(conv)} da etapa anterior` : ''}
@@ -48,7 +50,7 @@ function FunnelBar({ stage, value, topo, prev, isFirst }) {
       </div>
       {/* barra proporcional ao topo */}
       <div style={{ height: 10, borderRadius: 'var(--radius-pill)', background: 'var(--surface-sunken)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${widthPct}%`, background: toneVar(stage.tone), borderRadius: 'var(--radius-pill)', transition: 'width var(--dur-med, .4s) ease' }} />
+        <div style={{ height: '100%', width: `${widthPct}%`, background: toneFill(stage.tone), borderRadius: 'var(--radius-pill)', transition: 'width var(--dur-med, .4s) ease' }} />
       </div>
     </div>
   );
@@ -63,11 +65,11 @@ function LeadFunnel({ data }) {
     { k: 'clicados', v: d.clicados }, { k: 'recuperados', v: d.recuperados },
   ];
   return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 22, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <Card bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {STAGES.map((stage, i) => (
         <FunnelBar key={stage.key} stage={stage} value={cards[i].v} topo={topo} prev={i === 0 ? null : cards[i - 1].v} isFirst={i === 0} />
       ))}
-    </div>
+    </Card>
   );
 }
 
@@ -110,12 +112,16 @@ function KoblyFunnel() {
       )}
 
       {a.status === 'loading' ? (
-        <div style={{ color: 'var(--text-muted)', padding: 28 }}>Carregando funil…</div>
+        <SkeletonCards count={5} height={64} />
       ) : vazio ? (
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          <Icon name="filter" size={26} style={{ opacity: 0.6 }} />
-          <div style={{ marginTop: 10, fontSize: 'var(--text-sm)' }}>Nenhum dado no funil ainda. Assim que chegarem eventos de checkout e os e-mails forem disparados, as etapas se preenchem aqui.</div>
-        </div>
+        <Card>
+          <EmptyState
+            compact
+            icon="filter"
+            title="O funil ainda está vazio"
+            message="Assim que chegarem eventos de checkout e os e-mails de recuperação forem disparados, cada etapa se preenche aqui."
+          />
+        </Card>
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

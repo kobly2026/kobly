@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Avatar, Badge, Button, Card, Icon, Input } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { ErrorState } from '@/lib/ui.jsx';
+import { ErrorState, Skeleton, SkeletonForm } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Perfil + meu plano. Editar dados do usuário e ver plano. KoblyProfile
@@ -16,22 +16,40 @@ function KoblyProfile() {
   useEffect(() => { if (a.data) setForm({ nome: a.data.user.nome, email: a.data.user.email, celular: a.data.user.celular, local: a.data.user.local }); }, [a.data]);
 
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
-  if (a.status === 'loading' || !form) return <div style={{ color: 'var(--text-muted)' }}>Carregando perfil…</div>;
+  if (a.status === 'loading' || !form) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <PageIntro>Seus dados de conta e o plano vinculado.</PageIntro>
+      <div className="kbly-grid-main" style={{ gap: 16 }}>
+        <Card title="Dados do perfil"><SkeletonForm fields={4} /></Card>
+        <Card title="Meu plano">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton w="55%" h={24} />
+            <Skeleton w="80%" h={12} />
+            <Skeleton w="70%" h={12} />
+            <Skeleton w="100%" h={38} r="var(--radius-md)" />
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
   const { user, empresa, plano } = a.data;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageIntro>Seus dados de conta e o plano vinculado.</PageIntro>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div className="kbly-grid-main" style={{ gap: 16 }}>
         <Card title="Dados do perfil" action={<Badge tone={DB.optionSets.StatusUser[user.status]} dot>{user.status}</Badge>}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
             <Avatar name={user.nome} size="lg" tone="teal" />
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{user.nome}</div>
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{user.tipo}{empresa ? ` · ${empresa.nome}` : ''}</div>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 5 }}>
+                <Badge tone="info">{user.tipo}</Badge>
+                {empresa && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{empresa.nome}</span>}
+              </div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div className="kbly-grid-2" style={{ gap: 14 }}>
             <Input label="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
             <Input label="E-mail" value={form.email} disabled hint="O e-mail de login é gerenciado pela autenticação." />
             <Input label="Celular" value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} />

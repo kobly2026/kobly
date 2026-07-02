@@ -3,7 +3,8 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Icon, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { ErrorState, Segmented } from '@/lib/ui.jsx';
+import { useBreakpoint } from '@/lib/responsive.jsx';
+import { EmptyState, ErrorState, Segmented, SkeletonCards } from '@/lib/ui.jsx';
 import { LeadDrawer } from '@/routes/Leads.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -36,8 +37,9 @@ function LeadCard({ lead, onClick }) {
   return (
     <button
       onClick={onClick}
+      className="kbly-lift"
       style={{
-        display: 'block', width: '100%', textAlign: 'start', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+        width: '100%', textAlign: 'start', cursor: 'grab', fontFamily: 'var(--font-sans)',
         background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)',
         boxShadow: 'var(--shadow-sm)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4,
       }}
@@ -61,6 +63,7 @@ function KoblyPipeline() {
   const [view, setView] = useState('kanban');
   const [contaId, setContaId] = useState('');
   const [sel, setSel] = useState(null);
+  const { isMobile } = useBreakpoint();
 
   const rows = (a.data && a.data.rows) || [];
   const tags = (a.data && a.data.tags) || [];
@@ -93,26 +96,31 @@ function KoblyPipeline() {
       )}
 
       {a.status === 'loading' ? (
-        <div style={{ color: 'var(--text-muted)', padding: 28 }}>Carregando pipeline…</div>
+        <SkeletonCards count={5} height={180} />
       ) : scoped.length === 0 ? (
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          <Icon name="kanban" size={26} style={{ opacity: 0.6 }} />
-          <div style={{ marginTop: 10, fontSize: 'var(--text-sm)' }}>Nenhum lead no pipeline ainda. Eles entram aqui quando um evento de checkout chega.</div>
-        </div>
+        <EmptyState
+          icon="kanban"
+          title="Nenhum lead no pipeline ainda"
+          message="Eles entram aqui quando um evento de checkout chega."
+        />
       ) : view === 'kanban' ? (
-        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', scrollSnapType: isMobile ? 'x mandatory' : undefined, paddingBottom: 8, alignItems: 'flex-start' }}>
           {STAGES.map((s) => (
-            <div key={s.key} style={{ flex: '0 0 250px', width: 250, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div key={s.key} style={{ flex: isMobile ? '0 0 220px' : '0 0 250px', width: isMobile ? 220 : 250, minWidth: 220, scrollSnapAlign: 'start', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderTop: `2px solid ${toneFg(s.tone)}`, borderRadius: 'var(--radius-md)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-sunken)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: toneBg(s.tone), color: toneFg(s.tone), flex: 'none' }}>
                   <Icon name={s.icon} size={13} />
                 </span>
                 <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', flex: 1 }}>{s.label}</span>
-                <span style={{ fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-bold)', color: 'var(--text-muted)', background: 'var(--surface-card)', borderRadius: 'var(--radius-pill)', padding: '1px 8px' }}>{byStage[s.key].length}</span>
+                <Badge tone="neutral" size="sm">{byStage[s.key].length}</Badge>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 24 }}>
                 {byStage[s.key].length === 0
-                  ? <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', padding: '6px 2px' }}>—</div>
+                  ? (
+                    <div style={{ border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '18px 10px', textAlign: 'center', fontSize: 'var(--text-xs)', color: 'var(--text-subtle)' }}>
+                      Sem leads aqui
+                    </div>
+                  )
                   : byStage[s.key].map((l) => <LeadCard key={l.id} lead={l} onClick={() => setSel(l)} />)}
               </div>
             </div>

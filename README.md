@@ -1,16 +1,19 @@
-# Kobly — Console (Vite + React)
+# Koblay — Console (Vite + React + Supabase)
 
-Console operacional de automação de marketing por e-mail. Front-end em **Vite + React 18**,
-portado do protótipo Claude Design para uma estrutura componentizada e modular.
+Console operacional de **automação de recuperação de vendas** (koblay.io): campanhas por
+e-mail e WhatsApp disparadas por eventos de checkout (abandono de carrinho, Pix/boleto
+gerado, compra aprovada…), com construtor visual de fluxos, IA integrada e chat de suporte.
 
-> Dados ainda são **mock** (`src/api/`). O backend **Supabase** entra pela "costura" descrita
-> abaixo. A especificação de produto/dados/migração está em [`docs/`](docs/) (fonte da verdade).
+> Backend **100% real** em Supabase (Postgres + RLS multi-tenant + Edge Functions + Realtime).
+> O nome `mockApi.js` é legado — a camada lê/escreve no Supabase de verdade.
 
 ## Stack
-- **Vite 5** + **React 18** (JSX automático)
+- **Vite 5** + **React 18** (JSX automático) · alias `@` → `src/`
+- **Supabase** (`@supabase/supabase-js`): Auth, Postgres/RLS, Edge Functions (Deno), Realtime, Storage
 - **lucide-react** (ícones) · **apexcharts** (gráficos)
-- CSS com design tokens (custom properties) — sem framework de UI
-- Alias `@` → `src/`
+- CSS com design tokens (custom properties) — sem framework de UI. Tema dark "Carvão Quente".
+- IA: DeepSeek via Edge Function `ai-chat` (chave no Vault, nunca no browser)
+- E-mail via **Resend** · WhatsApp via **Z-API** (credenciais no Vault)
 
 ## Scripts
 ```bash
@@ -20,50 +23,72 @@ npm run build    # build de produção -> dist/
 npm run preview  # serve o build
 ```
 
+## Variáveis de ambiente
+```
+VITE_SUPABASE_URL=       # URL do projeto Supabase
+VITE_SUPABASE_ANON_KEY=  # anon key (pública)
+```
+Em produção o build **exige** as duas (sem fallback). Em DEV há fallback para o projeto de desenvolvimento.
+
+## Papéis e rotas
+| Papel | Home | Nav |
+|---|---|---|
+| **Cliente** | Dashboard | painel · pipeline · campanhas · leads · integrações · planos · chamados · ajuda · perfil |
+| **Gestor** (agência) | Dashboard | + clientes · relatórios (visão multi-conta) |
+| **Suporte** | Chamados | chamados · leads · ajuda · perfil |
+| **Administrador** | Dashboard | painel · clientes · relatórios · planos · segurança · chamados · perfil |
+
+Cadastro self-service: signup → confirmação de e-mail → onboarding cria a organização
+(RPC `create_own_org`, plano Starter). RLS isola tudo por `organization_id`.
+
+## Chat de suporte
+Widget flutuante global (FAB "Suporte") com 3 modos: **IA** (task `support` da edge
+`ai-chat`, com contexto real do usuário), **escalação** (abre chamado anexando a
+transcrição como `autor='sistema'`) e **humano** (thread em tempo real). A tela
+**Chamados** é o console do atendente (fila cross-tenant, filtros, atribuição, resolver).
+Realtime: um canal por sessão em `support_messages`/`support_conversations` — a RLS
+(WALRUS) filtra por JWT. Não-lidas via `cliente_last_read_at`/`support_last_read_at`.
+
 ## Estrutura
 ```
 src/
-  main.jsx            # entry — monta <App/> + importa styles
+  main.jsx            # entry — ErrorBoundary raiz + <App/>
   App.jsx             # KoblyStoreProvider + Shell
-  ds/                 # DESIGN SYSTEM (componentes) — import { Card, Button, ... } from '@/ds'
-    Icon, Avatar, Badge, Button, Card, Checklist, IconButton, Input, MetricCard,
-    Select, StatusLine, TemplateCard, DataTable, NavButton, NavRail
-  lib/                # primitivos compartilhados
-    ui.jsx            # Skeleton/EmptyState/Toast/Segmented/Drawer
-    hooks.jsx         # useAsync/PageIntro/Field/Cluster
-    motion.jsx        # Reveal/useEnter (motion state-driven)
-    charts.jsx        # Chart/Sparkline (ApexCharts) + KoblyChartColors
-    tweaks.jsx        # store de tweaks (localStorage) + useKoblyTweak
-    tweaks-panel.jsx  # painel de tweaks + controles
-  api/                # CAMADA DE DADOS (mock) — ver "Costura Supabase"
-    mockData.js       # KoblyMockDB — seed/dados (espelha o modelo do legado)
-    mockApi.js        # KoblyApi  — métodos async que a UI consome
-    ai.js             # KoblyAI   — sugestões/geração de HTML (mock do n8n)
-  store/store.jsx     # estado global: papel (RBAC), sessão, navegação, toast
-  shell/              # AppShell (NavRail+Topbar+rota) · Topbar · AIAssistant · Onboarding · TweaksPanel
-  routes/             # 13 telas: Dashboard, Campaigns, FlowBuilder, EmailEditor, Leads,
-                      # Clients, Integrations, Reports, Plans, Tickets, Help, Security, Profile
-  styles/             # tokens/ (colors, typography, spacing, effects) + components.css + global.css
-public/assets/        # koblay-mark.svg (servido em /assets/...)
-docs/                 # especificação técnica + plano de migração Supabase (fonte da verdade)
-prototype/            # protótipo Claude Design original (referência; pode ser removido)
+  ds/                 # DESIGN SYSTEM — import { Card, Button, ... } from '@/ds'
+                      # Icon, Avatar, Badge, Banner, Button, Card, Checklist, DataTable,
+                      # IconButton, Input, MetricCard, NavButton, NavRail, PageHeader,
+                      # Select, Spinner, StatusLine, Tabs, TemplateCard, Tooltip
+  lib/                # ui.jsx (skeletons/EmptyState/ErrorState/Toast/Drawer/Modal/PhoneField)
+                      # hooks.jsx (useAsync/PageIntro) · motion.jsx (Reveal) ·
+                      # charts.jsx (ApexCharts) · responsive.jsx (useBreakpoint) · emailTemplate.js
+  api/                # camada de dados (Supabase): supabaseClient, supabaseDb (hidratação),
+                      # mockApi (KoblyApi — contrato da UI), ai.js (KoblyAI), demoPersonas (DEV)
+  store/store.jsx     # fases loading|login|recovery|onboarding|app · RBAC · toast
+  shell/              # AppShell (rail responsivo + boundary por rota) · Topbar · Login ·
+                      # Onboarding · SupportProvider (Realtime) · SupportWidget · ErrorBoundary
+  routes/             # Dashboard, Pipeline, Campaigns(+FlowBuilder/EmailEditor), Leads,
+                      # Integrations, Reports, Plans, Security, Clients, Tickets, Help, Profile
+  styles/             # tokens/ (colors·typography·spacing·effects) + components.css + global.css
+supabase/
+  migrations/         # 0001–0027 (schema, RLS, seeds, chat de suporte, hardening)
+  functions/          # ai-chat · send-email · send-whatsapp · webhook-receiver ·
+                      # postback-receiver · process-steps · resend-admin · resend-webhook · zapi-webhook
+docs/                 # especificação histórica da migração (referência)
 ```
 
-## Costura Supabase (onde o backend entra)
-A UI depende **somente** das assinaturas de `KoblyApi` (`src/api/mockApi.js`). É o único ponto de
-integração — troque o mock por Supabase sem mexer nas telas:
-
-1. **Dados** → reimplemente cada método de `KoblyApi.*` (mesmos nomes e formatos de retorno) usando
-   `@supabase/supabase-js`. `mockData.js` (seeds) é substituído por tabelas/queries no Supabase.
-2. **Auth/RBAC** → `store.jsx` deriva a sessão de `KoblyApi.getSession(role)`. Troque por Supabase Auth
-   + claim de papel (`@TipoUserGeral`: Gestor/Cliente/Suporte/Administrador) e mantenha o seletor de papel
-   apenas para dev, ou remova-o.
-3. **IA** → `ai.js` (`KoblyAI`) chama o que hoje é mock; aponte para Edge Functions / n8n / LLM.
-
-O mapeamento Bubble→Supabase (tabelas, enums, RLS multi-tenant por `organization_id`, motor de
-automação, fases) está em [`docs/02_PLANO_MIGRACAO.md`](docs/02_PLANO_MIGRACAO.md).
+## Deploy (Netlify)
+`netlify.toml` já configura build (`dist/`, Node 20) e SPA fallback. Checklist de go-live:
+1. Envs `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` no Netlify; domínio `app.koblay.io`.
+2. Supabase Auth: Site URL/Redirect URLs = domínio final; ativar *leaked password protection*;
+   SMTP custom (Resend) e templates de e-mail com a marca.
+3. Vault: `deepseek_api_key`, `resend_api_key`, `resend_from` (domínio verificado — o fallback
+   `onboarding@resend.dev` não serve para produção) e credenciais Z-API.
+4. **Rotacionar/remover as personas demo** (`*@kobly.com`, senha publicada no repo — a seed
+   0013 cria até um Administrador). `signInAsRole` já é DEV-only, mas os usuários existem no banco.
+5. Webhooks: Resend → `resend-webhook`; Z-API (status) → `zapi-webhook`; cron do `process-steps` ativo.
+6. Smoke test das 4 personas + fluxo de signup completo.
 
 ## Notas
-- **Bundle de ícones**: `Icon` resolve nomes dinamicamente via `import * as Lucide`, o que inclui todo o
-  lucide-react no bundle (~368 KB gzip). Otimização futura: registrar estaticamente apenas os ícones usados.
+- **Bundle de ícones**: `Icon` resolve nomes dinamicamente via `import * as Lucide` (~368 KB gzip).
+  Otimização futura: registrar estaticamente apenas os ícones usados.
 - Telas/shell exportam nomes `Kobly*` (ex.: `KoblyDashboard`) — herdado do protótipo; renomeável.

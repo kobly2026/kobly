@@ -3,9 +3,9 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { SUPABASE_URL } from '@/api/supabaseClient.js';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
-import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Segmented, Modal, PhoneField, ErrorState } from '@/lib/ui.jsx';
+import { Badge, Banner, Button, Card, Icon, IconButton, Input, PageHeader, Select, Spinner, Tabs } from '@/ds';
+import { useAsync } from '@/lib/hooks.jsx';
+import { Segmented, Modal, PhoneField, ErrorState, SkeletonForm, SkeletonTable, SkeletonRow } from '@/lib/ui.jsx';
 import { renderEmail } from '@/lib/emailTemplate.js';
 import { useKobly } from '@/store/store.jsx';
 
@@ -193,7 +193,7 @@ function PostbackTab({ data, empresaId }) {
 
   const labelCss = { fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 6 };
 
-  if (loading) return <div style={{ color: 'var(--text-muted)' }}>Carregando...</div>;
+  if (loading) return <SkeletonForm fields={5} />;
 
   const hasEvents = recentEvents.length > 0;
 
@@ -213,11 +213,13 @@ function PostbackTab({ data, empresaId }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* URL de Postback */}
-      <Card title="URL de Postback" subtitle="Cole esta URL no painel da sua plataforma de checkout">
+      <Card icon="link" title="URL de Postback" subtitle="Cole esta URL no painel da sua plataforma de checkout">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <div style={labelCss}>Sua URL de postback</div>
-            <CopyField value={postbackUrl || 'Carregando...'} label="URL de postback" />
+            {postbackUrl
+              ? <CopyField value={postbackUrl} label="URL de postback" />
+              : <SkeletonRow />}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
@@ -231,20 +233,25 @@ function PostbackTab({ data, empresaId }) {
 
       {/* Próximo passo — o que fazer depois de colar a URL na plataforma */}
       {hasEvents ? (
-        <Card title="Recebendo eventos ✓" subtitle="Sua integração está ativa. Próximo passo: crie a campanha que vai reagir a esses eventos.">
-          <Button variant="primary" iconLeft="arrow-right" onClick={() => store.navigate('campanhas')}>Ir para Campanhas</Button>
-        </Card>
+        <Banner
+          tone="success"
+          icon="check-circle-2"
+          title="Recebendo eventos"
+          action={<Button size="sm" variant="primary" iconLeft="arrow-right" onClick={() => store.navigate('campanhas')}>Ir para Campanhas</Button>}
+        >
+          Sua integração está ativa. Próximo passo: crie a campanha que vai reagir a esses eventos.
+        </Banner>
       ) : (
-        <Card title="Aguardando o primeiro evento" subtitle="Cole a URL acima no painel de checkout (ex.: Hotmart → Webhook) e dispare um evento de teste — assim que chegar, ele aparece aqui embaixo.">
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-            <Icon name="loader" size={15} style={{ color: 'var(--accent)' }} />
-            Nenhum evento recebido ainda nesta conta.
+        <Banner tone="info" title="Aguardando o primeiro evento">
+          Cole a URL acima no painel de checkout (ex.: Hotmart → Webhook) e dispare um evento de teste — assim que chegar, ele aparece aqui embaixo.
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            <Spinner size={13} /> Nenhum evento recebido ainda nesta conta.
           </div>
-        </Card>
+        </Banner>
       )}
 
       {/* Disparar evento de teste (dado que VOCÊ escolhe) */}
-      <Card title="Disparar evento de teste" subtitle="Dispare um evento com seus próprios dados contra a URL acima — diferente do teste da Hotmart, que manda dados de exemplo fixos.">
+      <Card icon="zap" title="Disparar evento de teste" subtitle="Dispare um evento com seus próprios dados contra a URL acima — diferente do teste da Hotmart, que manda dados de exemplo fixos.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Select
             label="Tipo de evento"
@@ -387,10 +394,10 @@ function PostbackTab({ data, empresaId }) {
                   {filteredEvents.map((ev) => (
                     <div
                       key={ev.id}
+                      className={newIds.has(ev.id) ? 'kbly-flash' : undefined}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 12, padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-sm)', background: newIds.has(ev.id) ? 'var(--status-success-bg, rgba(61,220,132,0.08))' : 'transparent',
-                        transition: 'background 1.2s ease-out',
+                        borderRadius: 'var(--radius-sm)',
                       }}
                     >
                       <Badge tone={KoblyMockDB.eventTone[ev.tipo_evento] || 'neutral'} dot>{ev.tipo_evento}</Badge>
@@ -449,10 +456,10 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {data.emails.map((e) => (
-        <Card key={e.id} title={e.titulo} subtitle={e.assunto}
+        <Card key={e.id} icon="mail" title={e.titulo} subtitle={e.assunto}
           action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(e)}>Editar</Button>}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <Icon name="mail" size={16} style={{ color: 'var(--accent)' }} />
+            <Icon name="at-sign" size={16} style={{ color: 'var(--text-subtle)' }} />
             <div>
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>{e.assunto}</div>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Remetente: {e.remetente}</div>
@@ -565,33 +572,27 @@ function WhatsappTab({ empresaId }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Conexão Z-API + envio de teste */}
-      <Card title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.">
+      <Card icon="message-circle" title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Estado REAL da conexão: qual número/nome de WhatsApp está plugado */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-            {conn.loading ? (
-              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Verificando conexão…</span>
-            ) : conn.data && !conn.data.error && conn.data.connected ? (
-              <>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--status-success-fg)', flex: 'none' }} />
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
-                    Conectado · {fmtWhatsNumber(conn.data.phone)}
-                  </span>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                    {conn.data.name || 'WhatsApp'}{conn.data.smartphoneConnected ? ' · celular pareado' : ' · ⚠ celular fora do ar'}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--status-danger-fg)', flex: 'none' }} />
-                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-body)' }}>
-                  {(conn.data && conn.data.error) || 'WhatsApp desconectado — fale com o suporte para reconectar.'}
-                </span>
-              </>
-            )}
-          </div>
+          {conn.loading ? (
+            <Banner tone="info" title="Verificando conexão…">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Spinner size={13} /> Consultando o status do WhatsApp pareado.
+              </div>
+            </Banner>
+          ) : conn.data && !conn.data.error && conn.data.connected ? (
+            <Banner
+              tone={conn.data.smartphoneConnected ? 'success' : 'warning'}
+              title={`Conectado · ${fmtWhatsNumber(conn.data.phone)}`}
+            >
+              {conn.data.name || 'WhatsApp'}{conn.data.smartphoneConnected ? ' · celular pareado' : ' · celular fora do ar'}
+            </Banner>
+          ) : (
+            <Banner tone="danger">
+              {(conn.data && conn.data.error) || 'WhatsApp desconectado — fale com o suporte para reconectar.'}
+            </Banner>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
             Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.
@@ -616,13 +617,27 @@ function WhatsappTab({ empresaId }) {
         </div>
       </Card>
 
-      {/* Mensagens de WhatsApp (análogo aos templates de e-mail) */}
+      {/* Mensagens de WhatsApp (análogo aos templates de e-mail) — preview em bolha de chat */}
       {messages.map((m) => (
-        <Card key={m.id} title={m.titulo} subtitle="Mensagem de WhatsApp"
+        <Card key={m.id} icon="message-circle" title={m.titulo} subtitle="Mensagem de WhatsApp"
           action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(m)}>Editar</Button>}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <Icon name="message-circle" size={16} style={{ color: 'var(--accent)', flex: 'none', marginTop: 2 }} />
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.corpoTexto}</div>
+          <div style={{ display: 'flex' }}>
+            <div
+              style={{
+                maxWidth: 460,
+                background: 'color-mix(in srgb, var(--status-success-fg) 12%, var(--surface-sunken))',
+                border: '1px solid color-mix(in srgb, var(--status-success-fg) 22%, transparent)',
+                borderRadius: '4px 14px 14px 14px',
+                padding: '10px 13px',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--text-strong)',
+                lineHeight: 'var(--lh-normal)',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {m.corpoTexto}
+            </div>
           </div>
         </Card>
       ))}
@@ -679,7 +694,7 @@ function TagsTab({ data, reload }) {
   }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
-      <Card title="Tags da conta" subtitle="Disparadas por tipo de evento do checkout" pad={false}>
+      <Card icon="tag" title="Tags da conta" subtitle="Disparadas por tipo de evento do checkout" pad={false}>
         <div style={{ padding: 8 }}>
           {data.tags.map((t) => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -692,7 +707,7 @@ function TagsTab({ data, reload }) {
           ))}
         </div>
       </Card>
-      <Card title="Nova tag">
+      <Card icon="plus" title="Nova tag">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Input label="Nome da tag" placeholder="Ex.: Cliente VIP" value={nome} onChange={(e) => setNome(e.target.value)} />
           <Select label="Tipo de evento" value={tipo} onChange={(e) => setTipo(e.target.value)} options={DB.optionSets.TipoEvento} />
@@ -759,11 +774,11 @@ function BrandTab({ empresaId }) {
     ],
   });
 
-  if (loading) return <div style={{ color: 'var(--text-muted)' }}>Carregando marca...</div>;
+  if (loading) return <SkeletonForm fields={5} />;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)', gap: 18, alignItems: 'start' }}>
-      <Card title="Marca da conta" subtitle="Seu logo e cor aparecem nos e-mails enviados aos leads.">
+      <Card icon="palette" title="Marca da conta" subtitle="Seu logo e cor aparecem nos e-mails enviados aos leads.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Logo</div>
@@ -799,7 +814,7 @@ function BrandTab({ empresaId }) {
         </div>
       </Card>
 
-      <Card title="Prévia do e-mail" subtitle="Como seus e-mails ficam com esta marca.">
+      <Card icon="eye" title="Prévia do e-mail" subtitle="Como seus e-mails ficam com esta marca.">
         <div style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
           <iframe title="preview" srcDoc={previewHtml} style={{ width: '100%', height: 520, border: 'none', display: 'block', background: modo === 'light' ? '#f4f4f5' : '#000' }} />
         </div>
@@ -816,21 +831,21 @@ function KoblyIntegrations() {
   const [tab, setTab] = useState('postback');
   const [contaId, setContaId] = useState(null); // conta em foco (Gestor)
   const empresaId = isGestor ? contaId : store.session.empresaId;
-  if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)' }}>Carregando integrações...</div>;
+  if (a.status === 'loading') return <SkeletonTable rows={4} />;
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
   const tabs = [
-    { value: 'postback', label: 'Postback URL' },
-    { value: 'marca', label: 'Marca' },
-    { value: 'emails', label: 'Templates de e-mail' },
-    { value: 'whatsapp', label: 'WhatsApp' },
-    { value: 'tags', label: 'Tags' },
+    { value: 'postback', label: 'Postback URL', icon: 'webhook' },
+    { value: 'marca', label: 'Marca', icon: 'palette' },
+    { value: 'emails', label: 'Templates de e-mail', icon: 'mail' },
+    { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
+    { value: 'tags', label: 'Tags', icon: 'tag' },
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageIntro action={<Segmented value={tab} onChange={setTab} options={tabs} />}>
+      <PageHeader tabs={<Tabs value={tab} onChange={setTab} options={tabs} />}>
         Configure a URL de postback, templates de e-mail, mensagens de WhatsApp e tags por evento.
-      </PageIntro>
+      </PageHeader>
       {isGestor && (
         <Select
           label="Conta"

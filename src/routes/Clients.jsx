@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB, SEGMENTOS } from '@/api/mockData.js';
-import { Avatar, Badge, Button, DataTable, IconButton, Input, Select } from '@/ds';
-import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Modal, ErrorState } from '@/lib/ui.jsx';
+import { Avatar, Badge, Button, DataTable, IconButton, Input, PageHeader, Select } from '@/ds';
+import { useAsync } from '@/lib/hooks.jsx';
+import { Modal, ErrorState, SkeletonTable, EmptyState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Clientes (Gestor/Admin). Lista e gerencia contas de cliente (Empresa).
@@ -59,18 +59,28 @@ function KoblyClients() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageIntro action={<Button variant="primary" iconLeft="plus" onClick={() => setModal(true)}>Cadastrar nova conta</Button>}>
+      <PageHeader action={<Button variant="primary" iconLeft="plus" onClick={() => setModal(true)}>Cadastrar nova conta</Button>}>
         Contas de cliente que você gerencia como agência. Cada conta isola leads, campanhas e domínios de envio.
-      </PageIntro>
-      <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-        {a.status === 'error'
-          ? <ErrorState message={a.error} onRetry={a.reload} compact />
-          : a.status === 'loading'
-          ? <div style={{ padding: 28, color: 'var(--text-muted)' }}>Carregando…</div>
-          : (
+      </PageHeader>
+      {a.status === 'loading' ? (
+        <SkeletonTable />
+      ) : (
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+          {a.status === 'error' ? (
+            <ErrorState message={a.error} onRetry={a.reload} compact />
+          ) : (
             <DataTable
               rowKey="id"
-              empty="Nenhuma conta ainda. Cadastre a primeira."
+              zebra
+              empty={(
+                <EmptyState
+                  compact
+                  icon="building-2"
+                  title="Nenhuma conta ainda"
+                  message="Cadastre a primeira conta de cliente para gerenciar leads, campanhas e domínios de envio."
+                  action={<Button variant="primary" iconLeft="plus" onClick={() => setModal(true)}>Cadastrar nova conta</Button>}
+                />
+              )}
               columns={[
                 { key: 'nome', header: 'Conta', render: (r) => (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
@@ -95,7 +105,8 @@ function KoblyClients() {
               rows={a.data || []}
             />
           )}
-      </div>
+        </div>
+      )}
       {modal && <AccountModal onClose={() => setModal(false)} onSubmit={create} />}
       {editing && <AccountModal account={editing} onClose={() => setEditing(null)} onSubmit={saveEdit} />}
     </div>

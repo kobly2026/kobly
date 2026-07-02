@@ -1,7 +1,9 @@
-# Kobly — Documentação (Fonte da Verdade)
+# Kobly — Documentação (histórico da migração)
 
-> **Status:** AUTORITATIVO · Extraído por engenharia reversa do editor Bubble do app `kobly` em 25/06/2026.
-> Esta pasta `docs/` é a **única fonte da verdade** para a reconstrução do Kobly em **Next.js + Supabase**. Tudo que estiver fora dela é legado/insumo bruto e **não deve guiar decisões**.
+> **Status:** HISTÓRICO · Extraído por engenharia reversa do editor Bubble do app `kobly` em 25/06/2026,
+> como insumo da migração. A reconstrução foi concluída em **Vite + React + Supabase** (não Next.js) e o
+> produto vive no código — para o estado atual, veja o [`README.md` da raiz](../README.md).
+> Estes documentos permanecem como referência do modelo de dados/regras do legado.
 
 ---
 

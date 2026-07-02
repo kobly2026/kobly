@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button } from '@/ds';
+import { Button, Input, Banner, Icon } from '@/ds';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — tela de autenticação (login / cadastro / recuperação / nova senha).
@@ -14,17 +14,36 @@ function traduz(msg) {
   return msg || 'Algo deu errado. Tente novamente.';
 }
 
-const inputStyle = {
-  width: '100%', background: 'var(--surface-sunken)', border: '1px solid var(--border-default)',
-  borderRadius: 'var(--radius-md)', color: 'var(--text-strong)', fontFamily: 'var(--font-sans)',
-  fontSize: 'var(--text-md)', padding: '11px 13px', outline: 'none',
+// Borda superior de 2px em gradiente accent — a "brasa quente" no topo do card.
+// Cantos arredondados próprios (em vez de overflow:hidden no card) para não cortar
+// o glow de hover do botão primário.
+const cardTopEdge = {
+  position: 'absolute', insetInlineStart: 0, insetInlineEnd: 0, top: 0, height: 2,
+  background: 'var(--grad-accent)',
+  borderTopLeftRadius: 'var(--radius-lg)', borderTopRightRadius: 'var(--radius-lg)',
 };
-function Field({ label, ...props }) {
+
+// Campo de senha: reusa o Input do DS e adiciona um toggle "Mostrar/Ocultar"
+// discreto na linha do rótulo. O Input não expõe slot à direita, então o toggle
+// vive no cabeçalho do campo — nunca sobrepõe o texto digitado.
+function PasswordField({ label, id, value, onChange, autoComplete, placeholder }) {
+  const [show, setShow] = useState(false);
   return (
-    <label style={{ display: 'block' }}>
-      <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)', marginBottom: 6 }}>{label}</span>
-      <input style={inputStyle} {...props} />
-    </label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <label htmlFor={id} style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>{label}</label>
+        <button
+          type="button"
+          onClick={() => setShow((s) => !s)}
+          aria-pressed={show}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-subtle)', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-medium)' }}
+        >
+          <Icon name={show ? 'eye-off' : 'eye'} size={14} />
+          {show ? 'Ocultar' : 'Mostrar'}
+        </button>
+      </div>
+      <Input id={id} icon="lock" type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} autoComplete={autoComplete} />
+    </div>
   );
 }
 
@@ -84,63 +103,67 @@ export function KoblyAuthScreen({ mode = 'login' }) {
   const [title, subtitle] = titles[form] || titles.login;
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--grad-hero), var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
       <div style={{ width: '100%', maxWidth: 400 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, justifyContent: 'center' }}>
           <img src="/assets/koblay-mark.svg" alt="Koblay" width={34} height={34} />
           <span style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Koblay</span>
         </div>
 
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>
-          <h1 style={{ margin: 0, fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>{title}</h1>
-          <p style={{ margin: '6px 0 20px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{subtitle}</p>
+        <div style={{ position: 'relative', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>
+          <span aria-hidden style={cardTopEdge} />
 
-          {info && <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--status-success-bg)', color: 'var(--status-success-fg)', fontSize: 'var(--text-sm)' }}>{info}</div>}
-          {err && <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--status-danger-bg)', color: 'var(--status-danger-fg)', fontSize: 'var(--text-sm)' }}>{err}</div>}
+          <div key={form} style={{ animation: 'kbly-fade var(--dur-med) ease both' }}>
+            <h1 style={{ margin: 0, fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>{title}</h1>
+            <p style={{ margin: '6px 0 20px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{subtitle}</p>
 
-          {form === 'login' && (
-            <form onSubmit={doLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="E-mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Field label="Senha" type="password" autoComplete="current-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -6 }}>
-                <button type="button" onClick={() => go('reset')} style={linkBtn}>Esqueci minha senha</button>
-              </div>
-              <Button type="submit" variant="primary" disabled={busy || !email || !password} iconLeft="log-in" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Entrando…' : 'Entrar'}</Button>
-              <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                Não tem conta? <button type="button" onClick={() => go('signup')} style={linkBtn}>Criar conta</button>
-              </div>
-            </form>
-          )}
+            {info && <Banner tone="success" style={{ marginBottom: 14 }}>{info}</Banner>}
+            {err && <Banner tone="danger" style={{ marginBottom: 14 }}>{err}</Banner>}
 
-          {form === 'signup' && (
-            <form onSubmit={doSignup} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Nome" type="text" autoComplete="name" placeholder="Seu nome" value={nome} onChange={(e) => setNome(e.target.value)} />
-              <Field label="E-mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Field label="Senha" type="password" autoComplete="new-password" placeholder="mín. 6 caracteres" value={password} onChange={(e) => setPassword(e.target.value)} />
-              <Button type="submit" variant="primary" disabled={busy || !email || !password} iconLeft="user-plus" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Criando…' : 'Criar conta'}</Button>
-              <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                Já tem conta? <button type="button" onClick={() => go('login')} style={linkBtn}>Entrar</button>
-              </div>
-            </form>
-          )}
+            {form === 'login' && (
+              <form onSubmit={doLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <Input label="E-mail" icon="mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <PasswordField label="Senha" id="kbly-login-senha" autoComplete="current-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -6 }}>
+                  <button type="button" onClick={() => go('reset')} style={linkBtn}>Esqueci minha senha</button>
+                </div>
+                <Button type="submit" variant="primary" loading={busy} disabled={!email || !password} iconLeft="log-in" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Entrando…' : 'Entrar'}</Button>
+                <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                  Não tem conta? <button type="button" onClick={() => go('signup')} style={linkBtn}>Criar conta</button>
+                </div>
+              </form>
+            )}
 
-          {form === 'reset' && (
-            <form onSubmit={doReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="E-mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Button type="submit" variant="primary" disabled={busy || !email} iconLeft="mail" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Enviando…' : 'Enviar link'}</Button>
-              <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                <button type="button" onClick={() => go('login')} style={linkBtn}>Voltar ao login</button>
-              </div>
-            </form>
-          )}
+            {form === 'signup' && (
+              <form onSubmit={doSignup} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <Input label="Nome" icon="user" type="text" autoComplete="name" placeholder="Seu nome" value={nome} onChange={(e) => setNome(e.target.value)} />
+                <Input label="E-mail" icon="mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <PasswordField label="Senha" id="kbly-signup-senha" autoComplete="new-password" placeholder="mín. 6 caracteres" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <Button type="submit" variant="primary" loading={busy} disabled={!email || !password} iconLeft="user-plus" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Criando…' : 'Criar conta'}</Button>
+                <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                  Já tem conta? <button type="button" onClick={() => go('login')} style={linkBtn}>Entrar</button>
+                </div>
+              </form>
+            )}
 
-          {form === 'recovery' && (
-            <form onSubmit={doRecovery} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Nova senha" type="password" autoComplete="new-password" placeholder="mín. 6 caracteres" value={password} onChange={(e) => setPassword(e.target.value)} />
-              <Field label="Confirmar nova senha" type="password" autoComplete="new-password" placeholder="repita a senha" value={password2} onChange={(e) => setPassword2(e.target.value)} />
-              <Button type="submit" variant="primary" disabled={busy || !password} iconLeft="check" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Salvando…' : 'Salvar nova senha'}</Button>
-            </form>
-          )}
+            {form === 'reset' && (
+              <form onSubmit={doReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <Input label="E-mail" icon="mail" type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Button type="submit" variant="primary" loading={busy} disabled={!email} iconLeft="mail" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Enviando…' : 'Enviar link'}</Button>
+                <div style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                  <button type="button" onClick={() => go('login')} style={linkBtn}>Voltar ao login</button>
+                </div>
+              </form>
+            )}
+
+            {form === 'recovery' && (
+              <form onSubmit={doRecovery} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <PasswordField label="Nova senha" id="kbly-recovery-senha" autoComplete="new-password" placeholder="mín. 6 caracteres" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <PasswordField label="Confirmar nova senha" id="kbly-recovery-senha2" autoComplete="new-password" placeholder="repita a senha" value={password2} onChange={(e) => setPassword2(e.target.value)} />
+                <Button type="submit" variant="primary" loading={busy} disabled={!password} iconLeft="check" style={{ width: '100%', justifyContent: 'center' }}>{busy ? 'Salvando…' : 'Salvar nova senha'}</Button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     </div>

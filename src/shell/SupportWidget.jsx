@@ -40,7 +40,7 @@ function Bubble({ from, children }) {
       <div style={{
         maxWidth: '86%', padding: '10px 13px', borderRadius: 12,
         fontSize: 'var(--text-sm)', lineHeight: 1.5,
-        background: me ? 'var(--accent)' : 'var(--surface-sunken)',
+        background: me ? 'var(--grad-accent)' : 'var(--surface-sunken)',
         color: me ? 'var(--text-on-accent)' : 'var(--text-body)',
         border: me ? 'none' : '1px solid var(--border-subtle)',
         borderBottomRightRadius: me ? 4 : 12, borderBottomLeftRadius: me ? 12 : 4,
@@ -79,6 +79,7 @@ function SupportWidget() {
 
   const conv = activeConvId && support ? support.convs.find((c) => c.id === activeConvId) : null;
   const unreadTotal = support ? support.unreadTotal : 0;
+  const firstSystemIdx = conv ? conv.mensagens.findIndex((m) => m.autor === 'sistema') : -1;
 
   // Reancoragem: Cliente/Gestor com chamado Em andamento volta direto ao chat humano.
   useEffect(() => {
@@ -169,7 +170,7 @@ function SupportWidget() {
             display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer',
             background: 'var(--accent)', color: 'var(--text-on-accent)', border: 'none',
             borderRadius: 'var(--radius-pill)', padding: '12px 18px', fontFamily: 'var(--font-sans)',
-            fontWeight: 'var(--fw-semibold)', fontSize: 'var(--text-sm)', boxShadow: 'var(--shadow-lg)',
+            fontWeight: 'var(--fw-semibold)', fontSize: 'var(--text-sm)', boxShadow: 'var(--shadow-lg), var(--glow-accent-soft)',
             transition: 'transform var(--dur-fast), background var(--dur-fast)',
           }}
         >
@@ -233,10 +234,14 @@ function SupportWidget() {
                   <span style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Sugestões</span>
                   {sugg.map((s) => (
                     <button key={s} onClick={() => ask(s)} className="kbly-suggchip" style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                       textAlign: 'start', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)',
                       color: 'var(--text-body)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-md)', padding: '10px 12px', transition: 'border-color var(--dur-fast), color var(--dur-fast)',
-                    }}>{s}</button>
+                    }}>
+                      <Icon name="corner-down-right" size={13} style={{ color: 'var(--text-subtle)', flex: 'none' }} />
+                      <span style={{ minWidth: 0 }}>{s}</span>
+                    </button>
                   ))}
                 </div>
               </React.Fragment>
@@ -294,16 +299,24 @@ function SupportWidget() {
                     Ver em Chamados
                   </button>
                 </div>
-                {conv.mensagens.map((m) => (
-                  m.autor === 'sistema'
-                    ? <SystemBlock key={m.id}><strong>{m.nome}:</strong> {m.texto}</SystemBlock>
-                    : (
-                      <Bubble key={m.id} from={m.autor === 'cliente' ? (isStaff ? 'other' : 'user') : (isStaff ? 'user' : 'other')}>
-                        <span style={{ display: 'block', fontSize: 'var(--text-2xs)', opacity: 0.75, marginBottom: 2 }}>{m.nome} · {m.when}</span>
-                        {m.texto}
-                      </Bubble>
-                    )
-                ))}
+                {conv.mensagens.map((m, i) => {
+                  if (m.autor === 'sistema') {
+                    return (
+                      <React.Fragment key={m.id}>
+                        {i === firstSystemIdx && (
+                          <span style={{ alignSelf: 'center', fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Transcrição do chat com IA</span>
+                        )}
+                        <SystemBlock><strong>{m.nome}:</strong> {m.texto.replace(/\*\*/g, '')}</SystemBlock>
+                      </React.Fragment>
+                    );
+                  }
+                  return (
+                    <Bubble key={m.id} from={m.autor === 'cliente' ? (isStaff ? 'other' : 'user') : (isStaff ? 'user' : 'other')}>
+                      <span style={{ display: 'block', fontSize: 'var(--text-2xs)', opacity: 0.75, marginBottom: 2 }}>{m.nome} · {m.when}</span>
+                      {m.texto}
+                    </Bubble>
+                  );
+                })}
                 {conv.status === 'Resolvida' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', padding: '12px 0' }}>
                     <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Este chamado foi resolvido. 🎉</span>

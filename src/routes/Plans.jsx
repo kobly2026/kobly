@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, DataTable, Icon, Input } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Modal, ErrorState } from '@/lib/ui.jsx';
+import { Modal, ErrorState, SkeletonCards } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Planos & cobrança. Plano atual + uso vs. limites, planos disponíveis,
@@ -16,7 +16,7 @@ function UsageBar({ label, used, limit }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
         <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-        <span style={{ color: 'var(--text-strong)', fontFamily: 'var(--font-mono)', fontWeight: 'var(--fw-semibold)' }}>{KoblyApi.br(used)} / {KoblyApi.br(limit)}</span>
+        <span className="kbly-num" style={{ color: 'var(--text-strong)', fontFamily: 'var(--font-mono)', fontWeight: 'var(--fw-semibold)' }}>{KoblyApi.br(used)} / {KoblyApi.br(limit)}</span>
       </div>
       <div style={{ height: 8, borderRadius: 'var(--radius-pill)', background: 'var(--surface-sunken)', overflow: 'hidden' }}>
         <div style={{ width: pct + '%', height: '100%', background: tone === 'accent' ? 'var(--accent)' : `var(--status-${tone}-fg)`, borderRadius: 'var(--radius-pill)' }} />
@@ -28,9 +28,9 @@ function UsageBar({ label, used, limit }) {
 function PlanCard({ p, current, onChoose }) {
   const DB = KoblyMockDB;
   return (
-    <div style={{
-      background: 'var(--surface-card)', border: `1px solid ${current ? 'var(--accent)' : 'var(--border-subtle)'}`,
-      boxShadow: current ? '0 0 0 3px var(--accent-soft)' : 'var(--shadow-sm)', borderRadius: 'var(--radius-md)', padding: 22,
+    <div className="kbly-lift" style={{
+      background: 'var(--surface-card)', border: `1px solid ${current ? 'var(--border-accent)' : 'var(--border-subtle)'}`,
+      boxShadow: current ? 'var(--glow-accent-soft)' : 'var(--shadow-sm)', borderRadius: 'var(--radius-md)', padding: 22,
       display: 'flex', flexDirection: 'column', gap: 14, opacity: p.status === 'Inativo' ? 0.55 : 1,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -38,13 +38,13 @@ function PlanCard({ p, current, onChoose }) {
         {current ? <Badge tone="success" dot>Plano atual</Badge> : <Badge tone={DB.optionSets.StatusPlanos[p.status]}>{p.status}</Badge>}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ fontSize: 'var(--text-3xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{KoblyApi.money(p.valorMensal)}</span>
+        <span className="kbly-num" style={{ fontSize: 'var(--text-3xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{KoblyApi.money(p.valorMensal)}</span>
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>/mês</span>
       </div>
       <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)', lineHeight: 'var(--lh-snug)', minHeight: 36 }}>{p.descricao}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-body)' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="megaphone" size={15} style={{ color: 'var(--accent)' }} />{KoblyApi.br(p.limiteCampanhas)} campanhas</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="zap" size={15} style={{ color: 'var(--accent)' }} />{KoblyApi.br(p.limiteExecucoes)} execuções/mês</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="megaphone" size={15} style={{ color: 'var(--accent)' }} /><span><span className="kbly-num">{KoblyApi.br(p.limiteCampanhas)}</span> campanhas</span></span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="zap" size={15} style={{ color: 'var(--accent)' }} /><span><span className="kbly-num">{KoblyApi.br(p.limiteExecucoes)}</span> execuções/mês</span></span>
       </div>
       {!current && p.status === 'Ativo' && <Button variant="secondary" fullWidth onClick={() => onChoose(p)}>Falar com o comercial</Button>}
     </div>
@@ -76,7 +76,7 @@ function KoblyPlans() {
     } finally { setBusy(false); }
   }
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
-  if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)' }}>Carregando planos…</div>;
+  if (a.status === 'loading') return <SkeletonCards count={3} height={280} />;
   const d = a.data;
   const canCreate = store.can.createPlan;
   // Upgrade/troca de plano sem gateway na v1: abre um chamado pro comercial já tipado.
@@ -114,7 +114,7 @@ function KoblyPlans() {
             { key: 'usuario', header: 'Cliente' },
             { key: 'plano', header: 'Plano', render: (r) => <Badge tone="neutral">{r.plano}</Badge> },
             { key: 'formaPagamento', header: 'Forma' },
-            { key: 'valorPago', header: 'Valor', align: 'end', render: (r) => KoblyApi.money(r.valorPago) },
+            { key: 'valorPago', header: 'Valor', align: 'end', render: (r) => <span className="kbly-num">{KoblyApi.money(r.valorPago)}</span> },
             { key: 'status', header: 'Status', render: (r) => <Badge tone={DB.optionSets.StatusPagamento[r.status] || 'neutral'} dot>{r.status}</Badge> },
           ]}
           rows={canCreate ? d.transacoes : d.transacoes.filter((t) => t.userId === store.session.userId)}

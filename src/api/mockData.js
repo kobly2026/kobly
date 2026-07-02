@@ -1,7 +1,8 @@
-// Kobly — camada de dados (mock) espelhando o MODELO REAL extraído do Bubble.
-// Fonte da verdade: docs/01..04. Exposto em window.KoblyMockDB.
-// 27 data types, 15 option sets, papéis @TipoUserGeral (Gestor/Cliente/Suporte/Administrador).
-// Canal real do legado: E-MAIL (SendGrid). SMS/WhatsApp existem em @TipoEnvio mas são roadmap.
+// Kobly — configuração estática da UI (option sets, RBAC/NAV, ícones) + seeds de
+// referência do modelo legado (docs/01..04). Os DADOS vivos vêm do Supabase via
+// supabaseDb.js; daqui a UI usa optionSets/roles/NAV/routeTitle e helpers de label.
+// Papéis @TipoUserGeral: Gestor/Cliente/Suporte/Administrador.
+// Canais reais: E-MAIL (Resend) e WHATSAPP (Z-API). SMS não existe.
 // ---------------------------------------------------------------------------
 // OPTION SETS (15) — valores + tom de cor para badges
 // ---------------------------------------------------------------------------

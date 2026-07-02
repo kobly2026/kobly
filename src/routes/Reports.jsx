@@ -4,7 +4,7 @@ import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Card, DataTable, StatusLine } from '@/ds';
 import { Chart, KoblyChartColors } from '@/lib/charts.jsx';
 import { useAsync } from '@/lib/hooks.jsx';
-import { Segmented, ErrorState, EmptyState } from '@/lib/ui.jsx';
+import { Segmented, SkeletonCards, ErrorState, EmptyState } from '@/lib/ui.jsx';
 
 // Kobly — Relatórios globais (Gestor/Admin). 3 gráficos consolidados + métricas de
 // entrega + insights da IA + tabela por conta. KoblyReports
@@ -57,7 +57,7 @@ function KoblyReports() {
   const a = useAsync(() => KoblyApi.getReports(range), [range]);
 
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
-  if (a.status === 'loading') return <div style={{ color: 'var(--text-muted)', padding: 8 }}>Carregando relatórios…</div>;
+  if (a.status === 'loading') return <SkeletonCards count={4} height={280} />;
   const d = a.data;
   const rows = d.porConta;
   const maxEnviados = Math.max(...rows.map((r) => r.enviados), 1);
@@ -69,7 +69,7 @@ function KoblyReports() {
         <Segmented value={range} onChange={setRange} options={RANGE_OPTS} label="Período" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div className="kbly-grid-main" style={{ gap: 16 }}>
         <Card title="Disparos por canal" subtitle="E-mail · WhatsApp — envios reais do período">
           <Chart
             type="area" height={300}
@@ -109,7 +109,7 @@ function KoblyReports() {
         </Card>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div className="kbly-grid-main" style={{ gap: 16 }}>
         <Card title="Campanhas criadas" subtitle="Volume por período">
           <Chart
             type="bar" height={260}

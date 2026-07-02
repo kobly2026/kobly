@@ -99,8 +99,8 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         boxSizing: 'border-box',
         padding: compact ? '10px 12px' : '14px 16px', width: compact ? '100%' : 280,
         background: 'var(--surface-card)', borderRadius: 'var(--radius-md)',
-        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border-subtle)'}`,
-        boxShadow: selected ? '0 0 0 3px var(--accent-soft)' : 'var(--shadow-xs)',
+        border: `1px solid ${selected ? 'var(--border-accent)' : 'var(--border-subtle)'}`,
+        boxShadow: selected ? 'var(--glow-accent-soft)' : 'var(--shadow-xs)',
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
       }}>
       <span style={{ display: 'inline-flex', width: 34, height: 34, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: `var(--status-${tone}-bg)`, color: `var(--status-${tone}-fg)` }}>
@@ -110,7 +110,7 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
         {/* flexWrap: badges quebram pra 2ª linha em colunas estreitas (ramos) em vez de estourar o card */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 2 }}>
           <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', whiteSpace: 'nowrap' }}>{step.tipo}</span>
-          {step.tipo !== 'Gatilho' && step.atraso > 0 && <Badge tone="neutral" size="sm" style={{ flex: 'none' }}>⏱ {fmtDelay(step.atraso)}</Badge>}
+          {step.tipo !== 'Gatilho' && step.atraso > 0 && <Badge tone="neutral" size="sm" style={{ flex: 'none' }}><Icon name="clock" size={12} />{fmtDelay(step.atraso)}</Badge>}
           {(() => { const b = condicaoBadge((step.config || {}).condicao); return b ? <Badge tone={b.tone} size="sm" style={{ flex: 'none' }}>{b.label}</Badge> : null; })()}
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summary}</div>
@@ -444,8 +444,8 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Barra do construtor */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      {/* Barra do construtor — fixa no topo enquanto o canvas rola. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface-app)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingBlock: 8, borderBottom: '1px solid var(--border-subtle)' }}>
         <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={onBack}>Campanhas</Button>
         <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
         {editingName ? (
@@ -475,7 +475,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 320px', gap: 16, alignItems: 'start' }}>
+      <div className="kbly-builder-grid" style={{ gap: 16, alignItems: 'start' }}>
         {/* Paleta */}
         <Palette onDragStart={onDragStart} onAdd={addStep} />
 
@@ -483,7 +483,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         <div
           onDragOver={(e) => { e.preventDefault(); }}
           onDrop={(e) => { e.preventDefault(); onDrop(rootSteps.length); }}
-          style={{ background: 'var(--surface-sunken)', border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)', padding: horizontal ? '24px 16px' : '16px 24px', minHeight: 360, overflowX: horizontal ? 'auto' : 'visible' }}>
+          style={{ background: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 16px 16px, var(--surface-sunken)', border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)', padding: horizontal ? '24px 16px' : '16px 24px', minHeight: 360, overflowX: horizontal ? 'auto' : 'visible' }}>
           {steps.length === 0 ? (
             <div style={{ height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)', textAlign: 'center' }}>
               <Icon name="git-branch" size={28} />
@@ -501,14 +501,10 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         {/* Inspetor + meta */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={() => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade })} />
-          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18, minHeight: 200 }}>
+          <Card style={{ minHeight: 200 }}>
             <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} />
-          </div>
-          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <Icon name="flag" size={16} style={{ color: 'var(--accent)' }} />
-              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Tags-meta (encerrar lead)</span>
-            </div>
+          </Card>
+          <Card icon="flag" title="Tags-meta (encerrar lead)">
             <p style={{ margin: '0 0 12px', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 'var(--lh-snug)' }}>Quando o lead recebe um evento com alguma destas tags, o fluxo é encerrado para ele.</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(opts.tags || []).map((t) => {
@@ -516,7 +512,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
                 return <button key={t.id} onClick={() => toggleMeta(t.id)} style={{ cursor: 'pointer', whiteSpace: 'nowrap', border: `1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'}`, background: on ? 'var(--accent-soft)' : 'var(--surface-sunken)', color: on ? 'var(--accent)' : 'var(--text-muted)', borderRadius: 'var(--radius-pill)', padding: '4px 10px', fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-semibold)', fontFamily: 'var(--font-sans)' }}>{t.nome}</button>;
               })}
             </div>
-          </div>
+          </Card>
         </div>
       </div>
 

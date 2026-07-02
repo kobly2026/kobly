@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, Button, DataTable, Icon, IconButton, Input, Select, TemplateCard } from '@/ds';
-import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
+import { Badge, Button, Card, DataTable, Icon, IconButton, Input, PageHeader, Select, TemplateCard } from '@/ds';
+import { useAsync } from '@/lib/hooks.jsx';
+import { AISuggestion, EmptyState, ErrorState, SkeletonTable } from '@/lib/ui.jsx';
 import { KoblyFlowBuilder } from '@/routes/FlowBuilder.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -13,10 +13,19 @@ import { useKobly } from '@/store/store.jsx';
 
 // Checklist de ativação — some sozinho quando todos os passos estiverem feitos.
 function OnboardingChecklist({ steps }) {
-  if (steps.every((s) => s.done)) return null;
+  const total = steps.length;
+  const done = steps.filter((s) => s.done).length;
+  if (done === total) return null;
+  const pct = Math.round((done / total) * 100);
   return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Coloque sua primeira campanha no ar</div>
+    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Coloque sua primeira campanha no ar</div>
+        <div style={{ fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-muted)', flex: 'none' }}>{done} de {total}</div>
+      </div>
+      <div role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={total} aria-label="Progresso da ativação" style={{ height: 6, borderRadius: 'var(--radius-pill)', background: 'var(--surface-sunken)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--grad-accent)', borderRadius: 'var(--radius-pill)', transition: 'width var(--dur-med) var(--ease-out)' }} />
+      </div>
       {steps.map((s) => (
         <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Icon name={s.done ? 'check-circle-2' : 'circle'} size={16} style={{ color: s.done ? 'var(--status-success-fg)' : 'var(--text-subtle)', flexShrink: 0 }} />
@@ -55,16 +64,19 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={onCancel}>Campanhas</Button>
-        <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
-        <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Nova campanha</span>
-      </div>
+      <PageHeader
+        breadcrumb={[{ label: 'Campanhas', onClick: onCancel }, { label: 'Nova campanha' }]}
+        style={{ marginBottom: 0 }}
+      >
+        Crie uma campanha de recuperação: descreva o objetivo e deixe a IA montar a cadência, ou comece por um modelo.
+      </PageHeader>
 
       {/* Gerar com IA (AI-first) */}
-      <div style={{ background: 'var(--surface-card)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="sparkles" size={17} style={{ color: 'var(--accent)' }} />
+      <div className="kbly-ai-card" style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ display: 'inline-flex', width: 32, height: 32, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+            <Icon name="sparkles" size={17} />
+          </span>
           <span style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Gerar campanha com IA</span>
         </div>
         <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Descreva o objetivo em uma frase. A IA escolhe o gatilho, a cadência e escreve os textos — você revisa e ativa.</p>
@@ -91,7 +103,7 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
           )}
         </div>
         <div>
-          <Button variant="primary" iconLeft="sparkles" disabled={generating || !objetivo.trim() || (!canalEmail && !canalWhats)} onClick={generate}>
+          <Button variant="primary" iconLeft="sparkles" loading={generating} disabled={!objetivo.trim() || (!canalEmail && !canalWhats)} onClick={generate}>
             {generating ? 'Gerando campanha…' : 'Gerar campanha com IA'}
           </Button>
         </div>
@@ -118,7 +130,9 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)', marginBottom: 10 }}>Modelo</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
           {templates.map((t) => (
-            <TemplateCard key={t.id} icon={t.icone} title={t.nome} description={t.descricao} selected={sel === t.id} onClick={() => pickTemplate(t)} />
+            <div key={t.id} className="kbly-lift" style={{ borderRadius: 'var(--radius-md)' }}>
+              <TemplateCard icon={t.icone} title={t.nome} description={t.descricao} selected={sel === t.id} onClick={() => pickTemplate(t)} />
+            </div>
           ))}
         </div>
       </div>
@@ -191,11 +205,18 @@ function KoblyCampaigns() {
 
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
+  // Estado vazio adaptativo: cada bloqueio tem sua própria orientação e CTA.
+  const emptyNode = isGestor && !contaId
+    ? <EmptyState compact icon="users" title="Selecione uma conta" message="Escolha uma conta de cliente acima para ver e criar campanhas." />
+    : !hasIntegration
+      ? <EmptyState compact icon="plug-zap" title="Conecte seu checkout" message="Antes de criar campanhas, conecte sua integração de checkout. Depois volte aqui para criar a primeira." action={<Button variant="secondary" iconLeft="arrow-right" onClick={() => store.navigate('integracoes')}>Ir para Integrações</Button>} />
+      : <EmptyState compact icon="megaphone" title="Nenhuma campanha ainda" message="Crie sua primeira campanha de recuperação — gere com IA ou comece por um modelo." action={canEdit ? <Button variant="primary" iconLeft="plus" onClick={() => setMode('new')}>Nova campanha</Button> : null} />;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageIntro action={canEdit && targetOrgId ? <Button variant="primary" iconLeft="plus" onClick={() => setMode('new')}>Nova campanha</Button> : null}>
+      <PageHeader action={canEdit && targetOrgId ? <Button variant="primary" iconLeft="plus" onClick={() => setMode('new')}>Nova campanha</Button> : null} style={{ marginBottom: 0 }}>
         Campanhas de recuperação por e-mail. Abra uma campanha para editar o fluxo de automação (gatilhos, tags e envios).
-      </PageIntro>
+      </PageHeader>
       {isGestor && (
         <Select
           label="Conta"
@@ -207,19 +228,14 @@ function KoblyCampaigns() {
       )}
       {targetOrgId && <OnboardingChecklist steps={onboardingSteps} />}
       <AISuggestion title="Sugestão da IA — campanhas" load={() => KoblyAI.suggestForDashboard(store.view)} />
-      <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-        {a.status === 'loading'
-          ? <div style={{ padding: 28, color: 'var(--text-muted)' }}>Carregando campanhas…</div>
-          : (
+      {a.status === 'loading' ? (
+        <SkeletonTable />
+      ) : (
+        <Card pad={false}>
             <DataTable
               rowKey="id"
-              empty={
-                isGestor && !contaId
-                  ? 'Selecione uma conta de cliente para ver as campanhas.'
-                  : !hasIntegration
-                    ? <span>Antes de criar campanhas, conecte seu checkout em <a onClick={() => store.navigate('integracoes')} style={{ color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}>Integrações</a>. Depois volte aqui pra criar sua primeira campanha.</span>
-                    : 'Nenhuma campanha ainda — clique em "Nova campanha" acima.'
-              }
+              zebra
+              empty={emptyNode}
               columns={[
                 { key: 'nome', header: 'Campanha', render: (r) => (
                   <button onClick={() => openBuilder(r.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'start', fontFamily: 'var(--font-sans)' }}>
@@ -240,8 +256,8 @@ function KoblyCampaigns() {
               ]}
               rows={campaigns}
             />
-          )}
-      </div>
+        </Card>
+      )}
     </div>
   );
 }

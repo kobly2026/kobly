@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, Button, Icon, Input, Select } from '@/ds';
+import { Badge, Button, Icon, Input, Select, Avatar } from '@/ds';
 import { PageIntro } from '@/lib/hooks.jsx';
-import { EmptyState, Modal, Segmented } from '@/lib/ui.jsx';
+import { EmptyState, Modal, Segmented, SkeletonRow } from '@/lib/ui.jsx';
+import { useBreakpoint } from '@/lib/responsive.jsx';
 import { useKobly } from '@/store/store.jsx';
 import { useSupport } from '@/shell/SupportProvider.jsx';
 
@@ -61,6 +62,7 @@ function KoblyTickets() {
   const [fPrio, setFPrio] = useState('');
   const [fMine, setFMine] = useState(false);
   const scrollRef = useRef(null);
+  const bp = useBreakpoint();
 
   // Prefill vindo de outra tela (ex.: Plans → "Falar com o comercial").
   useEffect(() => {
@@ -117,7 +119,21 @@ function KoblyTickets() {
     setActiveId(r.id);
   }
 
-  if (!support || !support.loaded) return <div style={{ color: 'var(--text-muted)' }}>Carregando chamados…</div>;
+  if (!support || !support.loaded) {
+    return (
+      <div className="kbly-split" style={{ gap: 16 }} aria-busy="true">
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
+            Conversas
+          </div>
+          <div style={{ padding: '2px 16px' }}>
+            {Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)}
+          </div>
+        </div>
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', minHeight: 260 }} />
+      </div>
+    );
+  }
 
   const newTicketBtn = !isSupport && (
     <Button variant="primary" iconLeft="plus" onClick={() => { setPrefill(null); setModal(true); }}>Novo chamado</Button>
@@ -148,9 +164,9 @@ function KoblyTickets() {
         {isSupport ? 'Fila de chamados dos clientes — em tempo real. Atribua, responda e resolva.' : 'Seus chamados de suporte. Converse com a equipe Koblay.'}
       </PageIntro>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16 }}>
+      <div className="kbly-split" style={{ flex: 1, minHeight: 0, gap: 16 }}>
         {/* Lista */}
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column', ...(bp.isNarrow ? { maxHeight: 280 } : null) }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
             Conversas · {filtered.length}
           </div>
@@ -161,23 +177,26 @@ function KoblyTickets() {
               const unread = (support.unreadByConv[c.id] || 0) > 0;
               return (
                 <button key={c.id} onClick={() => setActiveId(c.id)} style={{
-                  display: 'block', width: '100%', textAlign: 'start', cursor: 'pointer', border: 'none',
+                  display: 'flex', gap: 10, width: '100%', textAlign: 'start', cursor: 'pointer', border: 'none',
                   borderBottom: '1px solid var(--border-subtle)', borderInlineStart: `3px solid ${on ? 'var(--accent)' : 'transparent'}`,
                   background: on ? 'var(--surface-sunken)' : 'transparent', padding: '13px 15px', fontFamily: 'var(--font-sans)',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                      {unread && <span aria-label="não lida" style={{ width: 8, height: 8, flex: 'none', borderRadius: '50%', background: 'var(--accent)' }} />}
-                      <span style={{ fontSize: 'var(--text-sm)', fontWeight: unread ? 'var(--fw-bold)' : 'var(--fw-semibold)', color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.assunto}</span>
-                    </span>
-                    <Badge tone={DB.optionSets.PrioridadeChamado[c.prioridade]} size="sm">{c.prioridade}</Badge>
-                  </div>
-                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isSupport ? c.empresa : c.tipo}</span>
-                      {c.origem === 'ia' && <Badge tone="info" size="sm">via IA</Badge>}
-                    </span>
-                    <span style={{ flex: 'none' }}>{c.atualizadoEm}</span>
+                  {isSupport && <Avatar size="sm" name={c.clienteNome || c.empresa} style={{ marginTop: 1 }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        {unread && <span aria-label="não lida" style={{ width: 8, height: 8, flex: 'none', borderRadius: '50%', background: 'var(--accent)' }} />}
+                        <span style={{ fontSize: 'var(--text-sm)', fontWeight: unread ? 'var(--fw-bold)' : 'var(--fw-semibold)', color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.assunto}</span>
+                      </span>
+                      <Badge tone={DB.optionSets.PrioridadeChamado[c.prioridade]} size="sm">{c.prioridade}</Badge>
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isSupport ? c.empresa : c.tipo}</span>
+                        {c.origem === 'ia' && <Badge tone="info" size="sm">via IA</Badge>}
+                      </span>
+                      <span style={{ flex: 'none' }}>{c.atualizadoEm}</span>
+                    </div>
                   </div>
                 </button>
               );
@@ -192,11 +211,14 @@ function KoblyTickets() {
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active.assunto}</div>
-                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                    {active.clienteNome} · {active.empresa} · {active.tipo}
-                    {isSupport && (active.assignedToNome ? ` · Atendente: ${active.assignedToNome}` : ' · Sem atendente')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                  <Avatar name={active.clienteNome} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active.assunto}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                      {active.clienteNome} · {active.empresa} · {active.tipo}
+                      {isSupport && (active.assignedToNome ? ` · Atendente: ${active.assignedToNome}` : ' · Sem atendente')}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
@@ -216,7 +238,7 @@ function KoblyTickets() {
                         borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-default)',
                         color: 'var(--text-muted)', fontSize: 'var(--text-xs)', lineHeight: 1.5, textAlign: 'center',
                       }}>
-                        <strong>{m.nome}:</strong> {m.texto}
+                        <strong>{m.nome}:</strong> {m.texto.replace(/\*\*/g, '')}
                       </div>
                     );
                   }
@@ -226,7 +248,7 @@ function KoblyTickets() {
                       <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-subtle)' }}>{m.nome} · {m.when}</div>
                       <div style={{
                         maxWidth: '72%', padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', lineHeight: 'var(--lh-snug)',
-                        background: mine ? 'var(--accent)' : 'var(--surface-sunken)', color: mine ? 'var(--text-on-accent)' : 'var(--text-body)',
+                        background: mine ? 'var(--grad-accent)' : 'var(--surface-sunken)', color: mine ? 'var(--text-on-accent)' : 'var(--text-body)',
                       }}>{m.texto}</div>
                     </div>
                   );

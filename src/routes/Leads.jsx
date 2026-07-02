@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, DataTable, Icon, IconButton, Input, Select } from '@/ds';
+import { Avatar, Badge, DataTable, Icon, IconButton, Input, MetricCard, Select } from '@/ds';
 import { Field, useAsync } from '@/lib/hooks.jsx';
+import { useBreakpoint } from '@/lib/responsive.jsx';
 import { Drawer, ErrorState, SkeletonRow } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
@@ -16,20 +17,6 @@ const STATUS_CARDS = [
   { key: 'rejeitados', label: 'E-mails rejeitados', icon: 'circle-x', tone: 'danger' },
   { key: 'adiados', label: 'Na fila de envio', icon: 'clock', tone: 'warning' },
 ];
-
-function StatusCard({ c, value }) {
-  return (
-    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-      <span style={{ display: 'inline-flex', width: 40, height: 40, flex: 'none', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-md)', background: `var(--status-${c.tone}-bg)`, color: `var(--status-${c.tone}-fg)` }}>
-        <Icon name={c.icon} size={19} />
-      </span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', lineHeight: 1.1 }}>{KoblyApi.br(value)}</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{c.label}</div>
-      </div>
-    </div>
-  );
-}
 
 // Cada tipo de item da timeline tem ícone + cor próprios.
 function timelineVisual(item, DB) {
@@ -47,7 +34,13 @@ function LeadTimeline({ leadId }) {
   const DB = KoblyMockDB;
   const items = t.data || [];
 
-  if (t.status === 'loading') return <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', padding: '4px 0' }}>Carregando jornada…</div>;
+  if (t.status === 'loading') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0' }}>
+        {Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)}
+      </div>
+    );
+  }
   if (t.status === 'error') return <ErrorState message={t.error} onRetry={t.reload} compact />;
   if (!items.length) return <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', padding: '4px 0' }}>Nenhuma atividade registrada ainda para este lead.</div>;
 
@@ -65,13 +58,15 @@ function LeadTimeline({ leadId }) {
               </span>
               {!last && <span style={{ flex: 1, width: 2, background: 'var(--border-subtle)', minHeight: 14 }} />}
             </div>
-            {/* conteúdo */}
+            {/* conteúdo — barrinha lateral colorida pelo tom do tipo de evento */}
             <div style={{ flex: 1, paddingBottom: last ? 0 : 16, minWidth: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', fontSize: 'var(--text-sm)' }}>{it.titulo}</span>
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)', flex: 'none' }}>{it.quando}</span>
+              <div style={{ borderInlineStart: `3px solid var(--status-${v.tone}-fg)`, paddingInlineStart: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                  <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', fontSize: 'var(--text-sm)' }}>{it.titulo}</span>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)', flex: 'none' }}>{it.quando}</span>
+                </div>
+                {it.sub && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{it.sub}</div>}
               </div>
-              {it.sub && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{it.sub}</div>}
             </div>
           </div>
         );
@@ -82,11 +77,12 @@ function LeadTimeline({ leadId }) {
 
 function LeadDrawer({ lead, onClose, tags = [] }) {
   const DB = KoblyMockDB;
+  const { isMobile } = useBreakpoint();
   if (!lead) return null;
   const tagNames = (lead.tags || []).map((tid) => (tags.find((t) => t.id === tid) || {}).nome).filter(Boolean);
   const sectionLabel = { fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 };
   return (
-    <Drawer open={!!lead} onClose={onClose} title={[lead.nome, lead.sobrenome].filter(Boolean).join(' ')} subtitle={lead.email} width={480}>
+    <Drawer open={!!lead} onClose={onClose} title={[lead.nome, lead.sobrenome].filter(Boolean).join(' ')} subtitle={lead.email} width={isMobile ? '100%' : 480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <Field label="Telefone" mono>{lead.telefone}</Field>
@@ -102,10 +98,10 @@ function LeadDrawer({ lead, onClose, tags = [] }) {
             {tagNames.length ? tagNames.map((t) => <Badge key={t} tone="info">{t}</Badge>) : <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Sem tags</span>}
           </div>
         </div>
-        <div style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16, display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
-          {[['Enviados', lead.metricas.enviados], ['Aberturas', lead.metricas.aberturas], ['Cliques', lead.metricas.cliques]].map(([k, v]) => (
-            <div key={k}>
-              <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{v}</div>
+        <div style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '16px 0', display: 'flex', textAlign: 'center' }}>
+          {[['Enviados', lead.metricas.enviados], ['Aberturas', lead.metricas.aberturas], ['Cliques', lead.metricas.cliques]].map(([k, v], i) => (
+            <div key={k} style={{ flex: 1, minWidth: 0, borderInlineStart: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+              <div className="kbly-num" style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{v}</div>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{k}</div>
             </div>
           ))}
@@ -157,14 +153,16 @@ function KoblyLeads() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
-        {STATUS_CARDS.map((c) => <StatusCard key={c.key} c={c} value={status[c.key] || 0} />)}
+      <div className="kbly-grid-kpi" style={{ gap: 16 }}>
+        {STATUS_CARDS.map((c) => (
+          <MetricCard key={c.key} layout="row" icon={c.icon} iconTone={c.tone} label={c.label} value={KoblyApi.br(status[c.key] || 0)} />
+        ))}
       </div>
 
       <p style={{ margin: 0, fontSize: 'var(--text-md)', color: 'var(--text-muted)', maxWidth: 620 }}>Leads gerados pelos webhooks de checkout. Clique em um lead para ver a jornada completa — evento, e-mails enviados e tags.</p>
 
       {/* Barra de filtros */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+      <div className="kbly-toolbar" style={{ gap: 10 }}>
         <div style={{ flex: '1 1 260px', ...inputW }}>
           <Input icon="search" placeholder="Buscar por nome, e-mail, produto…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         </div>
@@ -188,6 +186,11 @@ function KoblyLeads() {
             Limpar filtros
           </button>
         )}
+        {a.status === 'success' && (
+          <span style={{ marginInlineStart: 'auto', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'}
+          </span>
+        )}
       </div>
 
       <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
@@ -196,12 +199,16 @@ function KoblyLeads() {
           : (
             <DataTable
               rowKey="id"
+              zebra
               empty={hasFilters ? 'Nenhum lead corresponde aos filtros.' : 'Nenhum lead ainda. Eles aparecem aqui quando um evento de checkout chega.'}
               columns={[
                 { key: 'nome', header: 'Lead', render: (r) => (
-                  <button onClick={() => setSel(r)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'start', fontFamily: 'var(--font-sans)' }}>
-                    <span style={{ display: 'block', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{[r.nome, r.sobrenome].filter(Boolean).join(' ')}</span>
-                    <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{r.email}{isGestor && !contaId && contaNome[r.empresaId] ? ` · ${contaNome[r.empresaId]}` : ''}</span>
+                  <button onClick={() => setSel(r)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'start', fontFamily: 'var(--font-sans)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Avatar name={[r.nome, r.sobrenome].filter(Boolean).join(' ') || r.email} size="sm" />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{[r.nome, r.sobrenome].filter(Boolean).join(' ')}</span>
+                      <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{r.email}{isGestor && !contaId && contaNome[r.empresaId] ? ` · ${contaNome[r.empresaId]}` : ''}</span>
+                    </span>
                   </button>
                 ) },
                 { key: 'produto', header: 'Produto' },
