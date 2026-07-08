@@ -896,28 +896,41 @@ function BrandTab({ empresaId }) {
 function BrandsList({ empresaId, onSaved }) {
   const store = useKobly();
   const a = useAsync(() => KoblyApi.listBrands(empresaId), [empresaId]);
-  const [editing, setEditing] = useState(null); // brand em edição | null
+  const [editing, setEditing] = useState(null);
   const [nome, setNome] = useState('');
   const [cor, setCor] = useState('#ff6800');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [modo, setModo] = useState('dark');
   const [linkLoja, setLinkLoja] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
 
   function openNew() {
     setEditing('new');
-    setNome(''); setCor('#ff6800'); setLinkLoja('');
+    setNome(''); setCor('#ff6800'); setLogoUrl(''); setModo('dark'); setLinkLoja('');
   }
   function openEdit(b) {
     setEditing(b.id);
-    setNome(b.nome || ''); setCor(b.cor || '#ff6800'); setLinkLoja(b.link_loja || '');
+    setNome(b.nome || ''); setCor(b.cor || '#ff6800'); setLogoUrl(b.logo_url || ''); setModo(b.modo === 'light' ? 'light' : 'dark'); setLinkLoja(b.link_loja || '');
+  }
+  async function onFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const r = await KoblyApi.uploadLogo(file, empresaId);
+    setUploading(false);
+    if (r && r.url) { setLogoUrl(r.url); store.notify('success', 'Logo enviado'); }
+    else store.notify('danger', 'Falha ao enviar o logo');
   }
   async function save() {
     if (!nome.trim()) return;
     setSaving(true);
     if (editing === 'new') {
-      const { error } = await KoblyApi.createBrand({ nome, cor, linkLoja }, empresaId);
+      const { error } = await KoblyApi.createBrand({ nome, cor, logoUrl, modo, linkLoja }, empresaId);
       store.notify(error ? 'danger' : 'success', error || 'Marca criada');
     } else {
-      const { error } = await KoblyApi.updateBrand(editing, { nome, cor, linkLoja });
+      const { error } = await KoblyApi.updateBrand(editing, { nome, cor, logoUrl, modo, linkLoja });
       store.notify(error ? 'danger' : 'success', error || 'Marca atualizada');
     }
     setSaving(false);
@@ -942,26 +955,49 @@ function BrandsList({ empresaId, onSaved }) {
       )}
       {list.map((b) => (
         <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-          <span style={{ width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: b.cor || '#ff6800', flex: 'none' }} />
+          <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', flex: 'none', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-card)' }}>
+            {b.logo_url ? <img src={b.logo_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <span style={{ width: 28, height: 28, borderRadius: 'var(--radius-xs)', background: b.cor || '#ff6800' }} />}
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', fontSize: 'var(--text-sm)' }}>{b.nome || 'Sem nome'}</div>
-            {b.link_loja && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{b.link_loja}</div>}
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{b.modo === 'light' ? 'Tema claro' : 'Tema escuro'}{b.link_loja ? ` · ${b.link_loja}` : ''}</div>
           </div>
           <IconButton icon="pencil" size="sm" aria-label="Editar marca" onClick={() => openEdit(b)} />
           <IconButton icon="trash-2" size="sm" aria-label="Excluir marca" onClick={() => remove(b)} />
         </div>
       ))}
       {editing && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, background: 'var(--surface-card)', border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-sm)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, background: 'var(--surface-card)', border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-sm)' }}>
+          <div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Logo</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-md)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flex: 'none' }}>
+                {logoUrl ? <img src={logoUrl} alt="logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <Icon name="image" size={20} style={{ color: 'var(--text-subtle)' }} />}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }} />
+                <Button variant="secondary" size="sm" iconLeft="upload" disabled={uploading} onClick={() => fileRef.current && fileRef.current.click()}>{uploading ? 'Enviando...' : 'Enviar logo'}</Button>
+                {logoUrl && <button onClick={() => setLogoUrl('')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--text-xs)', cursor: 'pointer', textAlign: 'start', padding: 0 }}>Remover logo</button>}
+              </div>
+            </div>
+          </div>
           <Input label="Nome da marca" placeholder="Ex.: Produto Premium" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input type="color" value={cor} onChange={(e) => setCor(e.target.value)} style={{ width: 44, height: 34, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', padding: 2 }} />
-            <Input value={cor} onChange={(e) => setCor(e.target.value)} style={{ maxWidth: 130 }} />
+          <div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Cor da marca</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input type="color" value={cor} onChange={(e) => setCor(e.target.value)} style={{ width: 44, height: 34, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', padding: 2 }} />
+              <Input value={cor} onChange={(e) => setCor(e.target.value)} style={{ maxWidth: 130 }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Tema do e-mail</div>
+            <Segmented value={modo} onChange={setModo} options={[{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }]} />
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Define o fundo dos e-mails enviados com esta marca.</div>
           </div>
           <Input label="URL de checkout (opcional)" placeholder="https://minhaloja.com/checkout" value={linkLoja} onChange={(e) => setLinkLoja(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancelar</Button>
-            <Button variant="primary" size="sm" iconLeft="check" disabled={saving || !nome.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
+            <Button variant="primary" size="sm" iconLeft="check" loading={saving} disabled={saving || !nome.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
           </div>
         </div>
       )}
