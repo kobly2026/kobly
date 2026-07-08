@@ -27,13 +27,18 @@ function KoblyStoreProvider({ children }) {
   const [phase, setPhase] = useState('loading'); // loading | login | recovery | onboarding | app
   const [role, setRoleState] = useState(null);
   const [session, setSession] = useState(null);
-  const [view, setView] = useState(null);
+  // UX-1: view persistida em sessionStorage — sobrevive a troca de aba, reload e
+  // reautenticação (token refresh dispara onAuthStateChange que antes resetava tudo).
+  const [view, setView] = useState(() => {
+    try { return sessionStorage.getItem('kbly_view') || null; } catch (_) { return null; }
+  });
   const [authBusy, setAuthBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  // Prefill de chamado (ex.: Plans → "Falar com o comercial" → tela Chamados abre o
-  // form de novo chamado preenchido). Consumido e limpo pela tela de Chamados.
   const [ticketPrefill, setTicketPrefill] = useState(null);
   const toastTimer = useRef(null);
+  // Ref: já inicializou a sessão uma vez? Evita re-hidratações (token refresh,
+  // retorno de aba) sobrescreverem a navegação atual do usuário.
+  const didInit = useRef(false);
 
   const fireToast = useCallback((tone, msg) => {
     clearTimeout(toastTimer.current);
@@ -46,12 +51,16 @@ function KoblyStoreProvider({ children }) {
     if (s) {
       setSession(s);
       setRoleState(s.role);
-      // Cliente sem organização = cadastro self-service recém-confirmado →
-      // onboarding cria a org antes de entrar no app.
       if (s.role === 'Cliente' && !s.empresaId) { setPhase('onboarding'); return; }
-      setView(((DB.roles[s.role] || DB.roles.Cliente)).home);
+      // UX-1: SÓ define a tela inicial na PRIMEIRA hidratação. Re-hidratações
+      // (token refresh ao voltar de outra aba) preservam onde o usuário estava.
+      if (!didInit.current) {
+        setView(((DB.roles[s.role] || DB.roles.Cliente)).home);
+      }
+      didInit.current = true;
       setPhase('app');
     } else {
+      didInit.current = false;
       setPhase('login');
     }
   }, [DB]);
@@ -95,6 +104,7 @@ function KoblyStoreProvider({ children }) {
       if (!leave) return false;
     }
     setView(v);
+    try { sessionStorage.setItem('kbly_view', v); } catch (_) { /* noop */ }
     return true;
   }, [editing]);
 
@@ -117,7 +127,7 @@ function KoblyStoreProvider({ children }) {
     signUp: (email, pw, nome) => KoblyApi.signUp(email, pw, nome),
     resetPassword: (email) => KoblyApi.resetPassword(email),
     updatePassword: (pw) => KoblyApi.updatePassword(pw),
-    signOut: () => KoblyApi.signOut(),
+    signOut: () => { try { sessionStorage.removeItem('kbly_view'); } catch (_) {} KoblyApi.signOut(); },
     completeOnboarding,
     ticketPrefill, setTicketPrefill,
     toast, notify: fireToast, dismissToast: () => setToast(null),
