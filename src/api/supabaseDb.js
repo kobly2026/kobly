@@ -73,7 +73,7 @@ async function sel(table, columns, order) {
 }
 
 async function hydrate() {
-  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, postbackTokens, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
+  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, postbackTokens, brands, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
     sel('organizations', '*'),
     sel('profiles', '*'),
     sel('plans', '*'),
