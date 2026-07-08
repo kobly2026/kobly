@@ -15,3 +15,5 @@ yarn-error.log*
 .mcp.json
 *Repomix*.xml
 supabase/.temp/
+.netlify/
+.mimocode/

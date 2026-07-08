@@ -83,7 +83,20 @@ function KoblyStoreProvider({ children }) {
     return () => { try { sub.subscription.unsubscribe(); } catch (e) { /* noop */ } };
   }, [hydrate]);
 
-  const navigate = useCallback((v) => setView(v), []);
+  // UX-1: confirma antes de trocar de rota se há edição de fluxo não salva. Retorna
+  // true se navegou (o AppShell usa o retorno p/ só fechar o overlay mobile em caso
+  // de sucesso). O FlowBuilder registra/desregistra o estado "editando" via setEditing.
+  const [editing, setEditingState] = useState(null); // { campaignId, dirty }
+  const setEditing = useCallback((e) => setEditingState(e), []);
+  const clearEditing = useCallback(() => setEditingState(null), []);
+  const navigate = useCallback((v) => {
+    if (editing && editing.dirty) {
+      const leave = window.confirm('Você tem alterações não salvas. O rascunho fica salvo e será recuperado quando voltar. Trocar de tela?');
+      if (!leave) return false;
+    }
+    setView(v);
+    return true;
+  }, [editing]);
 
   // Troca de papel = atalho de demo (login na persona). Só exposto em DEV.
   const setRole = useCallback((rk) => {
@@ -97,7 +110,7 @@ function KoblyStoreProvider({ children }) {
   const value = {
     phase, isDev: IS_DEV, authBusy,
     role, roleDef: role ? DB.roles[role] : null, can: role ? DB.roles[role].can : {},
-    setRole, view, navigate, session,
+    setRole, view, navigate, session, editing, setEditing, clearEditing,
     // ações de autenticação (usadas pela tela de login e pelo perfil/topbar)
     signIn: (email, pw) => KoblyApi.signIn(email, pw),
     signInAsRole: (rk) => KoblyApi.signInAsRole(rk),

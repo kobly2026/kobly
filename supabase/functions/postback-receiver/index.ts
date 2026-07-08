@@ -270,10 +270,16 @@ Deno.serve(async (req: Request) => {
   // ── Supabase client ──
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-  // ── Validar token → organization_id ──
-  const { data: orgId, error: tokErr } = await sb.rpc("validate_postback_token", { p_token: token });
-  if (tokErr || !orgId) return json({ error: "invalid_token", detail: "Token inválido ou inativo" }, 401);
-  const org = orgId as string;
+  // ── Validar token → organization_id + token id (WEB-1) ──
+  // Precisamos do id do token para filtrar campanhas vinculadas a um webhook nomeado.
+  const { data: tokRow, error: tokErr } = await sb.from("postback_tokens")
+    .select("id, organization_id")
+    .eq("token", token)
+    .eq("ativo", true)
+    .maybeSingle();
+  if (tokErr || !tokRow) return json({ error: "invalid_token", detail: "Token inválido ou inativo" }, 401);
+  const org = tokRow.organization_id as string;
+  const tokenId = tokRow.id as string;
 
   // ── Rate limit ──
   const since = new Date(Date.now() - 60_000).toISOString();
@@ -377,10 +383,15 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── 3) Enfileira etapas das campanhas ATIVAS cujo Gatilho casa o tipo_evento ──
+  // WEB-1: uma campanha dispara se (a) não tem vínculo (NULL — qualquer token,
+  // comportamento padrão/retrocompatível) OU (b) está vinculada ao token que
+  // originou este evento. Assim um token "Hotmart - Produto A" só aciona as
+  // campanhas dele (e as sem vínculo), nunca as de outro produto.
   const { data: camps, error: campErr } = await sb.from("campaigns")
     .select("id, campaign_flows(id, flow_steps!flow_id(id, tipo_card, tipo_evento, atraso, posicao))")
     .eq("organization_id", org)
-    .eq("status_campanha", "Ativa");
+    .eq("status_campanha", "Ativa")
+    .or(`postback_token_id.is.null,postback_token_id.eq.${tokenId}`);
 
   if (campErr) {
     return json({

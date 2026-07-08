@@ -58,8 +58,10 @@ Deno.serve(async (req: Request) => {
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
 
+  // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
+  // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, flow_id, condicao), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, flow_id, condicao, campaign_flows(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
@@ -81,14 +83,33 @@ Deno.serve(async (req: Request) => {
     return condicao === "comprou" ? comprou : !comprou;
   };
 
-  // Marca da org por conta: nome (remetente) + URL de fallback do botão (aba Marca).
-  const orgBrandCache = new Map<string, { nome: string | null; link: string | null }>();
-  const getOrgBrand = async (org: string) => {
-    if (orgBrandCache.has(org)) return orgBrandCache.get(org)!;
-    const { data } = await sb.from("org_branding").select("nome, link_loja").eq("organization_id", org).maybeSingle();
+  // MARCA-1: resolve a marca — por brand_id (campanha vinculada) ou fallback da org
+  // (1º brand). Cache por brandId + por orgId. Antes lia org_branding (1:1); agora
+  // lê brands (1:N). Se a campanha tem brand_id, usa aquela marca; senão a padrão.
+  const brandCache = new Map<string, { nome: string | null; link: string | null }>();
+  const resolveBrand = async (org: string, brandId: string | null) => {
+    // Tenta pelo brand_id específico da campanha (MARCA-1).
+    if (brandId) {
+      const ck = `b:${brandId}`;
+      if (brandCache.has(ck)) return brandCache.get(ck)!;
+      const { data } = await sb.from("brands").select("nome, link_loja").eq("id", brandId).maybeSingle();
+      const brand = { nome: (data?.nome as string) || null, link: (data?.link_loja as string) || null };
+      brandCache.set(ck, brand);
+      return brand;
+    }
+    // Fallback: 1º brand da org (retrocompatível).
+    const ck = `o:${org}`;
+    if (brandCache.has(ck)) return brandCache.get(ck)!;
+    const { data } = await sb.from("brands").select("nome, link_loja").eq("organization_id", org).order("ordem").limit(1).maybeSingle();
     const brand = { nome: (data?.nome as string) || null, link: (data?.link_loja as string) || null };
-    orgBrandCache.set(org, brand);
+    brandCache.set(ck, brand);
     return brand;
+  };
+  // Extrai o brand_id da campanha a partir do step (join flow_steps→campaign_flows→campaigns).
+  const brandIdOf = (s: any): string | null => {
+    const cf = s?.flow_steps?.campaign_flows;
+    const camp = Array.isArray(cf) ? cf[0] : cf;
+    return (camp?.campaigns?.brand_id as string) || null;
   };
 
   // Finaliza a etapa (sucesso ou desistência definitiva).
@@ -123,7 +144,7 @@ Deno.serve(async (req: Request) => {
           campaignId = cf?.campaign_id ?? null;
         }
         const { data: em } = await sb.from("emails").select("assunto, corpo_html, remetente").eq("id", step.email_id).maybeSingle();
-        const brand = await getOrgBrand(s.organization_id);
+        const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
         const html = (em?.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
@@ -176,7 +197,7 @@ Deno.serve(async (req: Request) => {
           campaignId = cf?.campaign_id ?? null;
         }
         const { data: wm } = await sb.from("whatsapp_messages").select("titulo, corpo_texto").eq("id", step.whatsapp_message_id).maybeSingle();
-        const brand = await getOrgBrand(s.organization_id);
+        const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Mesmo destino do botão do e-mail: link do lead (postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
         const message = String(wm?.corpo_texto || wm?.titulo || "").split("{{cta_link}}").join(ctaLink);

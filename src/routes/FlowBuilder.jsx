@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyMockDB } from '@/api/mockData.js';
@@ -6,6 +6,7 @@ import { Badge, Button, Card, Icon, IconButton, Input, Select } from '@/ds';
 import { useAsync } from '@/lib/hooks.jsx';
 import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
 import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
+import { KoblyWhatsAppEditor } from '@/routes/WhatsAppEditor.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Construtor de fluxo (drag-drop). Paleta de cards (@TipoCardFluxo) → arrasta para
@@ -204,7 +205,7 @@ function ForkConnector() {
 }
 
 // ----- Inspetor da etapa -----
-function Inspector({ step, onChange, onEditEmail, opts = {} }) {
+function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, opts = {} }) {
   const DB = KoblyMockDB;
   if (!step) {
     return (
@@ -260,7 +261,7 @@ function Inspector({ step, onChange, onEditEmail, opts = {} }) {
       {step.tipo === 'Envio de WhatsApp' && (
         <React.Fragment>
           <Select label="Mensagem WhatsApp" value={c.whatsappMessageId || ''} onChange={(e) => setCfg({ whatsappMessageId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.whatsappMessages || []).map((m) => ({ value: m.id, label: m.titulo }))]} />
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Crie e edite mensagens em Integrações → aba WhatsApp.</div>
+          <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditWhatsApp(c.whatsappMessageId)}>Editar mensagem</Button>
         </React.Fragment>
       )}
       {step.tipo === 'Acionar Fluxo' && (
@@ -310,16 +311,46 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const DB = KoblyMockDB;
   const optsA = useAsync(() => KoblyApi.getFlowOptions(), [store.role]);
   const opts = optsA.data || { webhooks: [], emails: [], whatsappMessages: [], tags: [], campaigns: [] };
-  const [steps, setSteps] = useState(campaign.fluxo || []);
-  const [tagsMeta, setTagsMeta] = useState(campaign.tagsMeta || []);
+  // UX-1: rascunho do fluxo em localStorage (restaurado ao reabrir a campanha).
+  const draftKey = `kobly:flowdraft:${campaign.id}`;
+  const [restoredDraft] = useState(() => {
+    try { const raw = localStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; } catch (_) { return null; }
+  });
+  const [steps, setSteps] = useState(() => (restoredDraft && Array.isArray(restoredDraft.steps) ? restoredDraft.steps : (campaign.fluxo || [])));
+  const [tagsMeta, setTagsMeta] = useState(() => (restoredDraft && Array.isArray(restoredDraft.tagsMeta) ? restoredDraft.tagsMeta : (campaign.tagsMeta || [])));
   const [selId, setSelId] = useState(steps[0] ? steps[0].id : null);
   const [over, setOver] = useState(-1);
   const [status, setStatus] = useState(campaign.status);
   const [emailModal, setEmailModal] = useState(null);
-  const [dirty, setDirty] = useState(false);
+  // TPL-1: modal do editor de WhatsApp (espelha o emailModal).
+  const [whatsappModal, setWhatsappModal] = useState(null);
+  // TPL-2: objetivo = tipo_evento do Gatilho da campanha (passado à IA do WhatsApp).
+  const objetivoCampanha = (steps.find((s) => s.tipo === 'Gatilho')?.config || {}).tipoEvento || null;
+  const [dirty, setDirty] = useState(!!restoredDraft);
+  // UX-2: estado de saving no botão — feedback imediato para o usuário
+  // (antes o clique não dava sinal e o layout shift de dirty→false parecia scroll).
+  const [saving, setSaving] = useState(false);
   const [nome, setNome] = useState(campaign.nome);
   const [editingName, setEditingName] = useState(false);
   const [nomeDraft, setNomeDraft] = useState(campaign.nome);
+  // WEB-1: seletor de webhook nomeado vinculado à campanha.
+  const tokensA = useAsync(() => KoblyApi.getPostbackTokens(), [campaign.empresaId]);
+  const tokens = (tokensA.data || []).filter((t) => t.ativo);
+  const [webhookId, setWebhookId] = useState(campaign.postbackTokenId || '');
+  async function saveWebhook(id) {
+    const ok = await KoblyApi.setCampaignWebhook(campaign.id, id || null);
+    setWebhookId(id || '');
+    store.notify(ok ? 'success' : 'danger', ok ? (id ? 'Webhook vinculado à campanha' : 'Campanha aceita qualquer webhook') : 'Não foi possível atualizar');
+  }
+  // MARCA-1: seletor de marca/produto vinculado à campanha.
+  const brandsA = useAsync(() => KoblyApi.listBrands(campaign.empresaId), [campaign.empresaId]);
+  const brands = brandsA.data || [];
+  const [brandId, setBrandId] = useState(campaign.brandId || '');
+  async function saveBrand(id) {
+    const ok = await KoblyApi.setCampaignBrand(campaign.id, id || null);
+    setBrandId(id || '');
+    store.notify(ok ? 'success' : 'danger', ok ? (id ? 'Marca vinculada à campanha' : 'Campanha usa a marca padrão') : 'Não foi possível atualizar');
+  }
   const dragRef = useRef(null);
   const horizontal = variant === 'horizontal';
   const compact = variant === 'compact';
@@ -328,6 +359,43 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
   const selStep = steps.find((s) => s.id === selId) || null;
   const markDirty = () => setDirty(true);
+
+  // UX-1 — Persistência da edição do fluxo:
+  // (a) rascunho salvo no localStorage a cada alteração (debounce) e restaurado ao
+  //     reabrir a campanha — sair da tela (copiar um link, navegar pelo menu) não
+  //     perde mais o trabalho;
+  // (b) "sair sem salvar?" no botão Voltar; a navegação pelo rail também confirma
+  //     (guard no store.navigate, que lê store.editing registrado abaixo);
+  // (c) beforeunload cobre fechar aba / recarregar durante a edição.
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(() => {
+      try { localStorage.setItem(draftKey, JSON.stringify({ steps, tagsMeta, savedAt: Date.now() })); } catch (_) { /* quota/privado */ }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [dirty, steps, tagsMeta, draftKey]);
+
+  // Registra no store se há edição ativa (a navegação consulta p/ confirmar).
+  useEffect(() => {
+    store.setEditing({ campaignId: campaign.id, dirty });
+    return () => store.clearEditing();
+  }, [campaign.id, dirty, store]);
+
+  // Aviso nativo ao sair/fechar a aba com alterações não salvas.
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
+
+  // Avisa uma vez quando um rascunho foi recuperado (só na montagem).
+  useEffect(() => { if (restoredDraft) store.notify('info', 'Rascunho não salvo recuperado.'); /* monta uma vez */ }, []);
+
+  function handleBack() {
+    if (dirty && !window.confirm('Você tem alterações não salvas. O rascunho fica salvo e será recuperado quando voltar. Sair da campanha?')) return;
+    onBack();
+  }
 
   function onDragStart(e, payload) {
     dragRef.current = payload;
@@ -399,11 +467,15 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
       store.notify('warning', `O card "${incompleto.nome || incompleto.tipo}" está incompleto: selecione ${oque} antes de salvar.`);
       return;
     }
+    // UX-2: feedback visual imediato (loading no botão) para o usuário saber que está salvando.
+    setSaving(true);
     const ok = await KoblyApi.saveFlow(campaign.id, steps, tagsMeta);
+    setSaving(false);
     if (!ok) {
       store.notify('danger', 'Não foi possível salvar o fluxo. Tente novamente.');
       return; // mantém o estado "não salvo" (dirty)
     }
+    try { localStorage.removeItem(draftKey); } catch (_) { /* noop */ }
     setDirty(false);
     store.notify('success', 'Fluxo salvo');
   }
@@ -446,7 +518,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Barra do construtor — fixa no topo enquanto o canvas rola. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface-app)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingBlock: 8, borderBottom: '1px solid var(--border-subtle)' }}>
-        <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={onBack}>Campanhas</Button>
+        <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={handleBack}>Campanhas</Button>
         <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
         {editingName ? (
           <input
@@ -468,10 +540,32 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
           </button>
         )}
         <Badge tone={DB.optionSets.StatusCampanha[status] || 'neutral'} dot>{status}</Badge>
+        {/* WEB-1: webhook vinculado — define qual token dispara esta campanha */}
+        {tokens.length > 0 && (
+          <div style={{ minWidth: 210 }}>
+            <Select
+              value={webhookId}
+              onChange={(e) => saveWebhook(e.target.value)}
+              options={[{ value: '', label: 'Todos os webhooks' }, ...tokens.map((t) => ({ value: t.id, label: t.nome }))]}
+              aria-label="Webhook vinculado à campanha"
+            />
+          </div>
+        )}
+        {/* MARCA-1: marca/produto vinculado — define a identidade (logo/cor/link) dos e-mails */}
+        {brands.length > 1 && (
+          <div style={{ minWidth: 210 }}>
+            <Select
+              value={brandId}
+              onChange={(e) => saveBrand(e.target.value)}
+              options={[{ value: '', label: 'Marca padrão' }, ...brands.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
+              aria-label="Marca vinculada à campanha"
+            />
+          </div>
+        )}
         <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {dirty && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Alterações não salvas</span>}
           <Button variant="secondary" size="sm" iconLeft={status === 'Ativa' ? 'pause' : 'play'} onClick={toggleActive}>{status === 'Ativa' ? 'Pausar' : 'Ativar'}</Button>
-          <Button variant="primary" size="sm" iconLeft="check" onClick={save} disabled={!dirty}>Salvar fluxo</Button>
+          <Button variant="primary" size="sm" iconLeft="check" onClick={save} loading={saving} disabled={!dirty || saving}>{saving ? 'Salvando…' : 'Salvar fluxo'}</Button>
         </div>
       </div>
 
@@ -502,7 +596,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={(force) => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade }, force)} />
           <Card style={{ minHeight: 200 }}>
-            <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} />
+            <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} onEditWhatsApp={(id) => setWhatsappModal((opts.whatsappMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })} />
           </Card>
           <Card icon="flag" title="Tags-meta (encerrar lead)">
             <p style={{ margin: '0 0 12px', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 'var(--lh-snug)' }}>Quando o lead recebe um evento com alguma destas tags, o fluxo é encerrado para ele.</p>
@@ -520,6 +614,12 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         email: emailModal,
         onClose: () => setEmailModal(null),
         onSave: (p) => { if (p && p.id) { KoblyApi.updateEmail(p.id, p); optsA.reload(); } },
+      })}
+      {whatsappModal !== null && React.createElement(KoblyWhatsAppEditor, {
+        message: whatsappModal,
+        objetivo: objetivoCampanha,
+        onClose: () => setWhatsappModal(null),
+        onSave: (p) => { if (p && p.id) { KoblyApi.saveWhatsappMessage(p); optsA.reload(); } },
       })}
     </div>
   );

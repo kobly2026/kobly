@@ -88,7 +88,7 @@ const EXAMPLE_PAYLOAD = `{
 // ── Aba 1: Postback URL ──
 function PostbackTab({ data, empresaId }) {
   const store = useKobly();
-  const [token, setToken] = useState(null);
+  const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [recentEvents, setRecentEvents] = useState([]);
   const [creating, setCreating] = useState(false);
@@ -113,7 +113,7 @@ function PostbackTab({ data, empresaId }) {
   const [evProvider, setEvProvider] = useState('');
 
   useEffect(() => {
-    loadToken();
+    loadTokens();
     loadRecentEvents();
     setListening(false); // trocou de conta → sessão anterior não vale mais
   }, [empresaId]);
@@ -137,10 +137,16 @@ function PostbackTab({ data, empresaId }) {
     return () => clearInterval(pollRef.current);
   }, [listening, empresaId]);
 
-  async function loadToken() {
+  async function loadTokens() {
     setLoading(true);
-    const t = await KoblyApi.getOrCreatePostbackToken(empresaId);
-    setToken(t);
+    // WEB-1: carrega TODOS os webhooks nomeados da org. Se não existir nenhum,
+    // garante um "Token principal" para retrocompatibilidade.
+    let list = await KoblyApi.getPostbackTokens();
+    if (!list.length) {
+      const t = await KoblyApi.getOrCreatePostbackToken(empresaId);
+      list = t ? [t] : [];
+    }
+    setTokens(list);
     setLoading(false);
   }
 
@@ -149,17 +155,41 @@ function PostbackTab({ data, empresaId }) {
     setRecentEvents(events);
   }
 
-  async function createNewToken() {
+  // WEB-1: cria um webhook nomeado (ex.: "Hotmart - Produto A").
+  const [newName, setNewName] = useState('');
+  async function createWebhook() {
+    const nome = (newName || '').trim() || 'Novo webhook';
     setCreating(true);
-    const t = await KoblyApi.createPostbackToken('Token ' + new Date().toLocaleDateString('pt-BR'), empresaId);
-    if (t) {
-      setToken(t);
-      store.notify('success', 'Novo token criado');
-    }
+    const t = await KoblyApi.createPostbackToken(nome, empresaId);
     setCreating(false);
+    if (t) {
+      setNewName('');
+      await loadTokens();
+      store.notify('success', `Webhook "${nome}" criado`);
+    } else {
+      store.notify('danger', 'Não foi possível criar o webhook');
+    }
+  }
+  // WEB-1: renomeia um webhook inline.
+  async function renameWebhook(id, nome) {
+    const ok = await KoblyApi.renamePostbackToken(id, nome);
+    if (ok) { store.notify('success', 'Webhook renomeado'); await loadTokens(); }
+  }
+  // WEB-1: ativa/desativa um webhook.
+  async function toggleWebhook(t) {
+    const ok = t.ativo ? await KoblyApi.revokePostbackToken(t.id) : await KoblyApi.activatePostbackToken(t.id);
+    if (ok) await loadTokens();
+  }
+  // WEB-1: exclui um webhook (campanhas vinculadas voltam a "qualquer webhook").
+  async function deleteWebhook(t) {
+    if (!confirm(`Excluir o webhook "${t.nome}"? Campanhas vinculadas a ele passarão a aceitar qualquer webhook da conta.`)) return;
+    const ok = await KoblyApi.deletePostbackToken(t.id);
+    if (ok) { store.notify('success', 'Webhook excluído'); await loadTokens(); }
   }
 
-  const postbackUrl = token ? `${SUPABASE_URL}/functions/v1/postback-receiver?token=${token.token}` : '';
+  // URL do primeiro webhook ativo — usada pelo teste de evento e pelo banner.
+  const activeToken = tokens.find((t) => t.ativo);
+  const postbackUrl = activeToken ? `${SUPABASE_URL}/functions/v1/postback-receiver?token=${activeToken.token}` : '';
 
   // Dispara um evento de teste contra a própria URL de postback (dado que VOCÊ escolhe,
   // diferente do botão de teste da Hotmart que manda payload enlatado deles).
@@ -212,22 +242,54 @@ function PostbackTab({ data, empresaId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* URL de Postback */}
-      <Card icon="link" title="URL de Postback" subtitle="Cole esta URL no painel da sua plataforma de checkout">
+      {/* WEB-1: Webhooks nomeados (um por produto/plataforma) */}
+      <Card icon="link" title="Webhooks de Postback" subtitle="Crie um webhook para cada produto ou plataforma. Cole a URL no painel de checkout — cada campanha pode ser vinculada a um webhook específico.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <div style={labelCss}>Sua URL de postback</div>
-            {postbackUrl
-              ? <CopyField value={postbackUrl} label="URL de postback" />
-              : <SkeletonRow />}
+          {loading ? (
+            <SkeletonRow />
+          ) : tokens.length === 0 ? (
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', padding: '8px 0' }}>Nenhum webhook ainda. Crie o primeiro abaixo.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {tokens.map((t) => {
+                const url = `${SUPABASE_URL}/functions/v1/postback-receiver?token=${t.token}`;
+                return (
+                  <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        defaultValue={t.nome}
+                        onBlur={(e) => { const v = (e.target.value || '').trim(); if (v && v !== t.nome) renameWebhook(t.id, v); }}
+                        style={{ flex: 1, fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', background: 'transparent', border: 'none', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', padding: '2px 4px', borderRadius: 'var(--radius-xs)' }}
+                      />
+                      <Badge tone={t.ativo ? 'success' : 'neutral'} dot>{t.ativo ? 'Ativo' : 'Inativo'}</Badge>
+                      <IconButton icon={t.ativo ? 'pause' : 'play'} size="sm" aria-label={t.ativo ? 'Desativar' : 'Ativar'} onClick={() => toggleWebhook(t)} />
+                      <IconButton icon="trash-2" size="sm" aria-label="Excluir" onClick={() => deleteWebhook(t)} />
+                    </div>
+                    <CopyField value={url} label={`URL do webhook ${t.nome}`} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {/* Novo webhook nomeado */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 4 }}>
+            <div style={{ flex: 1 }}>
+              <Input
+                label="Nome do novo webhook"
+                placeholder="Ex.: Hotmart - Produto A"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') createWebhook(); }}
+              />
+            </div>
+            <Button variant="secondary" iconLeft="plus" onClick={createWebhook} disabled={creating}>
+              {creating ? 'Criando...' : 'Criar webhook'}
+            </Button>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
-            Esta URL aceita POST com JSON. Qualquer plataforma pode usar.
+            Cada URL aceita POST com JSON (Hotmart, NexusPayt e contrato genérico). Vincule a campanha ao webhook no Construtor de fluxo.
           </div>
-          <Button variant="secondary" iconLeft="plus" onClick={createNewToken} disabled={creating}>
-            {creating ? 'Criando...' : 'Gerar novo token'}
-          </Button>
         </div>
       </Card>
 
@@ -427,6 +489,8 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ titulo: '', assunto: '', remetente: '' });
+  // UX-2: feedback visual de loading no botão Salvar (igual ao FlowBuilder).
+  const [saving, setSaving] = useState(false);
 
   function openNew() {
     setEditing(null);
@@ -442,6 +506,7 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
 
   async function save() {
     if (!form.titulo.trim() || !form.assunto.trim()) return;
+    setSaving(true);
     if (editing) {
       const { error } = await KoblyApi.updateEmail(editing.id, form);
       store.notify(error ? 'danger' : 'success', error ? 'Não foi possível atualizar.' : 'E-mail atualizado');
@@ -449,6 +514,7 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
       const { error } = await KoblyApi.createEmail(form, empresaId);
       store.notify(error ? 'danger' : 'success', error || 'Template criado');
     }
+    setSaving(false);
     setModal(false);
     reload();
   }
@@ -472,7 +538,7 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
       <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Editar e-mail' : 'Novo e-mail'} width={520}
         footer={<>
           <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
-          <Button variant="primary" disabled={!form.titulo.trim() || !form.assunto.trim()} onClick={save}>Salvar</Button>
+          <Button variant="primary" loading={saving} disabled={saving || !form.titulo.trim() || !form.assunto.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
         </>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Input label="Título (intern)" placeholder="Ex.: Carrinho — lembrete" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
@@ -819,6 +885,87 @@ function BrandTab({ empresaId }) {
           <iframe title="preview" srcDoc={previewHtml} style={{ width: '100%', height: 520, border: 'none', display: 'block', background: modo === 'light' ? '#f4f4f5' : '#000' }} />
         </div>
       </Card>
+      <Card icon="layers" title="Marcas e produtos" subtitle="Crie uma marca para cada produto ou loja. Vincule cada campanha à marca certa no construtor de fluxo.">
+        <BrandsList empresaId={empresaId} />
+      </Card>
+    </div>
+  );
+}
+
+// MARCA-1: lista de marcas da org com criar/editar/excluir.
+function BrandsList({ empresaId, onSaved }) {
+  const store = useKobly();
+  const a = useAsync(() => KoblyApi.listBrands(empresaId), [empresaId]);
+  const [editing, setEditing] = useState(null); // brand em edição | null
+  const [nome, setNome] = useState('');
+  const [cor, setCor] = useState('#ff6800');
+  const [linkLoja, setLinkLoja] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function openNew() {
+    setEditing('new');
+    setNome(''); setCor('#ff6800'); setLinkLoja('');
+  }
+  function openEdit(b) {
+    setEditing(b.id);
+    setNome(b.nome || ''); setCor(b.cor || '#ff6800'); setLinkLoja(b.link_loja || '');
+  }
+  async function save() {
+    if (!nome.trim()) return;
+    setSaving(true);
+    if (editing === 'new') {
+      const { error } = await KoblyApi.createBrand({ nome, cor, linkLoja }, empresaId);
+      store.notify(error ? 'danger' : 'success', error || 'Marca criada');
+    } else {
+      const { error } = await KoblyApi.updateBrand(editing, { nome, cor, linkLoja });
+      store.notify(error ? 'danger' : 'success', error || 'Marca atualizada');
+    }
+    setSaving(false);
+    if (onSaved) onSaved();
+    setEditing(null);
+    a.reload();
+  }
+  async function remove(b) {
+    if (!confirm(`Excluir a marca "${b.nome || 'Sem nome'}"? Campanhas vinculadas voltarão à marca padrão.`)) return;
+    const { error } = await KoblyApi.deleteBrand(b.id);
+    store.notify(error ? 'danger' : 'success', error || 'Marca excluída');
+    if (!error) a.reload();
+  }
+
+  if (a.status === 'loading') return <SkeletonRow />;
+  const list = a.data || [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {list.length === 0 && !editing && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Nenhuma marca ainda. Crie a primeira abaixo.</div>
+      )}
+      {list.map((b) => (
+        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+          <span style={{ width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: b.cor || '#ff6800', flex: 'none' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)', fontSize: 'var(--text-sm)' }}>{b.nome || 'Sem nome'}</div>
+            {b.link_loja && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{b.link_loja}</div>}
+          </div>
+          <IconButton icon="pencil" size="sm" aria-label="Editar marca" onClick={() => openEdit(b)} />
+          <IconButton icon="trash-2" size="sm" aria-label="Excluir marca" onClick={() => remove(b)} />
+        </div>
+      ))}
+      {editing && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, background: 'var(--surface-card)', border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-sm)' }}>
+          <Input label="Nome da marca" placeholder="Ex.: Produto Premium" value={nome} onChange={(e) => setNome(e.target.value)} />
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input type="color" value={cor} onChange={(e) => setCor(e.target.value)} style={{ width: 44, height: 34, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', padding: 2 }} />
+            <Input value={cor} onChange={(e) => setCor(e.target.value)} style={{ maxWidth: 130 }} />
+          </div>
+          <Input label="URL de checkout (opcional)" placeholder="https://minhaloja.com/checkout" value={linkLoja} onChange={(e) => setLinkLoja(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button variant="primary" size="sm" iconLeft="check" disabled={saving || !nome.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
+          </div>
+        </div>
+      )}
+      {!editing && <Button variant="secondary" size="sm" iconLeft="plus" onClick={openNew}>Nova marca</Button>}
     </div>
   );
 }

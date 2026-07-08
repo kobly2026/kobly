@@ -57,8 +57,14 @@ export const KoblyApi = {
     return this.signIn(persona.email, DEMO_PASSWORD);
   },
   async signUp(email, password, nome) {
+    // EMAIL-3: emailRedirectTo garante que o link de confirmação volte para a
+    // origem correta (dev: localhost:5173 / prod: domínio do app), e não para o
+    // Site URL padrão do Supabase (que pode estar como localhost:3000). O domínio
+    // precisa estar na allowlist de Redirect URLs no dashboard do Auth.
+    const redirectTo = (typeof window !== 'undefined') ? window.location.origin : undefined;
     const { data, error } = await supabase.auth.signUp({
-      email: (email || '').trim(), password, options: { data: { nome: nome || '' } },
+      email: (email || '').trim(), password,
+      options: { data: { nome: nome || '' }, ...(redirectTo ? { emailRedirectTo: redirectTo } : {}) },
     });
     if (error) return { error: error.message };
     if (data && data.session) resetDb();
@@ -477,12 +483,22 @@ export const KoblyApi = {
   },
 
   // ---- Clientes (Gestor) --------------------------------------------------
+  // MARCA-2: listClients agora também resolve o e-mail do CLIENTE (não do
+  // fundador/gestor). O cliente é o profile com tipo='Cliente' vinculado à org
+  // — criado automaticamente quando o gestor convida por e-mail.
   async listClients() {
     const db = await loadDB();
-    return db.empresas.map((e) => ({
-      ...e, plano: planoById(db, e.planoId).nome,
-      fundador: userById(db, e.fundadorId).nome, fundadorEmail: userById(db, e.fundadorId).email,
-    }));
+    return db.empresas.map((e) => {
+      // Procura o cliente da org (pode não existir ainda se o convite está pendente).
+      const cliente = db.users.find((u) => u.empresaId === e.id && u.tipo === 'Cliente');
+      return {
+        ...e, plano: planoById(db, e.planoId).nome,
+        fundador: userById(db, e.fundadorId).nome,
+        fundadorEmail: userById(db, e.fundadorId).email,
+        clienteEmail: cliente ? cliente.email : null,
+        clienteNome: cliente ? cliente.nome : null,
+      };
+    });
   },
 
   // ---- Integrações --------------------------------------------------------
@@ -497,24 +513,79 @@ export const KoblyApi = {
   },
 
   // ---- Marca / white-label ------------------------------------------------
+  // MARCA-1: getBranding agora lê da tabela brands (1º brand da org).
+  // Mantém a assinatura org_branding para retrocompatibilidade total.
   async getBranding(empresaId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return null;
-    const { data } = await supabase.from('org_branding').select('*').eq('organization_id', orgId).maybeSingle();
-    return data || { organization_id: orgId, nome: '', logo_url: '', cor: '#ff6800', modo: 'dark', link_loja: '' };
+    const { data } = await supabase.from('brands').select('*').eq('organization_id', orgId).order('ordem').limit(1).maybeSingle();
+    if (data) return { organization_id: orgId, nome: data.nome, logo_url: data.logo_url, cor: data.cor, modo: data.modo, link_loja: data.link_loja, brand_id: data.id };
+    return { organization_id: orgId, nome: '', logo_url: '', cor: '#ff6800', modo: 'dark', link_loja: '' };
+  },
+  // MARCA-1: CRUD de marcas (1:N). Substitui saveBranding para o caso multi-marca.
+  async listBrands(empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return [];
+    const { data, error } = await supabase.from('brands').select('*').eq('organization_id', orgId).order('ordem');
+    if (error) return [];
+    return data || [];
+  },
+  async createBrand({ nome, cor, logoUrl, modo, linkLoja }, empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return { error: 'no_org' };
+    let link = (linkLoja || '').trim();
+    if (link && !/^https?:\/\//i.test(link)) link = `https://${link}`;
+    const { data, error } = await supabase.from('brands').insert({
+      organization_id: orgId, nome: nome || null, cor: cor || '#ff6800', logo_url: logoUrl || null, modo: modo || 'dark', link_loja: link || null,
+    }).select().single();
+    resetDb();
+    if (error) return { error: error.message };
+    return { error: null, brand: data };
+  },
+  async updateBrand(brandId, patch) {
+    let link = (patch.linkLoja || '').trim();
+    if (link && !/^https?:\/\//i.test(link)) link = `https://${link}`;
+    const { error } = await supabase.from('brands').update({
+      nome: patch.nome, cor: patch.cor, logo_url: patch.logoUrl, modo: patch.modo, link_loja: link, updated_at: new Date().toISOString(),
+    }).eq('id', brandId);
+    resetDb();
+    return { error: error ? error.message : null };
+  },
+  async deleteBrand(brandId) {
+    const { error } = await supabase.from('brands').delete().eq('id', brandId);
+    resetDb();
+    return { error: error ? error.message : null };
+  },
+  // MARCA-1: vincula (ou desvincula) uma campanha a uma marca específica.
+  async setCampaignBrand(campaignId, brandId) {
+    const { error } = await supabase.from('campaigns')
+      .update({ brand_id: brandId || null, updated_at: new Date().toISOString() })
+      .eq('id', campaignId);
+    resetDb();
+    return !error;
   },
   async saveBranding(empresaId, { nome, cor, logoUrl, modo, linkLoja }) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return { error: 'no_org' };
-    // Normaliza a URL da loja: adiciona https:// se vier sem esquema.
     let link = (linkLoja || '').trim();
     if (link && !/^https?:\/\//i.test(link)) link = `https://${link}`;
-    const { error } = await supabase.from('org_branding').upsert(
-      { organization_id: orgId, nome: nome || null, cor: cor || null, logo_url: logoUrl || null, modo: modo === 'light' ? 'light' : 'dark', link_loja: link || null, updated_at: new Date().toISOString() },
-      { onConflict: 'organization_id' },
-    );
+    // MARCA-1: salva no 1º brand da org (retrocompatível com a UI antiga).
+    const { data: first } = await supabase.from('brands').select('id').eq('organization_id', orgId).order('ordem').limit(1).maybeSingle();
+    if (first) {
+      const { error } = await supabase.from('brands').update({
+        nome: nome || null, cor: cor || '#ff6800', logo_url: logoUrl || null, modo: modo === 'light' ? 'light' : 'dark', link_loja: link || null, updated_at: new Date().toISOString(),
+      }).eq('id', first.id);
+      resetDb();
+      return { error };
+    }
+    // Sem brand ainda → cria o primeiro.
+    const { error } = await supabase.from('brands').insert({
+      organization_id: orgId, nome: nome || null, cor: cor || '#ff6800', logo_url: logoUrl || null, modo: modo || 'dark', link_loja: link || null,
+    });
     resetDb();
     return { error };
   },
@@ -578,6 +649,41 @@ export const KoblyApi = {
     const { error } = await supabase.from('postback_tokens')
       .update({ ativo: false })
       .eq('id', tokenId);
+    resetDb();
+    return !error;
+  },
+  // WEB-1: renomeia um webhook nomeado (mantém o token, só muda o rótulo).
+  async renamePostbackToken(tokenId, nome) {
+    const clean = (nome || '').trim();
+    if (!clean) return false;
+    const { error } = await supabase.from('postback_tokens')
+      .update({ nome: clean, updated_at: new Date().toISOString() })
+      .eq('id', tokenId);
+    resetDb();
+    return !error;
+  },
+  // WEB-1: reativa um webhook que estava desativado.
+  async activatePostbackToken(tokenId) {
+    const { error } = await supabase.from('postback_tokens')
+      .update({ ativo: true, updated_at: new Date().toISOString() })
+      .eq('id', tokenId);
+    resetDb();
+    return !error;
+  },
+  // WEB-1: exclui um webhook nomeado (hard delete). Campanhas vinculadas
+  // ficam com postback_token_id = NULL (ON DELETE SET NULL) → voltam ao
+  // comportamento padrão (qualquer token da org).
+  async deletePostbackToken(tokenId) {
+    const { error } = await supabase.from('postback_tokens').delete().eq('id', tokenId);
+    resetDb();
+    return !error;
+  },
+  // WEB-1: vincula (ou desvincula) uma campanha a um webhook nomeado.
+  // tokenId=null → "qualquer webhook" (padrão retrocompatível).
+  async setCampaignWebhook(campaignId, tokenId) {
+    const { error } = await supabase.from('campaigns')
+      .update({ postback_token_id: tokenId || null, updated_at: new Date().toISOString() })
+      .eq('id', campaignId);
     resetDb();
     return !error;
   },
@@ -795,11 +901,42 @@ export const KoblyApi = {
   },
 
   // ---- Organizações / contas (Gestor cria; membro edita básico) -----------
-  async createOrganization({ nome, segmento }) {
-    const { data, error } = await supabase.rpc('create_managed_org', { p_nome: nome, p_segmento: segmento });
+  // MARCA-2: createOrganization cria a org (com plano opcional) E convida o
+  // cliente por e-mail via Edge Function invite-client. O cliente recebe um
+  // convite do Supabase Auth e, ao definir a senha, seu profile já nasce
+  // vinculado à org (handle_new_user lê organization_id do metadata).
+  async createOrganization({ nome, segmento, email, planoId }) {
+    // 1) Cria a org gerida (gestor vira membro Gestor da conta)
+    const rpcParams = { p_nome: nome, p_segmento: segmento || null };
+    if (planoId) rpcParams.p_plano_id = planoId;
+    const { data: org, error } = await supabase.rpc('create_managed_org', rpcParams);
     resetDb();
     if (error) return { error: error.message };
-    return { error: null, org: data };
+
+    // 2) Convida o cliente por e-mail (se informado)
+    if (email && org && org.id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const base = (import.meta.env?.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/functions/v1/invite-client`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || ''}`,
+          },
+          body: JSON.stringify({ org_id: org.id, email: email.trim(), nome: nome.trim() }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok && !json.already_exists) {
+          // Org criada mas convite falhou — informa mas não bloqueia.
+          return { error: null, org, inviteError: json.detail || json.error || 'Falha no convite' };
+        }
+        return { error: null, org, invited: !json.already_exists, alreadyExists: !!json.already_exists };
+      } catch (e) {
+        return { error: null, org, inviteError: 'Falha ao conectar no convite' };
+      }
+    }
+    return { error: null, org };
   },
   async updateOrganization(id, patch) {
     const { error } = await supabase.from('organizations').update({ nome: patch.nome, segmento: patch.segmento }).eq('id', id);

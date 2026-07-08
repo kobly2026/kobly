@@ -73,7 +73,7 @@ async function sel(table, columns, order) {
 }
 
 async function hydrate() {
-  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
+  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, postbackTokens, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
     sel('organizations', '*'),
     sel('profiles', '*'),
     sel('plans', '*'),
@@ -83,6 +83,10 @@ async function hydrate() {
     sel('whatsapp_messages', '*'),
     sel('domains', '*, domain_dns_records(*)'),
     sel('webhooks', '*, webhook_event_types(tipo_evento)'),
+    // WEB-1: tokens de postback nomeados (webhooks por produto/plataforma).
+    sel('postback_tokens', '*', 'created_at'),
+    // MARCA-1: marcas/produtos por org (1:N) — substitui org_branding (1:1).
+    sel('brands', '*', 'ordem'),
     sel('leads', '*, lead_tags(tag_id), lead_metrics(enviados, aberturas, cliques)'),
     // flow_steps tem 2 FKs p/ campaign_flows (flow_id e fluxo_alvo_id) -> desambigua via !flow_id
     // (o "*" de flow_steps já inclui email_id e whatsapp_message_id)
@@ -94,6 +98,14 @@ async function hydrate() {
     sel('active_sessions', '*'),
     sel('faq', '*', 'ordem'),
   ]);
+
+  // UX-3: campanhas mais recentes no topo da listagem. O select de campaigns
+  // acima não ordena (vem em ordem natural do banco); ordenamos por created_at
+  // desc aqui para que toda a UI (lista, dashboard, relatórios) mostre as
+  // campanhas recém-criadas primeiro. Cópia para não mutar o array da query.
+  const campaignsRecent = campaigns.slice().sort(
+    (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+  );
 
   // maps de nome
   const orgMap = Object.fromEntries(orgs.map((o) => [o.id, o.nome]));
@@ -125,6 +137,11 @@ async function hydrate() {
     tags: tags.map((t) => ({ id: t.id, nome: t.nome, descricao: t.descricao, tipoEvento: t.tipo_evento, empresaId: t.organization_id })),
     emails: emails.map((e) => ({ id: e.id, titulo: e.titulo, assunto: e.assunto, remetente: e.remetente, dominioId: e.dominio_id, corpoHtml: e.corpo_html })),
     whatsappMessages: whatsappMsgs.map((m) => ({ id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, mediaUrl: m.media_url, empresaId: m.organization_id })),
+    // WEB-1: webhooks nomeados (tokens de postback) — usados no seletor de
+    // webhook do FlowBuilder e no CRUD da aba Integrações.
+    postbackTokens: postbackTokens.map((t) => ({ id: t.id, nome: t.nome, token: t.token, ativo: t.ativo, empresaId: t.organization_id, criadoEm: fmtDate(t.created_at) })),
+    // MARCA-1: marcas/produtos por org (1:N). Substitui org_branding (1:1).
+    brands: brands.map((b) => ({ id: b.id, nome: b.nome, logoUrl: b.logo_url, cor: b.cor, modo: b.modo, linkLoja: b.link_loja, empresaId: b.organization_id })),
     dominios: domains.map((d) => ({
       id: d.id, url: d.url, validado: d.validado, idSendGrid: d.id_sendgrid, empresaId: d.organization_id,
       registros: (d.domain_dns_records || []).map((r) => ({ tipo: r.tipo, host: r.host, valor: r.valor, status: r.status })),
@@ -142,12 +159,12 @@ async function hydrate() {
         criadoEm: fmtDate(l.created_at), metricas: m,
       };
     }),
-    campanhas: campaigns.map((c) => {
+    campanhas: campaignsRecent.map((c) => {
       const flow = flowOf(c);
       const steps = ((flow && flow.flow_steps) || []).slice().sort((a, b) => a.posicao - b.posicao);
       return {
         id: c.id, empresaId: c.organization_id, nome: c.nome, status: c.status_campanha, usaTemplate: c.usa_template,
-        templateId: c.template_id, criadorId: c.criador_id, criadoEm: fmtDate(c.created_at),
+        templateId: c.template_id, criadorId: c.criador_id, criadoEm: fmtDate(c.created_at), postbackTokenId: c.postback_token_id || null, brandId: c.brand_id || null,
         stats: reshapeStats(c.campaign_stats),
         tagsMeta: ((flow && flow.flow_meta_tags) || []).map((t) => t.tag_id),
         fluxo: steps.map((s) => reshapeStep(s, flowMap)),

@@ -133,28 +133,32 @@ Deno.serve(async (req: Request) => {
       return json({ plan });
     }
 
-    // ── Task: whatsapp (mensagem curta com {{cta_link}}) ────────────────────
+    // ── Task: whatsapp (mensagem curta contextual por objetivo — TPL-2) ─────
     if (task === "whatsapp") {
+      // TPL-2: objetivo (tipo_evento da campanha) define o TOM da mensagem.
+      // Sem objetivo, mantém "recuperação de vendas" (comportamento anterior).
+      const objetivo = String(body.objetivo || "").slice(0, 80);
+      const contexto = objetivo
+        ? `CONTEXTO da mensagem: o cliente acaba de receber o evento "${objetivo}". Escreva a mensagem ADEQUADA a este contexto (ex.: se for "Compra Aprovada", entregue o acesso e parabenize; se for "Abandono de carrinho", recupere a venda; se for "Pix Gerado", lembre do pagamento). NÃO assuma que é sempre recuperação de carrinho.`
+        : "Escreva uma mensagem de recuperação de vendas de e-commerce.";
       const sys = [
-        "Você é redator de mensagens de WhatsApp para recuperação de vendas de e-commerce (pt-BR).",
+        "Você é redator de mensagens de WhatsApp para e-commerce (pt-BR).",
+        contexto,
         "Escreva UMA mensagem curta (2 a 6 linhas), tom pessoal e direto, como a loja falando com o cliente no WhatsApp. No máximo 1 emoji.",
-        "A mensagem DEVE conter o placeholder {{cta_link}} exatamente assim — ele é trocado pelo link de recuperação no envio.",
+        "Se o contexto exigir um link de ação (checkout, acesso, pagamento), inclua o placeholder {{cta_link}} exatamente assim — ele é trocado pelo link real no envio. Se NÃO houver ação (ex.: confirmação de reembolso sem link), omita o {{cta_link}}.",
         "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) com este formato exato:",
-        '{"titulo": string (título INTERNO curto, ex.: "Carrinho — lembrete"), "texto": string (a mensagem, use \\n para quebras de linha)}',
+        '{"titulo": string (título INTERNO curto), "texto": string (a mensagem, use \\n para quebras de linha)}',
         "Use cupom apenas se o briefing mencionar desconto/oferta. Não invente dados.",
         `Loja: ${String(brand || "a loja").slice(0, 80)}.`,
-        `Briefing do usuário: ${String(brief || "recuperação de carrinho abandonado").slice(0, 800)}.`,
+        `Briefing do usuário: ${String(brief || (objetivo ? `Mensagem para: ${objetivo}` : "recuperação de carrinho abandonado")).slice(0, 800)}.`,
       ].join("\n");
       const r = await callDeepSeek(apiKey, [{ role: "system", content: sys }, { role: "user", content: brief || "Escreva a mensagem." }], { jsonMode: true, maxTokens: 400 });
       if ((r as any).error) return json({ error: "deepseek_error", ...(r as any).error }, 502);
       let mensagem: any;
       try { mensagem = JSON.parse((r as any).content); } catch { return json({ error: "parse_error", detail: String((r as any).content).slice(0, 200) }, 502); }
-      // Normaliza variantes malformadas do placeholder que o modelo às vezes gera
-      // ({cta_link}, {{cta_link}, cta_link}} …) e garante que ele exista — sem ele
-      // a mensagem sai sem link de recuperação.
-      if (mensagem && typeof mensagem.texto === "string") {
+      // Normaliza {{cta_link}} apenas se a mensagem o mencionar (malformado).
+      if (mensagem && typeof mensagem.texto === "string" && mensagem.texto.includes("cta_link")) {
         mensagem.texto = mensagem.texto.replace(/\{{1,2}\s*cta_link\s*\}{1,2}/gi, "{{cta_link}}");
-        if (!mensagem.texto.includes("{{cta_link}}")) mensagem.texto = `${mensagem.texto.trim()}\n\n{{cta_link}}`;
       }
       return json({ mensagem });
     }

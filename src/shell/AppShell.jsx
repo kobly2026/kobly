@@ -67,7 +67,9 @@ function ShellInner() {
   const eyebrow = `${store.role} · ${store.session.contextLabel}`;
 
   // Navegar sempre fecha o overlay mobile.
-  const go = (id) => { store.navigate(id); setMobileNav(false); };
+  // UX-1: só fecha o overlay e navega de fato se não houver edição pendente (o
+  // navigate confirma com o usuário antes de descartar alterações não salvas).
+  const go = (id) => { if (store.navigate(id)) setMobileNav(false); };
 
   const railProps = {
     items: navItems,

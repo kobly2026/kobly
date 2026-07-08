@@ -53,9 +53,20 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
     }
   }
 
+  // UX-1: avisa ao fechar o editor se há alterações não salvas (cancelar perde o que
+  // foi digitado). Comparação direta contra o e-mail original.
+  function tryClose() {
+    const changed = titulo !== (email ? email.titulo : 'Novo e-mail')
+      || assunto !== (email ? email.assunto : '')
+      || remetente !== (email ? email.remetente : 'Loja do João')
+      || html !== (email ? email.corpoHtml : '');
+    if (changed && !window.confirm('Você tem alterações não salvas neste e-mail. Fechar e descartar?')) return;
+    onClose();
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
+      <div onClick={tryClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
       <div style={{ position: 'relative', width: 940, maxWidth: '96vw', height: '86vh', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'kbly-toast-in var(--dur-med) var(--ease-out) both' }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -114,7 +125,7 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
         </div>
 
         <footer style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)' }}>
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button variant="ghost" onClick={tryClose}>Cancelar</Button>
           <Button variant="primary" iconLeft="check" onClick={() => { onSave && onSave({ ...(email || {}), titulo, assunto, remetente, corpoHtml: html }); store.notify('success', 'E-mail salvo'); onClose(); }}>Salvar e-mail</Button>
         </footer>
       </div>

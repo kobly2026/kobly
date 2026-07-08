@@ -1,28 +1,36 @@
 import { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB, SEGMENTOS } from '@/api/mockData.js';
-import { Avatar, Badge, Button, DataTable, IconButton, Input, PageHeader, Select } from '@/ds';
+import { Avatar, Badge, Button, DataTable, IconButton, Icon, Input, PageHeader, Select } from '@/ds';
 import { useAsync } from '@/lib/hooks.jsx';
 import { Modal, ErrorState, SkeletonTable, EmptyState } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Clientes (Gestor/Admin). Lista e gerencia contas de cliente (Empresa).
-// Criar conta = RPC create_managed_org (vincula a agência como membro). KoblyClients
+// Criar conta = RPC create_managed_org (vincula a agência como membro) + convite
+// por e-mail ao cliente via Edge Function invite-client (MARCA-2). KoblyClients
 
 function AccountModal({ account, onClose, onSubmit }) {
   const editing = !!account;
   const [nome, setNome] = useState(account ? account.nome : '');
   const [segmento, setSegmento] = useState(account ? (account.segmento || 'Outro') : 'Suplementos');
+  // MARCA-2: e-mail do cliente (para convite) + seleção de plano inicial.
+  const [email, setEmail] = useState(account ? (account.clienteEmail || '') : '');
+  const [planoId, setPlanoId] = useState('');
   const [busy, setBusy] = useState(false);
+  // Carrega planos ativos para o seletor (só na criação — edição não muda plano aqui).
+  const plansA = useAsync(() => (editing ? Promise.resolve([]) : KoblyApi.getPlans()), [editing]);
+  const planos = (plansA.data?.planos || []).filter((p) => !p.deleted);
+
   async function submit() {
     if (!nome.trim()) return;
     setBusy(true);
-    await onSubmit({ nome, segmento });
+    await onSubmit({ nome, segmento, email: editing ? undefined : email, planoId: editing ? undefined : planoId });
     setBusy(false);
   }
   return (
     <Modal open onClose={onClose} title={editing ? 'Editar conta' : 'Cadastrar nova conta'}
-      subtitle={editing ? 'Atualize os dados básicos da conta.' : 'A conta é criada sob a sua agência (você vira gestor dela).'}
+      subtitle={editing ? 'Atualize os dados básicos da conta.' : 'A conta é criada sob a sua agência. O cliente recebe um convite por e-mail para definir a senha e acessar.'}
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancelar</Button>
         <Button variant="primary" iconLeft={editing ? 'check' : 'plus'} disabled={busy || !nome.trim()} onClick={submit}>{busy ? 'Salvando…' : (editing ? 'Salvar' : 'Criar conta')}</Button>
@@ -30,6 +38,25 @@ function AccountModal({ account, onClose, onSubmit }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Input label="Nome da empresa" placeholder="Ex.: Loja do João" value={nome} onChange={(e) => setNome(e.target.value)} />
         <Select label="Segmento" value={segmento} onChange={(e) => setSegmento(e.target.value)} options={SEGMENTOS} />
+        {!editing && (
+          <>
+            <Input label="E-mail do cliente" icon="mail" type="email" placeholder="cliente@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            {planos.length > 0 && (
+              <Select
+                label="Plano inicial"
+                value={planoId}
+                onChange={(e) => setPlanoId(e.target.value)}
+                options={[{ value: '', label: 'Starter (padrão)' }, ...planos.map((p) => ({ value: p.id, label: `${p.nome} — até ${p.limiteCampanhas} campanhas` }))]}
+              />
+            )}
+            {email.trim() && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
+                O cliente receberá um convite por e-mail para definir a senha e acessar a conta.
+              </div>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -42,10 +69,14 @@ function KoblyClients() {
   const [editing, setEditing] = useState(null); // conta em edição
   const DB = KoblyMockDB;
 
-  async function create({ nome, segmento }) {
-    const { error } = await KoblyApi.createOrganization({ nome, segmento });
-    if (error) { store.notify('danger', 'Não foi possível criar a conta.'); return; }
-    store.notify('success', `Conta "${nome}" criada`);
+  async function create({ nome, segmento, email, planoId }) {
+    const r = await KoblyApi.createOrganization({ nome, segmento, email, planoId });
+    if (r.error) { store.notify('danger', 'Não foi possível criar a conta.'); return; }
+    // MARCA-2: feedback granular sobre o convite.
+    if (r.invited) store.notify('success', `Conta "${nome}" criada — convite enviado para ${email}`);
+    else if (r.alreadyExists) store.notify('warning', `Conta criada, mas ${email} já tem cadastro`);
+    else if (r.inviteError) store.notify('warning', `Conta criada, mas o convite falhou: ${r.inviteError}`);
+    else store.notify('success', `Conta "${nome}" criada`);
     setModal(false);
     a.reload();
   }
@@ -87,7 +118,7 @@ function KoblyClients() {
                     <Avatar name={r.nome} tone="teal" size="sm" />
                     <div>
                       <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{r.nome}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{r.fundadorEmail || '—'}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{r.clienteEmail || r.fundadorEmail || '—'}</div>
                     </div>
                   </div>
                 ) },

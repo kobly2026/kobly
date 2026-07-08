@@ -13,3 +13,14 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security headers para produção em domínio próprio (app.koblay.io).
+# HSTS + frame-options + referrer-policy protegem a console autenticada.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"

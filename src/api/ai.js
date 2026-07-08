@@ -193,7 +193,8 @@ export const KoblyAI = {
   },
 
   // Geração de mensagem de WhatsApp por IA (ai-chat task=whatsapp): retorna
-  // { titulo, texto } com {{cta_link}} garantido. Fallback: template estático.
+  // { titulo, texto } com {{cta_link}} garantido. TPL-2: aceita `objetivo`
+  // (tipo_evento da campanha) para contexto correto (não assume mais carrinho).
   async generateWhatsappText(brief) {
     let brandName = 'Sua Loja';
     try {
@@ -202,16 +203,25 @@ export const KoblyAI = {
       const { data: b } = await q.limit(1).maybeSingle();
       if (b && b.nome) brandName = b.nome;
     } catch (e) { /* segue com o default */ }
-    const briefText = (brief && brief.brief) || 'Mensagem de recuperação de carrinho abandonado.';
+    const objetivo = (brief && brief.objetivo) || null;
+    const briefText = (brief && brief.brief) || (objetivo ? `Mensagem para o evento: ${objetivo}` : 'Mensagem de recuperação de carrinho abandonado.');
     try {
-      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'whatsapp', brief: briefText, brand: brandName } });
+      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { task: 'whatsapp', brief: briefText, brand: brandName, objetivo } });
       if (error || !data || !data.mensagem || !data.mensagem.texto) throw error || new Error('sem mensagem');
       return { titulo: data.mensagem.titulo || '', texto: data.mensagem.texto };
     } catch (err) {
-      return {
-        titulo: 'Recuperação — WhatsApp',
-        texto: `Oi! Aqui é a ${brandName}. Vi que você não finalizou sua compra — seus itens ainda estão reservados. 😉\nFinalize por aqui: {{cta_link}}`,
+      // Fallback contextual por objetivo — não é mais sempre "carrinho abandonado".
+      const fallbacks = {
+        'Compra Aprovada': { titulo: 'Acesso liberado — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Seu pagamento foi confirmado e seu acesso ja esta liberado!\nAcesse agora: {{cta_link}}` },
+        'Compra Recusada': { titulo: 'Pagamento recusado — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Tivemos um problema com o seu pagamento - o cartao foi recusado.\nTente novamente por aqui: {{cta_link}}` },
+        'Compra Reembolsada': { titulo: 'Reembolso confirmado — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Seu reembolso foi processado e deve aparecer em ate 3 dias uteis no seu extrato.` },
+        'Compra cancelada': { titulo: 'Pedido cancelado — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Seu pedido foi cancelado conforme solicitado. Se mudou de ideia, e so refazer a compra: {{cta_link}}` },
+        'Cancelamento de Assinatura': { titulo: 'Assinatura cancelada — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Sua assinatura foi cancelada. Sentimos sua saida - se quiser voltar, temos uma condicao especial: {{cta_link}}` },
+        'Pix Gerado': { titulo: 'Pix aguardando — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Seu Pix foi gerado e esta aguardando pagamento. Pague antes de expirar: {{cta_link}}` },
+        'Boleto Gerado': { titulo: 'Boleto gerado — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Seu boleto foi gerado! Pague ate o vencimento para nao perder: {{cta_link}}` },
+        'Deposito Solicitado': { titulo: 'Deposito — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Recebemos sua solicitacao de deposito. Assim que o pagamento for identificado, liberamos seu acesso.` },
       };
+      return (objetivo && fallbacks[objetivo]) || { titulo: 'Recuperacao — WhatsApp', texto: `Oi! Aqui é a ${brandName}. Vi que voce nao finalizou sua compra - seus itens ainda estao reservados.\nFinalize por aqui: {{cta_link}}` };
     }
   },
 
