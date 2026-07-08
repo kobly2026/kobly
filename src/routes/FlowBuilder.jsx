@@ -516,57 +516,72 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Barra do construtor — fixa no topo enquanto o canvas rola. */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface-app)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingBlock: 8, borderBottom: '1px solid var(--border-subtle)' }}>
-        <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={handleBack}>Campanhas</Button>
-        <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
-        {editingName ? (
-          <input
-            autoFocus
-            value={nomeDraft}
-            onChange={(e) => setNomeDraft(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setNomeDraft(nome); setEditingName(false); } }}
-            style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', fontFamily: 'var(--font-sans)', minWidth: 220 }}
-          />
-        ) : (
-          <button
-            onClick={() => { setNomeDraft(nome); setEditingName(true); }}
-            title="Renomear campanha"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: '2px 4px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-          >
-            <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{nome}</span>
-            <Icon name="pencil" size={14} style={{ color: 'var(--text-subtle)' }} />
-          </button>
-        )}
-        <Badge tone={DB.optionSets.StatusCampanha[status] || 'neutral'} dot>{status}</Badge>
-        {/* WEB-1: webhook vinculado — define qual token dispara esta campanha */}
-        {tokens.length > 0 && (
-          <div style={{ minWidth: 210 }}>
-            <Select
-              value={webhookId}
-              onChange={(e) => saveWebhook(e.target.value)}
-              options={[{ value: '', label: 'Todos os webhooks' }, ...tokens.map((t) => ({ value: t.id, label: t.nome }))]}
-              aria-label="Webhook vinculado à campanha"
+      {/* Barra do construtor — fixa no topo enquanto o canvas rola. Duas linhas:
+          (1) navegação + nome + status + ações principais; (2) vínculos da campanha
+          (webhook + marca). Separar evita a barra quebrar de forma imprevisível. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface-app)', display: 'flex', flexDirection: 'column', gap: 8, paddingBlock: 8, borderBottom: '1px solid var(--border-subtle)', boxShadow: '0 calc(-1 * var(--content-pad)) 0 var(--surface-app)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Button variant="ghost" size="sm" iconLeft="arrow-left" onClick={handleBack}>Campanhas</Button>
+          <Icon name="chevron-right" size={15} style={{ color: 'var(--text-subtle)' }} />
+          {editingName ? (
+            <input
+              autoFocus
+              value={nomeDraft}
+              onChange={(e) => setNomeDraft(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setNomeDraft(nome); setEditingName(false); } }}
+              style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', fontFamily: 'var(--font-sans)', minWidth: 220 }}
             />
+          ) : (
+            <button
+              onClick={() => { setNomeDraft(nome); setEditingName(true); }}
+              title="Renomear campanha"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: '2px 4px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'var(--font-sans)', minWidth: 0 }}
+            >
+              <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+              <Icon name="pencil" size={14} style={{ color: 'var(--text-subtle)', flex: 'none' }} />
+            </button>
+          )}
+          <Badge tone={DB.optionSets.StatusCampanha[status] || 'neutral'} dot>{status}</Badge>
+          <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {dirty && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Alterações não salvas</span>}
+            <Button variant="secondary" size="sm" iconLeft={status === 'Ativa' ? 'pause' : 'play'} onClick={toggleActive}>{status === 'Ativa' ? 'Pausar' : 'Ativar'}</Button>
+            <Button variant="primary" size="sm" iconLeft="check" onClick={save} loading={saving} disabled={!dirty || saving}>{saving ? 'Salvando…' : 'Salvar fluxo'}</Button>
           </div>
-        )}
-        {/* MARCA-1: marca/produto vinculado — define a identidade (logo/cor/link) dos e-mails */}
-        {brands.length > 1 && (
-          <div style={{ minWidth: 210 }}>
-            <Select
-              value={brandId}
-              onChange={(e) => saveBrand(e.target.value)}
-              options={[{ value: '', label: 'Marca padrão' }, ...brands.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
-              aria-label="Marca vinculada à campanha"
-            />
-          </div>
-        )}
-        <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {dirty && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Alterações não salvas</span>}
-          <Button variant="secondary" size="sm" iconLeft={status === 'Ativa' ? 'pause' : 'play'} onClick={toggleActive}>{status === 'Ativa' ? 'Pausar' : 'Ativar'}</Button>
-          <Button variant="primary" size="sm" iconLeft="check" onClick={save} loading={saving} disabled={!dirty || saving}>{saving ? 'Salvando…' : 'Salvar fluxo'}</Button>
         </div>
+        {/* Linha 2: vínculos da campanha — só aparece quando há webhook e/ou marca. */}
+        {(tokens.length > 0 || brands.length > 0) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            {/* WEB-1: webhook vinculado — define qual token dispara esta campanha */}
+            {tokens.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 'var(--fw-medium)', whiteSpace: 'nowrap' }}>Webhook</span>
+                <div style={{ minWidth: 180 }}>
+                  <Select
+                    value={webhookId}
+                    onChange={(e) => saveWebhook(e.target.value)}
+                    options={[{ value: '', label: 'Todos os webhooks' }, ...tokens.map((t) => ({ value: t.id, label: t.nome }))]}
+                    aria-label="Webhook vinculado à campanha"
+                  />
+                </div>
+              </div>
+            )}
+            {/* MARCA-1: marca/produto vinculado — define a identidade (logo/cor/link) dos e-mails */}
+            {brands.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 'var(--fw-medium)', whiteSpace: 'nowrap' }}>Marca</span>
+                <div style={{ minWidth: 180 }}>
+                  <Select
+                    value={brandId}
+                    onChange={(e) => saveBrand(e.target.value)}
+                    options={[{ value: '', label: 'Marca padrão' }, ...brands.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
+                    aria-label="Marca vinculada à campanha"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="kbly-builder-grid" style={{ gap: 16, alignItems: 'start' }}>

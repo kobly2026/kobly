@@ -37,7 +37,7 @@ function OnboardingChecklist({ steps }) {
   );
 }
 
-function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
+function NewCampaign({ templates, brands, onPick, onGenerate, onCancel }) {
   const [sel, setSel] = useState(null);
   const [nome, setNome] = useState('');
   const [nomeTouched, setNomeTouched] = useState(false);
@@ -46,6 +46,10 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
   // Canais da cadência gerada pela IA — o usuário escolhe se quer e-mail, WhatsApp ou os dois.
   const [canalEmail, setCanalEmail] = useState(true);
   const [canalWhats, setCanalWhats] = useState(false);
+  // MARCA-1: marca/produto da campanha — aplica-se tanto à geração por IA quanto à
+  // criação manual. '' = marca padrão (1ª da conta). Só aparece se a conta tem marcas.
+  const [brandId, setBrandId] = useState('');
+  const brandList = brands || [];
 
   // Selecionar um modelo pré-preenche o nome (se o usuário ainda não digitou o seu).
   function pickTemplate(t) {
@@ -56,7 +60,7 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
     if (!objetivo.trim() || (!canalEmail && !canalWhats)) return;
     setGenerating(true);
     const canais = [...(canalEmail ? ['email'] : []), ...(canalWhats ? ['whatsapp'] : [])];
-    try { await onGenerate(objetivo.trim(), canais); } finally { setGenerating(false); }
+    try { await onGenerate(objetivo.trim(), canais, brandId || null); } finally { setGenerating(false); }
   }
 
   const selTpl = templates.find((t) => t.id === sel);
@@ -70,6 +74,20 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
       >
         Crie uma campanha de recuperação: descreva o objetivo e deixe a IA montar a cadência, ou comece por um modelo.
       </PageHeader>
+
+      {/* MARCA-1: marca/produto da campanha — define a identidade (logo/cor/link) dos
+          e-mails. Aparece só quando a conta tem marcas cadastradas. */}
+      {brandList.length > 0 && (
+        <div style={{ maxWidth: 460 }}>
+          <Select
+            label="Marca / produto"
+            value={brandId}
+            onChange={(e) => setBrandId(e.target.value)}
+            options={[{ value: '', label: 'Marca padrão' }, ...brandList.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
+          />
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Aplica-se à campanha gerada pela IA e à criação manual. Você pode trocar depois no construtor de fluxo.</div>
+        </div>
+      )}
 
       {/* Gerar com IA (AI-first) */}
       <div className="kbly-ai-card" style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -140,7 +158,7 @@ function NewCampaign({ templates, onPick, onGenerate, onCancel }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
         {sel && <span style={{ marginInlineEnd: 'auto', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Será criada como <strong style={{ color: 'var(--text-strong)' }}>{finalNome}</strong></span>}
         <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-        <Button variant="primary" iconLeft="arrow-right" disabled={!sel} onClick={() => onPick(selTpl, finalNome)}>Criar e abrir fluxo</Button>
+        <Button variant="primary" iconLeft="arrow-right" disabled={!sel} onClick={() => onPick(selTpl, finalNome, brandId || null)}>Criar e abrir fluxo</Button>
       </div>
     </div>
   );
@@ -163,6 +181,8 @@ function KoblyCampaigns() {
     ? (a.data ? a.data.campaigns.filter((c) => c.empresaId === contaId) : [])
     : (a.data ? a.data.campaigns : []);
   const events = useAsync(() => (targetOrgId ? KoblyApi.getRecentEvents(1, targetOrgId) : Promise.resolve([])), [targetOrgId]);
+  // MARCA-1: marcas da conta em foco — alimentam o seletor de marca da nova campanha.
+  const brandsA = useAsync(() => (targetOrgId ? KoblyApi.listBrands(targetOrgId) : Promise.resolve([])), [targetOrgId]);
   const hasIntegration = (events.data || []).length > 0;
   const hasCampaign = campaigns.length > 0;
   const hasActive = campaigns.some((c) => c.status === 'Ativa');
@@ -176,15 +196,15 @@ function KoblyCampaigns() {
     const c = await KoblyApi.getCampaign(id);
     setActive(c); setMode('builder');
   }
-  async function create(tpl, nome) {
-    const c = await KoblyApi.createCampaign(tpl, targetOrgId, nome);
+  async function create(tpl, nome, brandId) {
+    const c = await KoblyApi.createCampaign(tpl, targetOrgId, nome, brandId);
     store.notify('success', `Campanha "${c.nome}" criada`);
     setActive(c); setMode('builder');
     a.reload();
   }
-  async function generateAI(objetivo, canais) {
+  async function generateAI(objetivo, canais, brandId) {
     const plan = await KoblyAI.planCampaign(objetivo, canais);
-    const c = await KoblyApi.createCampaignFromPlan(plan, targetOrgId);
+    const c = await KoblyApi.createCampaignFromPlan(plan, targetOrgId, brandId);
     if (!c) { store.notify('danger', 'Não foi possível gerar a campanha'); return; }
     store.notify('success', `Campanha "${c.nome}" gerada pela IA`);
     setActive(c); setMode('builder');
@@ -200,7 +220,7 @@ function KoblyCampaigns() {
     return React.createElement(KoblyFlowBuilder, { campaign: active, variant, onBack: () => { setMode('list'); setActive(null); a.reload(); } });
   }
   if (mode === 'new') {
-    return <NewCampaign templates={a.data ? a.data.templates : []} onPick={create} onGenerate={generateAI} onCancel={() => setMode('list')} />;
+    return <NewCampaign templates={a.data ? a.data.templates : []} brands={brandsA.data || []} onPick={create} onGenerate={generateAI} onCancel={() => setMode('list')} />;
   }
 
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;

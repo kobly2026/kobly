@@ -106,7 +106,7 @@ export const KoblyApi = {
     const c = db.campanhas.find((x) => x.id === id);
     return c ? clone(c) : null;
   },
-  async createCampaign(tpl, empresaId, nome) {
+  async createCampaign(tpl, empresaId, nome, brandId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) throw new Error('Sua conta ainda não tem organização configurada.');
@@ -114,6 +114,7 @@ export const KoblyApi = {
     const { data: camp, error } = await supabase.from('campaigns').insert({
       organization_id: orgId, nome: finalNome, status_campanha: 'Rascunho',
       usa_template: !tpl.blank, template_id: tpl.blank ? null : tpl.id, criador_id: me ? me.id : null,
+      brand_id: brandId || null,
     }).select().single();
     if (error) throw error;
     const { data: flow } = await supabase.from('campaign_flows').insert({ campaign_id: camp.id, organization_id: orgId }).select().single();
@@ -128,7 +129,7 @@ export const KoblyApi = {
     resetDb();
     return {
       id: camp.id, empresaId: orgId, nome: camp.nome, status: 'Rascunho', usaTemplate: !tpl.blank, templateId: tpl.blank ? null : tpl.id,
-      criadorId: me ? me.id : null, criadoEm: fmtDate(camp.created_at),
+      brandId: brandId || null, criadorId: me ? me.id : null, criadoEm: fmtDate(camp.created_at),
       stats: { taxaAbertura: 0, ctr: 0, emailsEnviados: 0, vendasRecuperadas: 0, criticidade: 'Não Iniciado', valorCriticidade: 0, ultimoCalculo: '—' },
       tagsMeta: [], fluxo,
     };
@@ -141,20 +142,24 @@ export const KoblyApi = {
 
   // Cria uma campanha COMPLETA a partir de um plano gerado por IA:
   // Gatilho (plan.gatilho) + N e-mails (etapas com atraso, assunto e corpo renderizado na marca).
-  async createCampaignFromPlan(plan, empresaId) {
+  async createCampaignFromPlan(plan, empresaId, brandId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
     if (!plan) return null;
     if (!orgId) throw new Error('Sua conta ainda não tem organização configurada.');
-    // marca white-label da org p/ renderizar os e-mails
+    // MARCA-1: marca white-label p/ renderizar os e-mails — usa a marca selecionada
+    // (brands.id) ou, na falta, a 1ª marca da org.
     let brand = { name: 'Sua Loja' };
     try {
-      const { data: b } = await supabase.from('org_branding').select('nome, logo_url, cor, modo').eq('organization_id', orgId).maybeSingle();
+      let bq = supabase.from('brands').select('nome, logo_url, cor, modo').eq('organization_id', orgId);
+      bq = brandId ? bq.eq('id', brandId) : bq.order('ordem').limit(1);
+      const { data: b } = await bq.maybeSingle();
       if (b) brand = { name: b.nome || 'Sua Loja', logoUrl: b.logo_url || undefined, color: b.cor || undefined, mode: b.modo || 'dark' };
     } catch (e) { /* usa default */ }
 
     const { data: camp, error } = await supabase.from('campaigns').insert({
       organization_id: orgId, nome: plan.nome || 'Campanha (IA)', status_campanha: 'Rascunho', usa_template: false, criador_id: me ? me.id : null,
+      brand_id: brandId || null,
     }).select().single();
     if (error) throw error;
     const { data: flow } = await supabase.from('campaign_flows').insert({ campaign_id: camp.id, organization_id: orgId }).select().single();
@@ -215,7 +220,7 @@ export const KoblyApi = {
     resetDb();
     return {
       id: camp.id, empresaId: orgId, nome: camp.nome, status: 'Rascunho', usaTemplate: false, templateId: null,
-      criadorId: me ? me.id : null, criadoEm: fmtDate(camp.created_at),
+      brandId: brandId || null, criadorId: me ? me.id : null, criadoEm: fmtDate(camp.created_at),
       stats: { taxaAbertura: 0, ctr: 0, emailsEnviados: 0, vendasRecuperadas: 0, criticidade: 'Não Iniciado', valorCriticidade: 0, ultimoCalculo: '—' },
       tagsMeta: [], fluxo,
     };

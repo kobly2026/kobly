@@ -786,109 +786,14 @@ function TagsTab({ data, reload }) {
 
 // ── Componente principal ──
 // ── Aba: Marca (white-label) ──
+// MARCA-1: fonte única de marcas da conta (1:N). O card legado "Marca da conta"
+// (org_branding 1:1) foi removido — ele sobrescrevia a 1ª marca e confundia quem
+// queria adicionar uma marca nova. Tudo agora passa pela lista abaixo.
 function BrandTab({ empresaId }) {
-  const store = useKobly();
-  const [nome, setNome] = useState('');
-  const [cor, setCor] = useState('#ff6800');
-  const [logoUrl, setLogoUrl] = useState('');
-  const [modo, setModo] = useState('dark'); // tema do e-mail: dark | light
-  const [linkLoja, setLinkLoja] = useState(''); // URL de fallback do botão dos e-mails
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef(null);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    KoblyApi.getBranding(empresaId).then((b) => {
-      if (!alive || !b) { setLoading(false); return; }
-      setNome(b.nome || '');
-      setCor(b.cor || '#ff6800');
-      setLogoUrl(b.logo_url || '');
-      setModo(b.modo === 'light' ? 'light' : 'dark');
-      setLinkLoja(b.link_loja || '');
-      setLoading(false);
-    });
-    return () => { alive = false; };
-  }, [empresaId]);
-
-  async function onFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    const r = await KoblyApi.uploadLogo(file, empresaId);
-    setUploading(false);
-    if (r && r.url) { setLogoUrl(r.url); store.notify('success', 'Logo enviado'); }
-    else store.notify('danger', 'Falha ao enviar o logo');
-  }
-  async function save() {
-    setSaving(true);
-    const { error } = await KoblyApi.saveBranding(empresaId, { nome, cor, logoUrl, modo, linkLoja });
-    setSaving(false);
-    store.notify(error ? 'danger' : 'success', error ? 'Não foi possível salvar' : 'Marca salva — aplicada aos e-mails');
-  }
-
-  // Preview ao vivo de um e-mail com a marca aplicada
-  const previewHtml = renderEmail({
-    brand: { name: nome || 'Sua Loja', logoUrl, color: cor, mode: modo },
-    preheader: 'Prévia da sua marca',
-    blocks: [
-      { type: 'hero', eyebrow: 'Recuperação', title: 'Você esqueceu algo no carrinho', text: 'Finalize sua compra e garanta seu pedido.' },
-      { type: 'button', label: 'Voltar ao carrinho', href: linkLoja || '#' },
-      { type: 'coupon', code: 'VOLTA10', note: '10% de desconto por tempo limitado' },
-    ],
-  });
-
-  if (loading) return <SkeletonForm fields={5} />;
-
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)', gap: 18, alignItems: 'start' }}>
-      <Card icon="palette" title="Marca da conta" subtitle="Seu logo e cor aparecem nos e-mails enviados aos leads.">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Logo</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-md)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flex: 'none' }}>
-                {logoUrl ? <img src={logoUrl} alt="logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <Icon name="image" size={20} style={{ color: 'var(--text-subtle)' }} />}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }} />
-                <Button variant="secondary" size="sm" iconLeft="upload" disabled={uploading} onClick={() => fileRef.current && fileRef.current.click()}>{uploading ? 'Enviando...' : 'Enviar logo'}</Button>
-                {logoUrl && <button onClick={() => setLogoUrl('')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 'var(--text-xs)', cursor: 'pointer', textAlign: 'start', padding: 0 }}>Remover logo</button>}
-              </div>
-            </div>
-          </div>
-          <Input label="Nome da marca" placeholder="Ex.: Loja do João" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Cor da marca</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <input type="color" value={cor} onChange={(e) => setCor(e.target.value)} style={{ width: 44, height: 34, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', padding: 2 }} />
-              <Input value={cor} onChange={(e) => setCor(e.target.value)} style={{ maxWidth: 130 }} />
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Tema do e-mail</div>
-            <Segmented value={modo} onChange={setModo} options={[{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }]} />
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Define o fundo dos e-mails enviados aos leads.</div>
-          </div>
-          <div>
-            <Input label="URL da loja / checkout" placeholder="Ex.: https://minhaloja.com/carrinho" value={linkLoja} onChange={(e) => setLinkLoja(e.target.value)} />
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Para onde o botão leva quando o checkout não manda um link próprio. Quando a plataforma envia o link de recuperação do carrinho, ele tem prioridade.</div>
-          </div>
-          <Button variant="primary" iconLeft="check" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar marca'}</Button>
-        </div>
-      </Card>
-
-      <Card icon="eye" title="Prévia do e-mail" subtitle="Como seus e-mails ficam com esta marca.">
-        <div style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-          <iframe title="preview" srcDoc={previewHtml} style={{ width: '100%', height: 520, border: 'none', display: 'block', background: modo === 'light' ? '#f4f4f5' : '#000' }} />
-        </div>
-      </Card>
-      <Card icon="layers" title="Marcas e produtos" subtitle="Crie uma marca para cada produto ou loja. Vincule cada campanha à marca certa no construtor de fluxo.">
-        <BrandsList empresaId={empresaId} />
-      </Card>
-    </div>
+    <Card icon="layers" title="Marcas e produtos" subtitle="Crie uma marca para cada produto ou loja — logo, cor e tema aparecem nos e-mails. Vincule cada campanha à marca certa ao criar a campanha ou no construtor de fluxo.">
+      <BrandsList empresaId={empresaId} />
+    </Card>
   );
 }
 
@@ -948,6 +853,17 @@ function BrandsList({ empresaId, onSaved }) {
   if (a.status === 'loading') return <SkeletonRow />;
   const list = a.data || [];
 
+  // Prévia ao vivo do e-mail com a marca em edição — reflete logo, cor e tema.
+  const previewHtml = renderEmail({
+    brand: { name: nome || 'Sua Loja', logoUrl, color: cor, mode: modo },
+    preheader: 'Prévia da sua marca',
+    blocks: [
+      { type: 'hero', eyebrow: 'Recuperação', title: 'Você esqueceu algo no carrinho', text: 'Finalize sua compra e garanta seu pedido.' },
+      { type: 'button', label: 'Voltar ao carrinho', href: linkLoja || '#' },
+      { type: 'coupon', code: 'VOLTA10', note: '10% de desconto por tempo limitado' },
+    ],
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {list.length === 0 && !editing && (
@@ -995,6 +911,12 @@ function BrandsList({ empresaId, onSaved }) {
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Define o fundo dos e-mails enviados com esta marca.</div>
           </div>
           <Input label="URL de checkout (opcional)" placeholder="https://minhaloja.com/checkout" value={linkLoja} onChange={(e) => setLinkLoja(e.target.value)} />
+          <div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: 'var(--ls-wide)', fontWeight: 'var(--fw-semibold)', marginBottom: 8 }}>Prévia do e-mail</div>
+            <div style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+              <iframe title="preview" srcDoc={previewHtml} style={{ width: '100%', height: 420, border: 'none', display: 'block', background: modo === 'light' ? '#f4f4f5' : '#000' }} />
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancelar</Button>
             <Button variant="primary" size="sm" iconLeft="check" loading={saving} disabled={saving || !nome.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
