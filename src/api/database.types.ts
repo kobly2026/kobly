@@ -1375,6 +1375,7 @@ export type Database = {
           nome: string
           plano_id: string | null
           segmento: string | null
+          sender_local: string | null
           updated_at: string
           user_fundador_id: string | null
         }
@@ -1390,6 +1391,7 @@ export type Database = {
           nome: string
           plano_id?: string | null
           segmento?: string | null
+          sender_local?: string | null
           updated_at?: string
           user_fundador_id?: string | null
         }
@@ -1405,6 +1407,7 @@ export type Database = {
           nome?: string
           plano_id?: string | null
           segmento?: string | null
+          sender_local?: string | null
           updated_at?: string
           user_fundador_id?: string | null
         }
@@ -2466,6 +2469,7 @@ export type Database = {
           nome: string
           plano_id: string | null
           segmento: string | null
+          sender_local: string | null
           updated_at: string
           user_fundador_id: string | null
         }
@@ -2490,6 +2494,7 @@ export type Database = {
           nome: string
           plano_id: string | null
           segmento: string | null
+          sender_local: string | null
           updated_at: string
           user_fundador_id: string | null
         }
@@ -2543,6 +2548,7 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       is_gestor: { Args: never; Returns: boolean }
       is_support: { Args: never; Returns: boolean }
+      kobly_slugify: { Args: { txt: string }; Returns: string }
       leads_count_by_org: {
         Args: never
         Returns: {
