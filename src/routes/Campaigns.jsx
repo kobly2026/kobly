@@ -215,6 +215,13 @@ function KoblyCampaigns() {
     a.setData((d) => ({ ...d, campaigns: d.campaigns.map((x) => (x.id === c.id ? { ...x, status } : x)) }));
     store.notify('info', `"${c.nome}" → ${status}`);
   }
+  async function removeCampaign(c) {
+    if (!confirm(`Excluir a campanha "${c.nome}"? Esta ação não pode ser desfeita.`)) return;
+    const { error } = await KoblyApi.deleteCampaign(c.id);
+    if (error) { store.notify('danger', error); return; }
+    a.setData((d) => ({ ...d, campaigns: d.campaigns.filter((x) => x.id !== c.id) }));
+    store.notify('success', `Campanha "${c.nome}" excluída`);
+  }
 
   if (mode === 'builder' && active) {
     return React.createElement(KoblyFlowBuilder, { campaign: active, variant, onBack: () => { setMode('list'); setActive(null); a.reload(); } });
@@ -267,10 +274,11 @@ function KoblyCampaigns() {
                 { key: 'abertura', header: 'Abertura', align: 'end', render: (r) => KoblyApi.pct(r.stats.taxaAbertura) },
                 { key: 'vendas', header: 'Recuperadas', align: 'end', render: (r) => <span style={{ color: r.stats.vendasRecuperadas ? 'var(--status-success-fg)' : 'var(--text-muted)', fontWeight: 'var(--fw-semibold)' }}>{KoblyApi.br(r.stats.vendasRecuperadas)}</span> },
                 { key: 'crit', header: 'Criticidade', render: (r) => <Badge tone={DB.optionSets.StatusCriticidade[r.stats.criticidade] || 'neutral'} dot>{r.stats.criticidade}</Badge> },
-                { key: 'acao', header: '', align: 'end', width: 120, render: (r) => canEdit ? (
+                { key: 'acao', header: '', align: 'end', width: 150, render: (r) => canEdit ? (
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                     <IconButton icon={r.status === 'Ativa' ? 'pause' : 'play'} size="sm" aria-label="Alternar status" onClick={() => setStatus(r, r.status === 'Ativa' ? 'Pausada' : 'Ativa')} />
                     <IconButton icon="pencil" size="sm" aria-label="Editar fluxo" onClick={() => openBuilder(r.id)} />
+                    <IconButton icon="trash-2" size="sm" aria-label="Excluir campanha" onClick={() => removeCampaign(r)} />
                   </div>
                 ) : <IconButton icon="eye" size="sm" aria-label="Ver fluxo" onClick={() => openBuilder(r.id)} /> },
               ]}

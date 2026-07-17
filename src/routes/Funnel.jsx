@@ -14,7 +14,7 @@ const STAGES = [
   { key: 'enviados', label: 'E-mails enviados', icon: 'send', tone: 'accent', help: 'E-mails de recuperação efetivamente disparados' },
   { key: 'abertos', label: 'Abertos', icon: 'mail-open', tone: 'warning', help: 'Leads únicos que abriram um e-mail' },
   { key: 'clicados', label: 'Clicados', icon: 'mouse-pointer-click', tone: 'info', help: 'Leads únicos que clicaram em um link' },
-  { key: 'recuperados', label: 'Vendas recuperadas', icon: 'circle-check', tone: 'success', help: 'Compras aprovadas de leads que receberam e-mail' },
+  { key: 'recuperados', label: 'Vendas recuperadas', icon: 'circle-check', tone: 'success', help: 'Compras aprovadas de leads que receberam e-mail de automação antes da compra' },
 ];
 
 const pct = (n) => (n * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
