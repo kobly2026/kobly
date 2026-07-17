@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { KoblyAI } from '@/api/ai.js';
 import { KoblyApi } from '@/api/mockApi.js';
 import { Button, Icon, IconButton, Input, Spinner } from '@/ds';
@@ -9,26 +9,96 @@ import { useKobly } from '@/store/store.jsx';
 // Kobly — Editor de e-mail com geração de HTML por IA (legado: n8n /generate_html),
 // preview, e envio de teste. Modal. KoblyEmailEditor
 
+// Bloqueia cliques em links do preview (href="#" ou qualquer <a>) para não
+// redirecionar a SPA (ex.: dashboard). O sandbox do iframe já impede top-nav;
+// o handler é defesa extra + UX de "clique inativo".
+function attachPreviewGuards(iframe) {
+  if (!iframe) return;
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) return;
+    const block = (ev) => {
+      const a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
+      if (a) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    };
+    doc.addEventListener('click', block, true);
+    // Neutraliza href="#" que em alguns browsers ainda afetam o history.
+    doc.querySelectorAll('a[href="#"], a[href=""], a:not([href])').forEach((a) => {
+      a.setAttribute('href', 'javascript:void(0)');
+      a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+    });
+  } catch (_) { /* cross-origin — não deve acontecer com srcDoc */ }
+}
+
 function KoblyEmailEditor({ email, onClose, onSave }) {
   const store = useKobly();
   const [titulo, setTitulo] = useState(email ? email.titulo : 'Novo e-mail');
   const [assunto, setAssunto] = useState(email ? email.assunto : '');
-  const [remetente, setRemetente] = useState(email ? email.remetente : 'Loja do João');
-  const [html, setHtml] = useState(email ? email.corpoHtml : '');
+  const [remetente, setRemetente] = useState(email ? (email.remetente || '') : '');
+  const [html, setHtml] = useState(email ? (email.corpoHtml || '') : '');
   const [tab, setTab] = useState('preview'); // preview | code
   const [aiBusy, setAiBusy] = useState(false);
   const [brief, setBrief] = useState('');
   const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [testTo, setTestTo] = useState(store.session.email || '');
+  // CTA: botão com link no corpo do e-mail
+  const [ctaLabel, setCtaLabel] = useState('Concluir compra');
+  const [ctaHref, setCtaHref] = useState('{{cta_link}}');
   // ≤860px o editor empilha o formulário sobre o preview (modal fica estreito).
   const stacked = useBreakpoint().isNarrow;
+  const iframeRef = useRef(null);
+  const fileRef = useRef(null);
+
+  // Importa um template de arquivo (.html ou .zip do Canva). O parser+sanitizador
+  // (jszip/dompurify) é carregado sob demanda para não pesar o bundle principal.
+  async function handleImportFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // permite reimportar o mesmo arquivo
+    if (!file) return;
+    setImporting(true);
+    try {
+      const { importEmailFile } = await import('@/lib/emailImport.js');
+      const { html: imported, warnings } = await importEmailFile(file);
+      setHtml(imported);
+      setTab('preview');
+      store.notify('success', 'Template importado');
+      (warnings || []).forEach((w) => store.notify('warning', w));
+    } catch (err) {
+      store.notify('danger', err?.message || 'Não foi possível importar o arquivo.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function insertCtaButton() {
+    const label = (ctaLabel || 'Concluir compra').trim();
+    const href = (ctaHref || '{{cta_link}}').trim() || '{{cta_link}}';
+    // Bloco de botão e-mail-safe (table + inline styles), compatível com clientes de e-mail.
+    const block = `
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 4px;"><tr><td align="left">
+  <a href="${href.replace(/"/g, '&quot;')}" style="display:inline-block;background:#ff6800;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;text-decoration:none;padding:14px 30px;border-radius:11px;">${label.replace(/</g, '&lt;')}</a>
+</td></tr></table>`;
+    setHtml((h) => (h || '') + block);
+    setTab('preview');
+    store.notify('success', 'Botão CTA inserido no HTML');
+  }
 
   async function sendTest() {
     const to = (testTo || '').trim();
     if (!to) { store.notify('danger', 'Informe um e-mail de destino'); return; }
     setSending(true);
     store.notify('info', `Enviando teste para ${to}…`);
-    const { error } = await KoblyApi.sendTestEmail({ to, subject: assunto || titulo, html: html || '<p>(sem conteúdo)</p>' });
+    const { error } = await KoblyApi.sendTestEmail({
+      to,
+      subject: assunto || titulo,
+      html: html || '<p>(sem conteúdo)</p>',
+      fromName: remetente || undefined,
+    });
     setSending(false);
     if (!error) { store.notify('success', `E-mail de teste enviado para ${to}`); return; }
     // Erro típico do Resend sem domínio verificado (só entrega pro dono da conta).
@@ -58,10 +128,33 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
   function tryClose() {
     const changed = titulo !== (email ? email.titulo : 'Novo e-mail')
       || assunto !== (email ? email.assunto : '')
-      || remetente !== (email ? email.remetente : 'Loja do João')
-      || html !== (email ? email.corpoHtml : '');
+      || remetente !== (email ? (email.remetente || '') : '')
+      || html !== (email ? (email.corpoHtml || '') : '');
     if (changed && !window.confirm('Você tem alterações não salvas neste e-mail. Fechar e descartar?')) return;
     onClose();
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload = { ...(email || {}), titulo, assunto, remetente, corpoHtml: html };
+      if (onSave) {
+        const result = await onSave(payload);
+        // onSave pode retornar { error } ou false para sinalizar falha
+        if (result && result.error) {
+          store.notify('danger', result.error || 'Não foi possível salvar o e-mail');
+          return;
+        }
+        if (result === false) return;
+      }
+      store.notify('success', 'E-mail salvo');
+      onClose();
+    } catch (e) {
+      store.notify('danger', e?.message || 'Não foi possível salvar o e-mail');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -73,7 +166,7 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
             <span style={{ display: 'inline-flex', width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="mail" size={17} /></span>
             <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Editor de e-mail</span>
           </div>
-          <IconButton icon="x" aria-label="Fechar" onClick={onClose} />
+          <IconButton icon="x" aria-label="Fechar" onClick={tryClose} />
         </header>
 
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: stacked ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)', gridTemplateRows: stacked ? 'auto minmax(220px, 1fr)' : undefined }}>
@@ -81,7 +174,25 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
           <div style={{ [stacked ? 'borderBottom' : 'borderInlineEnd']: '1px solid var(--border-subtle)', padding: 20, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
             <Input label="Título interno" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
             <Input label="Assunto" placeholder="Ex.: Você esqueceu algo no carrinho" value={assunto} onChange={(e) => setAssunto(e.target.value)} />
-            <Input label="Remetente" value={remetente} onChange={(e) => setRemetente(e.target.value)} />
+            <Input label="Remetente" placeholder="Ex.: Loja do João" value={remetente} onChange={(e) => setRemetente(e.target.value)} hint="Nome que aparece na caixa de entrada do destinatário" />
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="mouse-pointer-click" size={16} style={{ color: 'var(--accent)' }} />
+                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Botão CTA</span>
+              </div>
+              <Input label="Texto do botão" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} placeholder="Ex.: Concluir compra" />
+              <Input label="Link de redirecionamento" value={ctaHref} onChange={(e) => setCtaHref(e.target.value)} placeholder="{{cta_link}} ou https://..." hint="{{cta_link}} é trocado pelo link do lead no envio" />
+              <Button variant="secondary" iconLeft="plus" fullWidth onClick={insertCtaButton}>Inserir botão no e-mail</Button>
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="upload" size={16} style={{ color: 'var(--accent)' }} />
+                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Importar template</span>
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Envie um <b>.html</b> ou um <b>.zip</b> (ex.: export do Canva). Imagens do ZIP são embutidas e o HTML é sanitizado.</div>
+              <input ref={fileRef} type="file" accept=".zip,.html,.htm,text/html,application/zip" onChange={handleImportFile} style={{ display: 'none' }} />
+              <Button variant="secondary" iconLeft="upload" fullWidth disabled={importing} onClick={() => fileRef.current && fileRef.current.click()}>{importing ? 'Importando…' : 'Importar .zip / .html'}</Button>
+            </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="sparkles" size={16} style={{ color: 'var(--accent)' }} />
@@ -116,7 +227,16 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
               )}
               {tab === 'preview'
                 ? (html
-                  ? <iframe title="Prévia do e-mail" srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} />
+                  ? (
+                    <iframe
+                      ref={iframeRef}
+                      title="Prévia do e-mail"
+                      srcDoc={html}
+                      sandbox="allow-same-origin"
+                      onLoad={(e) => attachPreviewGuards(e.currentTarget)}
+                      style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                    />
+                  )
                   : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: 14, textAlign: 'center', padding: 24 }}>Gere ou escreva o HTML para visualizar.</div>)
                 : <textarea value={html} onChange={(e) => setHtml(e.target.value)} spellCheck={false}
                     style={{ width: '100%', height: '100%', minHeight: 360, resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-body)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6, padding: 16, boxSizing: 'border-box' }} />}
@@ -125,8 +245,8 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
         </div>
 
         <footer style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)' }}>
-          <Button variant="ghost" onClick={tryClose}>Cancelar</Button>
-          <Button variant="primary" iconLeft="check" onClick={() => { onSave && onSave({ ...(email || {}), titulo, assunto, remetente, corpoHtml: html }); store.notify('success', 'E-mail salvo'); onClose(); }}>Salvar e-mail</Button>
+          <Button variant="ghost" onClick={tryClose} disabled={saving}>Cancelar</Button>
+          <Button variant="primary" iconLeft="check" loading={saving} disabled={saving} onClick={handleSave}>{saving ? 'Salvando…' : 'Salvar e-mail'}</Button>
         </footer>
       </div>
     </div>
