@@ -2451,6 +2451,10 @@ export type Database = {
         Args: { p_bulk_send_id: string; p_filter: Json }
         Returns: number
       }
+      bulk_reserve_usage: {
+        Args: { p_n: number; p_org: string }
+        Returns: boolean
+      }
       classify_criticidade: {
         Args: { enviados: number; valor: number }
         Returns: Database["public"]["Enums"]["status_criticidade"]
