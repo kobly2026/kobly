@@ -54,10 +54,16 @@ Deno.serve(async (req: Request) => {
   const senderEmailCache = new Map<string, string>();
   const resolveSenderEmail = async (orgId: string) => {
     if (senderEmailCache.has(orgId)) return senderEmailCache.get(orgId)!;
+    // Só usa o domínio da org como remetente se estiver REALMENTE verificado no Resend:
+    // status=verified E id_resend real. Domínios legados migrados do SendGrid têm
+    // id_resend 'sg_*' (0035 copiou id_sendgrid→id_resend) e NUNCA foram verificados no
+    // Resend — usá-los como From faz o Resend recusar (403 "domain is not verified").
     const { data: dom } = await sb.from("domains")
-      .select("from_email, url, validado, status")
+      .select("from_email, url, status, id_resend")
       .eq("organization_id", orgId)
-      .or("validado.eq.true,status.eq.verified")
+      .eq("status", "verified")
+      .not("id_resend", "is", null)
+      .not("id_resend", "like", "sg%")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
