@@ -151,8 +151,10 @@ begin
 end;
 $$;
 
-revoke all on function public.bulk_enqueue_recipients(uuid, jsonb) from public, anon;
--- Só o edge control (service_role) enfileira; authenticated não chama direto.
+-- Só o edge control (service_role, que já faz assertOrgAccess) enfileira. Inclui
+-- 'authenticated' no revoke: o Supabase concede EXECUTE a authenticated por padrão,
+-- e esta função SECURITY DEFINER não valida o acesso do caller à org.
+revoke all on function public.bulk_enqueue_recipients(uuid, jsonb) from public, anon, authenticated;
 grant execute on function public.bulk_enqueue_recipients(uuid, jsonb) to service_role;
 
 -- ===========================================================================

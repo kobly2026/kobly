@@ -148,6 +148,234 @@ export type Database = {
           },
         ]
       }
+      ai_usage: {
+        Row: {
+          auth_id: string
+          created_at: string
+          id: number
+          task: string | null
+        }
+        Insert: {
+          auth_id: string
+          created_at?: string
+          id?: never
+          task?: string | null
+        }
+        Update: {
+          auth_id?: string
+          created_at?: string
+          id?: never
+          task?: string | null
+        }
+        Relationships: []
+      }
+      brands: {
+        Row: {
+          cor: string
+          created_at: string
+          id: string
+          link_loja: string | null
+          logo_url: string | null
+          modo: string
+          nome: string | null
+          ordem: number
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          cor?: string
+          created_at?: string
+          id?: string
+          link_loja?: string | null
+          logo_url?: string | null
+          modo?: string
+          nome?: string | null
+          ordem?: number
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          cor?: string
+          created_at?: string
+          id?: string
+          link_loja?: string | null
+          logo_url?: string | null
+          modo?: string
+          nome?: string | null
+          ordem?: number
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brands_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bulk_send_recipients: {
+        Row: {
+          attempts: number
+          bulk_send_id: string
+          created_at: string
+          destino: string | null
+          id: string
+          last_error: string | null
+          lead_id: string
+          organization_id: string
+          run_at: string
+          sent_at: string | null
+          sg_message_id: string | null
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          bulk_send_id: string
+          created_at?: string
+          destino?: string | null
+          id?: string
+          last_error?: string | null
+          lead_id: string
+          organization_id: string
+          run_at?: string
+          sent_at?: string | null
+          sg_message_id?: string | null
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          bulk_send_id?: string
+          created_at?: string
+          destino?: string | null
+          id?: string
+          last_error?: string | null
+          lead_id?: string
+          organization_id?: string
+          run_at?: string
+          sent_at?: string | null
+          sg_message_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bulk_send_recipients_bulk_send_id_fkey"
+            columns: ["bulk_send_id"]
+            isOneToOne: false
+            referencedRelation: "bulk_sends"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_send_recipients_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_send_recipients_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bulk_sends: {
+        Row: {
+          canal: Database["public"]["Enums"]["tipo_envio"]
+          created_at: string
+          created_by: string | null
+          email_id: string | null
+          enviados: number
+          falhados: number
+          filtro: Json
+          id: string
+          organization_id: string
+          pulados: number
+          rate_por_min: number
+          sms_message_id: string | null
+          status: string
+          total: number
+          updated_at: string
+          whatsapp_message_id: string | null
+        }
+        Insert: {
+          canal: Database["public"]["Enums"]["tipo_envio"]
+          created_at?: string
+          created_by?: string | null
+          email_id?: string | null
+          enviados?: number
+          falhados?: number
+          filtro?: Json
+          id?: string
+          organization_id: string
+          pulados?: number
+          rate_por_min?: number
+          sms_message_id?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+          whatsapp_message_id?: string | null
+        }
+        Update: {
+          canal?: Database["public"]["Enums"]["tipo_envio"]
+          created_at?: string
+          created_by?: string | null
+          email_id?: string | null
+          enviados?: number
+          falhados?: number
+          filtro?: Json
+          id?: string
+          organization_id?: string
+          pulados?: number
+          rate_por_min?: number
+          sms_message_id?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+          whatsapp_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bulk_sends_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_sends_email_id_fkey"
+            columns: ["email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_sends_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_sends_sms_message_id_fkey"
+            columns: ["sms_message_id"]
+            isOneToOne: false
+            referencedRelation: "sms_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_sends_whatsapp_message_id_fkey"
+            columns: ["whatsapp_message_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_flows: {
         Row: {
           campaign_id: string | null
@@ -196,12 +424,14 @@ export type Database = {
           gerando_sugestao: boolean
           id: string
           organization_id: string | null
+          sms_enviados: number
           status_criticidade: Database["public"]["Enums"]["status_criticidade"]
           taxa_abertura: number
           ultimo_calculo: string | null
           updated_at: string
           valor_criticidade: number
           vendas_recuperadas: number
+          whatsapp_enviados: number
         }
         Insert: {
           campaign_id?: string | null
@@ -211,12 +441,14 @@ export type Database = {
           gerando_sugestao?: boolean
           id?: string
           organization_id?: string | null
+          sms_enviados?: number
           status_criticidade?: Database["public"]["Enums"]["status_criticidade"]
           taxa_abertura?: number
           ultimo_calculo?: string | null
           updated_at?: string
           valor_criticidade?: number
           vendas_recuperadas?: number
+          whatsapp_enviados?: number
         }
         Update: {
           campaign_id?: string | null
@@ -226,12 +458,14 @@ export type Database = {
           gerando_sugestao?: boolean
           id?: string
           organization_id?: string | null
+          sms_enviados?: number
           status_criticidade?: Database["public"]["Enums"]["status_criticidade"]
           taxa_abertura?: number
           ultimo_calculo?: string | null
           updated_at?: string
           valor_criticidade?: number
           vendas_recuperadas?: number
+          whatsapp_enviados?: number
         }
         Relationships: [
           {
@@ -252,6 +486,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          brand_id: string | null
           created_at: string
           created_by: string | null
           criador_id: string | null
@@ -259,12 +494,14 @@ export type Database = {
           legacy_id: string | null
           nome: string
           organization_id: string
+          postback_token_id: string | null
           status_campanha: Database["public"]["Enums"]["status_campanha"]
           template_id: string | null
           updated_at: string
           usa_template: boolean
         }
         Insert: {
+          brand_id?: string | null
           created_at?: string
           created_by?: string | null
           criador_id?: string | null
@@ -272,12 +509,14 @@ export type Database = {
           legacy_id?: string | null
           nome: string
           organization_id: string
+          postback_token_id?: string | null
           status_campanha?: Database["public"]["Enums"]["status_campanha"]
           template_id?: string | null
           updated_at?: string
           usa_template?: boolean
         }
         Update: {
+          brand_id?: string | null
           created_at?: string
           created_by?: string | null
           criador_id?: string | null
@@ -285,12 +524,20 @@ export type Database = {
           legacy_id?: string | null
           nome?: string
           organization_id?: string
+          postback_token_id?: string | null
           status_campanha?: Database["public"]["Enums"]["status_campanha"]
           template_id?: string | null
           updated_at?: string
           usa_template?: boolean
         }
         Relationships: [
+          {
+            foreignKeyName: "campaigns_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "campaigns_created_by_fkey"
             columns: ["created_by"]
@@ -310,6 +557,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_postback_token_id_fkey"
+            columns: ["postback_token_id"]
+            isOneToOne: false
+            referencedRelation: "postback_tokens"
             referencedColumns: ["id"]
           },
           {
@@ -429,10 +683,13 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          from_email: string | null
           id: string
+          id_resend: string | null
           id_sendgrid: string | null
           legacy_id: string | null
           organization_id: string
+          status: string
           updated_at: string
           url: string
           validado: boolean
@@ -440,10 +697,13 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
+          from_email?: string | null
           id?: string
+          id_resend?: string | null
           id_sendgrid?: string | null
           legacy_id?: string | null
           organization_id: string
+          status?: string
           updated_at?: string
           url: string
           validado?: boolean
@@ -451,10 +711,13 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          from_email?: string | null
           id?: string
+          id_resend?: string | null
           id_sendgrid?: string | null
           legacy_id?: string | null
           organization_id?: string
+          status?: string
           updated_at?: string
           url?: string
           validado?: boolean
@@ -479,6 +742,7 @@ export type Database = {
       email_events: {
         Row: {
           campaign_id: string | null
+          channel: string
           created_at: string
           email: string | null
           event: string | null
@@ -497,6 +761,7 @@ export type Database = {
         }
         Insert: {
           campaign_id?: string | null
+          channel?: string
           created_at?: string
           email?: string | null
           event?: string | null
@@ -515,6 +780,7 @@ export type Database = {
         }
         Update: {
           campaign_id?: string | null
+          channel?: string
           created_at?: string
           email?: string | null
           event?: string | null
@@ -717,6 +983,7 @@ export type Database = {
       flow_steps: {
         Row: {
           atraso: number
+          condicao: string | null
           created_at: string
           email_id: string | null
           flow_id: string
@@ -725,14 +992,19 @@ export type Database = {
           legacy_id: string | null
           nome: string | null
           organization_id: string | null
+          parent_step_id: string | null
           posicao: number
+          ramo: string | null
+          sms_message_id: string | null
           tipo_card: Database["public"]["Enums"]["tipo_card_fluxo"]
           tipo_evento: Database["public"]["Enums"]["tipo_evento"] | null
           updated_at: string
           webhook_id: string | null
+          whatsapp_message_id: string | null
         }
         Insert: {
           atraso?: number
+          condicao?: string | null
           created_at?: string
           email_id?: string | null
           flow_id: string
@@ -741,14 +1013,19 @@ export type Database = {
           legacy_id?: string | null
           nome?: string | null
           organization_id?: string | null
+          parent_step_id?: string | null
           posicao?: number
+          ramo?: string | null
+          sms_message_id?: string | null
           tipo_card: Database["public"]["Enums"]["tipo_card_fluxo"]
           tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
           updated_at?: string
           webhook_id?: string | null
+          whatsapp_message_id?: string | null
         }
         Update: {
           atraso?: number
+          condicao?: string | null
           created_at?: string
           email_id?: string | null
           flow_id?: string
@@ -757,11 +1034,15 @@ export type Database = {
           legacy_id?: string | null
           nome?: string | null
           organization_id?: string | null
+          parent_step_id?: string | null
           posicao?: number
+          ramo?: string | null
+          sms_message_id?: string | null
           tipo_card?: Database["public"]["Enums"]["tipo_card_fluxo"]
           tipo_evento?: Database["public"]["Enums"]["tipo_evento"] | null
           updated_at?: string
           webhook_id?: string | null
+          whatsapp_message_id?: string | null
         }
         Relationships: [
           {
@@ -793,10 +1074,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "flow_steps_parent_step_id_fkey"
+            columns: ["parent_step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_sms_message_id_fkey"
+            columns: ["sms_message_id"]
+            isOneToOne: false
+            referencedRelation: "sms_messages"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "flow_steps_webhook_id_fkey"
             columns: ["webhook_id"]
             isOneToOne: false
             referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_steps_whatsapp_message_id_fkey"
+            columns: ["whatsapp_message_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -903,6 +1205,7 @@ export type Database = {
           endereco: string | null
           id: string
           legacy_id: string | null
+          link_recuperacao: string | null
           metodo_pagamento: string | null
           nome: string | null
           organization_id: string
@@ -921,6 +1224,7 @@ export type Database = {
           endereco?: string | null
           id?: string
           legacy_id?: string | null
+          link_recuperacao?: string | null
           metodo_pagamento?: string | null
           nome?: string | null
           organization_id: string
@@ -939,6 +1243,7 @@ export type Database = {
           endereco?: string | null
           id?: string
           legacy_id?: string | null
+          link_recuperacao?: string | null
           metodo_pagamento?: string | null
           nome?: string | null
           organization_id?: string
@@ -962,6 +1267,44 @@ export type Database = {
             foreignKeyName: "leads_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_branding: {
+        Row: {
+          cor: string | null
+          link_loja: string | null
+          logo_url: string | null
+          modo: string
+          nome: string | null
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          cor?: string | null
+          link_loja?: string | null
+          logo_url?: string | null
+          modo?: string
+          nome?: string | null
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          cor?: string | null
+          link_loja?: string | null
+          logo_url?: string | null
+          modo?: string
+          nome?: string | null
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_branding_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
@@ -1021,6 +1364,7 @@ export type Database = {
       }
       organizations: {
         Row: {
+          asaas_customer_id: string | null
           campanhas_ativas_count: number
           created_at: string
           created_by: string | null
@@ -1035,6 +1379,7 @@ export type Database = {
           user_fundador_id: string | null
         }
         Insert: {
+          asaas_customer_id?: string | null
           campanhas_ativas_count?: number
           created_at?: string
           created_by?: string | null
@@ -1049,6 +1394,7 @@ export type Database = {
           user_fundador_id?: string | null
         }
         Update: {
+          asaas_customer_id?: string | null
           campanhas_ativas_count?: number
           created_at?: string
           created_by?: string | null
@@ -1131,6 +1477,44 @@ export type Database = {
         }
         Relationships: []
       }
+      postback_tokens: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string | null
+          organization_id: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string | null
+          organization_id: string
+          token?: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string | null
+          organization_id?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "postback_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           auth_id: string | null
@@ -1152,6 +1536,7 @@ export type Database = {
           tipo_user_geral: Database["public"]["Enums"]["tipo_user_geral"]
           ultimo_login: string | null
           updated_at: string
+          whatsapp_teste: string | null
         }
         Insert: {
           auth_id?: string | null
@@ -1173,6 +1558,7 @@ export type Database = {
           tipo_user_geral?: Database["public"]["Enums"]["tipo_user_geral"]
           ultimo_login?: string | null
           updated_at?: string
+          whatsapp_teste?: string | null
         }
         Update: {
           auth_id?: string | null
@@ -1194,6 +1580,7 @@ export type Database = {
           tipo_user_geral?: Database["public"]["Enums"]["tipo_user_geral"]
           ultimo_login?: string | null
           updated_at?: string
+          whatsapp_teste?: string | null
         }
         Relationships: [
           {
@@ -1289,6 +1676,51 @@ export type Database = {
             columns: ["webhook_event_id"]
             isOneToOne: false
             referencedRelation: "webhook_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sms_messages: {
+        Row: {
+          corpo_texto: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          organization_id: string
+          titulo: string | null
+          updated_at: string
+        }
+        Insert: {
+          corpo_texto?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id: string
+          titulo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          corpo_texto?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id?: string
+          titulo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sms_messages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sms_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -1397,12 +1829,15 @@ export type Database = {
           assigned_to: string | null
           assunto: string | null
           cliente_id: string | null
+          cliente_last_read_at: string | null
           created_at: string
           id: string
           legacy_id: string | null
           organization_id: string | null
+          origem: string
           prioridade_chamado: Database["public"]["Enums"]["prioridade_chamado"]
           status_chamado: Database["public"]["Enums"]["status_chamado"]
+          support_last_read_at: string | null
           tipo_chamado: Database["public"]["Enums"]["tipo_chamado"] | null
           updated_at: string
         }
@@ -1410,12 +1845,15 @@ export type Database = {
           assigned_to?: string | null
           assunto?: string | null
           cliente_id?: string | null
+          cliente_last_read_at?: string | null
           created_at?: string
           id?: string
           legacy_id?: string | null
           organization_id?: string | null
+          origem?: string
           prioridade_chamado?: Database["public"]["Enums"]["prioridade_chamado"]
           status_chamado?: Database["public"]["Enums"]["status_chamado"]
+          support_last_read_at?: string | null
           tipo_chamado?: Database["public"]["Enums"]["tipo_chamado"] | null
           updated_at?: string
         }
@@ -1423,12 +1861,15 @@ export type Database = {
           assigned_to?: string | null
           assunto?: string | null
           cliente_id?: string | null
+          cliente_last_read_at?: string | null
           created_at?: string
           id?: string
           legacy_id?: string | null
           organization_id?: string | null
+          origem?: string
           prioridade_chamado?: Database["public"]["Enums"]["prioridade_chamado"]
           status_chamado?: Database["public"]["Enums"]["status_chamado"]
+          support_last_read_at?: string | null
           tipo_chamado?: Database["public"]["Enums"]["tipo_chamado"] | null
           updated_at?: string
         }
@@ -1772,6 +2213,7 @@ export type Database = {
       webhook_events: {
         Row: {
           campaign_id: string | null
+          checkout_url: string | null
           created_at: string
           email: string | null
           endereco_comprador: string | null
@@ -1793,6 +2235,7 @@ export type Database = {
         }
         Insert: {
           campaign_id?: string | null
+          checkout_url?: string | null
           created_at?: string
           email?: string | null
           endereco_comprador?: string | null
@@ -1814,6 +2257,7 @@ export type Database = {
         }
         Update: {
           campaign_id?: string | null
+          checkout_url?: string | null
           created_at?: string
           email?: string | null
           endereco_comprador?: string | null
@@ -1875,7 +2319,9 @@ export type Database = {
           nome: string | null
           organization_id: string
           payload: string | null
+          provider: string
           secret: string | null
+          signing_secret: string | null
           testado: boolean
           updated_at: string
           url: string | null
@@ -1890,7 +2336,9 @@ export type Database = {
           nome?: string | null
           organization_id: string
           payload?: string | null
+          provider?: string
           secret?: string | null
+          signing_secret?: string | null
           testado?: boolean
           updated_at?: string
           url?: string | null
@@ -1905,7 +2353,9 @@ export type Database = {
           nome?: string | null
           organization_id?: string
           payload?: string | null
+          provider?: string
           secret?: string | null
+          signing_secret?: string | null
           testado?: boolean
           updated_at?: string
           url?: string | null
@@ -1927,25 +2377,218 @@ export type Database = {
           },
         ]
       }
+      whatsapp_messages: {
+        Row: {
+          botoes: Json
+          corpo_texto: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          legacy_id: string | null
+          media_url: string | null
+          organization_id: string
+          titulo: string | null
+          updated_at: string
+        }
+        Insert: {
+          botoes?: Json
+          corpo_texto?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          legacy_id?: string | null
+          media_url?: string | null
+          organization_id: string
+          titulo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          botoes?: Json
+          corpo_texto?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          legacy_id?: string | null
+          media_url?: string | null
+          organization_id?: string
+          titulo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      bulk_count_audience: {
+        Args: {
+          p_canal: Database["public"]["Enums"]["tipo_envio"]
+          p_filter: Json
+          p_org: string
+        }
+        Returns: number
+      }
+      bulk_enqueue_recipients: {
+        Args: { p_bulk_send_id: string; p_filter: Json }
+        Returns: number
+      }
       classify_criticidade: {
         Args: { enviados: number; valor: number }
         Returns: Database["public"]["Enums"]["status_criticidade"]
+      }
+      create_managed_org: {
+        Args: { p_nome: string; p_plano_id?: string; p_segmento: string }
+        Returns: {
+          asaas_customer_id: string | null
+          campanhas_ativas_count: number
+          created_at: string
+          created_by: string | null
+          criticidade: Database["public"]["Enums"]["status_criticidade"]
+          id: string
+          leads_count: number
+          legacy_id: string | null
+          nome: string
+          plano_id: string | null
+          segmento: string | null
+          updated_at: string
+          user_fundador_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_own_org: {
+        Args: { p_nome: string; p_segmento?: string }
+        Returns: {
+          asaas_customer_id: string | null
+          campanhas_ativas_count: number
+          created_at: string
+          created_by: string | null
+          criticidade: Database["public"]["Enums"]["status_criticidade"]
+          id: string
+          leads_count: number
+          legacy_id: string | null
+          nome: string
+          plano_id: string | null
+          segmento: string | null
+          updated_at: string
+          user_fundador_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_postback_token: {
+        Args: { p_nome?: string; p_org_id: string }
+        Returns: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string | null
+          organization_id: string
+          token: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "postback_tokens"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_support_conversation: {
+        Args: {
+          p_assunto: string
+          p_mensagem?: string
+          p_origem?: string
+          p_prioridade?: Database["public"]["Enums"]["prioridade_chamado"]
+          p_tipo?: Database["public"]["Enums"]["tipo_chamado"]
+          p_transcript?: Json
+        }
+        Returns: string
       }
       current_profile_id: { Args: never; Returns: string }
       current_role_geral: {
         Args: never
         Returns: Database["public"]["Enums"]["tipo_user_geral"]
       }
+      get_secret: { Args: { p_name: string }; Returns: string }
       has_org_access: { Args: { org: string }; Returns: boolean }
+      increment_vendas_recuperadas: {
+        Args: { p_campaign_id: string }
+        Returns: undefined
+      }
       is_admin: { Args: never; Returns: boolean }
       is_gestor: { Args: never; Returns: boolean }
       is_support: { Args: never; Returns: boolean }
+      leads_count_by_org: {
+        Args: never
+        Returns: {
+          organization_id: string
+          total: number
+        }[]
+      }
+      leads_page: {
+        Args: {
+          p_evento?: string
+          p_limit?: number
+          p_offset?: number
+          p_org?: string
+          p_search?: string
+          p_stage?: string
+        }
+        Returns: {
+          aberturas: number
+          cliques: number
+          created_at: string
+          email: string
+          enviados: number
+          id: string
+          metodo_pagamento: string
+          nome: string
+          organization_id: string
+          produto: string
+          sobrenome: string
+          stage: string
+          tag_ids: string[]
+          telefone: string
+          total_count: number
+          ultimo_evento: string
+          valor_compra: number
+        }[]
+      }
       my_org_ids: { Args: never; Returns: string[] }
+      pipeline_counts: {
+        Args: { p_org?: string }
+        Returns: {
+          stage: string
+          total: number
+          valor: number
+        }[]
+      }
+      validate_postback_token: { Args: { p_token: string }; Returns: string }
     }
     Enums: {
       autor_mensagem: "cliente" | "suporte" | "sistema"
@@ -1980,6 +2623,9 @@ export type Database = {
         | "Remover Tag"
         | "Envio de e-mail"
         | "Acionar Fluxo"
+        | "Envio de WhatsApp"
+        | "Condição"
+        | "Envio de SMS"
       tipo_chamado:
         | "Dúvidas"
         | "Integração com a Plataforma"
@@ -2173,6 +2819,9 @@ export const Constants = {
         "Remover Tag",
         "Envio de e-mail",
         "Acionar Fluxo",
+        "Envio de WhatsApp",
+        "Condição",
+        "Envio de SMS",
       ],
       tipo_chamado: [
         "Dúvidas",
