@@ -57,6 +57,22 @@ supabase functions deploy asaas
 |-----------|---------|
 | `resend_api_key` | `re_...` |
 | `resend_from` | `Kobly <contato@koblay.io>` (fallback plataforma) |
+| `resend_sending_domain` | `koblay.io` — subdomínio de envio da plataforma (remetente por org) |
+
+### 3.0 Remetente por org — subdomínio automático (zero-DNS por cliente) ⭐
+Prioridade do From no worker (`process-steps`/`process-bulk`):
+1. **Domínio próprio verificado** do cliente (Resend real, `id_resend` ≠ `sg_*`).
+2. **Subdomínio automático da plataforma**: `<organizations.sender_local>@<resend_sending_domain>`
+   (ex.: `loja-do-joao-d47ca6@koblay.io`). `sender_local` é gerado do nome + id (migration 0040).
+   Requer `resend_sending_domain` setado E o domínio verificado no Resend. **Zero DNS por cliente.**
+3. **Fallback**: `resend_from` (`contato@koblay.io`).
+
+> **Config atual:** `resend_sending_domain = koblay.io` (já verificado; funciona no plano base do
+> Resend, que permite 1 domínio). Para isolar reputação depois (plano pago), verifique um subdomínio
+> dedicado (`envio.koblay.io`) no Resend + DNS do koblay.io e troque o secret — nada mais muda.
+>
+> ⚠️ A `resend_api_key` atual é **restrita a envio** — NÃO gerencia domínios. O fluxo "domínio
+> próprio" (3.2) e a criação de novos domínios de envio exigem uma key de **acesso total** no Vault.
 
 ### 3.2 Fluxo no app (Integrações → Domínio / Remetente)
 1. Cliente adiciona domínio (ex.: `envio.sualoja.com.br`).
