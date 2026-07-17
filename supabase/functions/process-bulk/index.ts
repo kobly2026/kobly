@@ -163,7 +163,7 @@ Deno.serve(async (req: Request) => {
           body: form.toString(),
         });
         const out = await resp.json().catch(() => ({}));
-        ok = resp.ok; msgId = out?.sid ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500) fatal = true; }
+        ok = resp.ok; msgId = out?.sid ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true; }
       }
     } else { fatal = true; errDetail = "canal desconhecido"; }
 

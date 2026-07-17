@@ -164,6 +164,19 @@ Deno.serve(async (req: Request) => {
   };
 
   for (const s of due || []) {
+    // Claim OTIMISTA (evita envio DUPLICADO se dois ticks do cron se sobrepõem): empurra
+    // run_at 5min p/ frente condicionalmente. Se 0 linhas voltarem, outro tick já pegou
+    // esta etapa → pula. Se o tick crashar no meio, a linha reaparece após 5min (crash-safe).
+    // finalize/failStep sobrescrevem esse run_at ao terminar. Mesmo padrão do process-bulk.
+    const nowIso = new Date().toISOString();
+    const { data: claimed } = await sb.from("scheduled_steps")
+      .update({ status_agendamento: "Em andamento", run_at: new Date(Date.now() + 5 * 60000).toISOString() })
+      .eq("id", s.id)
+      .in("status_agendamento", ["Iniciado", "Em andamento"])
+      .lte("run_at", nowIso)
+      .select("id");
+    if (!claimed || claimed.length === 0) continue;
+
     const step = (s as any).flow_steps; const lead = (s as any).leads;
     const curAttempts = Number((s as any).attempts) || 0;
     try {
@@ -411,7 +424,8 @@ Deno.serve(async (req: Request) => {
           ok = resp.ok; msgId = out?.sid ?? null;
           if (!ok) {
             errDetail = JSON.stringify(out).slice(0, 200);
-            if (resp.status >= 400 && resp.status < 500) smsFatal = true; // nº/param inválido
+            // 4xx = definitivo (nº/param inválido) — EXCETO 429 (rate limit), que reagenda.
+            if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) smsFatal = true;
           }
         } else { errDetail = "twilio secrets ausentes"; }
 
