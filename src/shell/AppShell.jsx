@@ -13,6 +13,7 @@ import { KoblyTopbar } from '@/shell/Topbar.jsx';
 import { KoblyDashboard } from '@/routes/Dashboard.jsx';
 import { KoblyPipeline } from '@/routes/Pipeline.jsx';
 import { KoblyCampaigns } from '@/routes/Campaigns.jsx';
+import { KoblyBulkSend } from '@/routes/BulkSend.jsx';
 import { KoblyLeads } from '@/routes/Leads.jsx';
 import { KoblyIntegrations } from '@/routes/Integrations.jsx';
 import { KoblyProfile } from '@/routes/Profile.jsx';
@@ -32,6 +33,7 @@ const SCREENS = {
   clientes: KoblyClients,
   pipeline: KoblyPipeline,
   campanhas: KoblyCampaigns,
+  disparos: KoblyBulkSend,
   leads: KoblyLeads,
   integracoes: KoblyIntegrations,
   relatorios: KoblyReports,

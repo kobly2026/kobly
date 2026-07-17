@@ -139,6 +139,13 @@ export const KoblyApi = {
     resetDb();
     return !error;
   },
+  // Exclui campanha (cascade: flow, stats, steps via FKs do schema).
+  async deleteCampaign(id) {
+    if (!id) return { error: 'ID ausente' };
+    const { error } = await supabase.from('campaigns').delete().eq('id', id);
+    resetDb();
+    return { error: error ? error.message : null };
+  },
 
   // Cria uma campanha COMPLETA a partir de um plano gerado por IA:
   // Gatilho (plan.gatilho) + N e-mails (etapas com atraso, assunto e corpo renderizado na marca).
@@ -234,11 +241,36 @@ export const KoblyApi = {
     const { data: flowRow } = await supabase.from('campaign_flows').select('id, organization_id').eq('campaign_id', id).maybeSingle();
     if (!flowRow) return false;
     const flowId = flowRow.id; const orgId = flowRow.organization_id;
-    await supabase.from('flow_steps').delete().eq('flow_id', flowId);
-    await supabase.from('flow_meta_tags').delete().eq('flow_id', flowId);
+
+    // BUG CRÍTICO (fila): NÃO apagar+recriar todos os steps a cada save. O delete-all
+    // trocava o id de cada flow_step, e o ON DELETE CASCADE de scheduled_steps (0005)
+    // ZERAVA a fila de mensagens pendentes de campanhas Ativas — leads no meio da
+    // cadência paravam de receber os envios restantes. Correção: upsert por id ESTÁVEL.
+    // Step existente → UPDATE in-place (mantém o id → a fila referenciada sobrevive);
+    // step novo → INSERT; step removido do builder → DELETE (aí o cascade é correto).
+    const { data: existingRows, error: exErr } = await supabase.from('flow_steps').select('id').eq('flow_id', flowId);
+    if (exErr) { console.error('saveFlow: falha ao ler steps existentes', exErr); return false; }
+    const existing = new Set((existingRows || []).map((r) => r.id));
+
     const arr = fluxo || [];
-    const idMap = {}; // id do builder → id novo no banco (p/ parent_step_id dos ramos)
-    const insertStep = async (s, i) => {
+    const idMap = {}; // id do builder → id no banco (p/ parent_step_id dos ramos)
+    // Steps já persistidos mantêm o próprio id (identidade) — resolve parents na 2ª passada.
+    arr.forEach((s) => { if (existing.has(s.id)) idMap[s.id] = s.id; });
+
+    // Sincroniza os links de tag de um step (Adicionar/Remover Tag): delete+insert
+    // (step_add_tags/step_remove_tags não são referenciados por scheduled_steps).
+    const syncStepTags = async (s, stepId) => {
+      const tags = (s.config || {}).tags || [];
+      if (s.tipo === 'Adicionar Tag') {
+        await supabase.from('step_add_tags').delete().eq('step_id', stepId);
+        if (tags.length) await supabase.from('step_add_tags').insert(tags.map((t) => ({ step_id: stepId, tag_id: t })));
+      } else if (s.tipo === 'Remover Tag') {
+        await supabase.from('step_remove_tags').delete().eq('step_id', stepId);
+        if (tags.length) await supabase.from('step_remove_tags').insert(tags.map((t) => ({ step_id: stepId, tag_id: t })));
+      }
+    };
+
+    const upsertStep = async (s, i) => {
       const cfg = s.config || {};
       let fluxoAlvoId = null;
       if (s.tipo === 'Acionar Fluxo' && cfg.fluxoAlvo) {
@@ -253,29 +285,47 @@ export const KoblyApi = {
         ? (s.ramo === 'sim' ? 'comprou' : 'nao_comprou')
         : (cfg.condicao || null);
       const parentDbId = s.parentId ? (idMap[s.parentId] || null) : null;
-      const { data: st, error: stErr } = await supabase.from('flow_steps').insert({
+      const row = {
         flow_id: flowId, organization_id: orgId, tipo_card: s.tipo, nome: s.nome,
         // posicao = ordem do ARRAY do builder (fonte da verdade da ordem visual;
         // s.posicao antigo fica stale depois de drag/reorder).
         posicao: i, atraso: s.atraso || 0,
         email_id: cfg.emailId || null, whatsapp_message_id: cfg.whatsappMessageId || null,
+        sms_message_id: cfg.smsMessageId || null,
         condicao,
         parent_step_id: parentDbId, ramo: parentDbId ? (s.ramo || null) : null,
         tipo_evento: cfg.tipoEvento || null, webhook_id: cfg.webhookId || null, fluxo_alvo_id: fluxoAlvoId,
-      }).select().single();
-      // Nunca falhar em silêncio: os steps antigos já foram apagados acima — se o
-      // insert falhar, avisa o chamador para a UI não fingir que salvou.
-      if (stErr) { console.error('saveFlow steps insert failed', stErr); return false; }
+      };
+      if (existing.has(s.id)) {
+        // UPDATE in-place preserva o id → scheduled_steps que apontam para este step sobrevivem.
+        const { error } = await supabase.from('flow_steps').update(row).eq('id', s.id);
+        if (error) { console.error('saveFlow update falhou', error); return false; }
+        await syncStepTags(s, s.id);
+        return true;
+      }
+      const { data: st, error } = await supabase.from('flow_steps').insert(row).select('id').single();
+      if (error) { console.error('saveFlow insert falhou', error); return false; }
       idMap[s.id] = st.id;
-      if (st && s.tipo === 'Adicionar Tag' && (cfg.tags || []).length) await supabase.from('step_add_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
-      if (st && s.tipo === 'Remover Tag' && (cfg.tags || []).length) await supabase.from('step_remove_tags').insert(cfg.tags.map((t) => ({ step_id: st.id, tag_id: t })));
+      await syncStepTags(s, st.id);
       return true;
     };
-    // Duas passadas: raiz primeiro (os filhos dos ramos referenciam o id novo do pai —
+
+    // Duas passadas: raiz primeiro (os filhos dos ramos referenciam o id do pai —
     // o card Condição pode estar DEPOIS dos filhos no array após um drag).
-    for (let i = 0; i < arr.length; i++) if (!arr[i].parentId) { if (!(await insertStep(arr[i], i))) return false; }
-    for (let i = 0; i < arr.length; i++) if (arr[i].parentId) { if (!(await insertStep(arr[i], i))) return false; }
+    for (let i = 0; i < arr.length; i++) if (!arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return false; }
+    for (let i = 0; i < arr.length; i++) if (arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return false; }
+
+    // Só depois de TODOS os upserts terem dado certo removemos os steps que saíram
+    // do builder. Se um upsert falha acima, retornamos sem deletar nada — a fila
+    // antiga fica intacta. Aqui o cascade de scheduled_steps é o comportamento certo.
+    const keptIds = new Set(arr.filter((s) => existing.has(s.id)).map((s) => s.id));
+    const toDelete = [...existing].filter((eid) => !keptIds.has(eid));
+    if (toDelete.length) await supabase.from('flow_steps').delete().eq('flow_id', flowId).in('id', toDelete);
+
+    // meta tags: reconcilia (não referenciadas por scheduled_steps — delete+insert é seguro).
+    await supabase.from('flow_meta_tags').delete().eq('flow_id', flowId);
     if ((tagsMeta || []).length) await supabase.from('flow_meta_tags').insert(tagsMeta.map((t) => ({ flow_id: flowId, tag_id: t })));
+
     resetDb();
     return true;
   },
@@ -482,6 +532,7 @@ export const KoblyApi = {
       webhooks: clone(db.webhooks),
       emails: clone(db.emails),
       whatsappMessages: clone(db.whatsappMessages || []),
+      smsMessages: clone(db.smsMessages || []),
       tags: clone(db.tags),
       campaigns: db.campanhas.map((c) => ({ id: c.id, nome: c.nome })),
     };
@@ -681,7 +732,8 @@ export const KoblyApi = {
   async deletePostbackToken(tokenId) {
     const { error } = await supabase.from('postback_tokens').delete().eq('id', tokenId);
     resetDb();
-    return !error;
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
   },
   // WEB-1: vincula (ou desvincula) uma campanha a um webhook nomeado.
   // tokenId=null → "qualquer webhook" (padrão retrocompatível).
@@ -785,15 +837,24 @@ export const KoblyApi = {
 
   // ---- E-mail (update do template) ----------------------------------------
   async updateEmail(id, patch) {
-    const { error } = await supabase.from('emails').update({
-      titulo: patch.titulo, assunto: patch.assunto, remetente: patch.remetente, corpo_html: patch.corpoHtml,
-    }).eq('id', id);
+    if (!id) return { error: 'ID do e-mail ausente' };
+    // Só envia campos presentes no patch (evita apagar corpo_html quando a UI
+    // simples de Integrações manda só título/assunto/remetente).
+    const row = {};
+    if (patch.titulo !== undefined) row.titulo = patch.titulo;
+    if (patch.assunto !== undefined) row.assunto = patch.assunto;
+    if (patch.remetente !== undefined) row.remetente = patch.remetente;
+    if (patch.corpoHtml !== undefined) row.corpo_html = patch.corpoHtml;
+    if (Object.keys(row).length === 0) return { error: null };
+    const { error } = await supabase.from('emails').update(row).eq('id', id);
     resetDb();
     return { error: error ? error.message : null };
   },
 
   // ---- E-mail (envio via Resend, Edge Function send-email) ----------------
-  async sendTestEmail({ to, subject, html, text, from }) {
+  // fromName: nome de exibição do remetente (campo "Remetente" do editor).
+  // A edge function monta "Nome <email_verificado>" com o domínio do Vault.
+  async sendTestEmail({ to, subject, html, text, from, fromName }) {
     // No teste não há lead, então resolve o {{cta_link}} pela URL da loja (ou '#').
     let testHtml = html || '';
     if (testHtml.includes('{{cta_link}}')) {
@@ -801,7 +862,9 @@ export const KoblyApi = {
       try { const b = await this.getBranding(); if (b && b.link_loja) fallback = b.link_loja; } catch (e) { /* usa '#' */ }
       testHtml = testHtml.split('{{cta_link}}').join(fallback);
     }
-    const { data, error } = await supabase.functions.invoke('send-email', { body: { to, subject, html: testHtml, text, from } });
+    const { data, error } = await supabase.functions.invoke('send-email', {
+      body: { to, subject, html: testHtml, text, from, fromName: fromName || undefined },
+    });
     if (error) {
       // Em não-2xx (FunctionsHttpError) o corpo vem em error.context — tenta ler
       // para transformar erros conhecidos em mensagem amigável.
@@ -829,10 +892,13 @@ export const KoblyApi = {
     return clone(db.whatsappMessages || []);
   },
   // Cria (sem id) ou atualiza (com id) uma mensagem de WhatsApp da org.
-  async saveWhatsappMessage({ id, titulo, corpoTexto, mediaUrl }, empresaId) {
+  // botoes: array [{id,type,label,url?,phone?}] — botões interativos Z-API.
+  async saveWhatsappMessage({ id, titulo, corpoTexto, mediaUrl, botoes }, empresaId) {
+    const buttons = Array.isArray(botoes) ? botoes : [];
     if (id) {
       const { error } = await supabase.from('whatsapp_messages').update({
-        titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, updated_at: new Date().toISOString(),
+        titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, botoes: buttons,
+        updated_at: new Date().toISOString(),
       }).eq('id', id);
       resetDb();
       return { error: error ? error.message : null, id };
@@ -841,7 +907,8 @@ export const KoblyApi = {
     const orgId = empresaId || await firstOrgId(me);
     if (!orgId) return { error: 'Sua conta ainda não tem organização configurada.', id: null };
     const { data, error } = await supabase.from('whatsapp_messages').insert({
-      organization_id: orgId, titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null, created_by: me ? me.id : null,
+      organization_id: orgId, titulo, corpo_texto: corpoTexto, media_url: mediaUrl || null,
+      botoes: buttons, created_by: me ? me.id : null,
     }).select().single();
     resetDb();
     return { error: error ? error.message : null, id: data ? data.id : null };
@@ -849,14 +916,22 @@ export const KoblyApi = {
   // Envio de teste — espelha o sendTestEmail: no teste não há lead, então o
   // {{cta_link}} é resolvido pela URL da loja (ou '#'). Credenciais Z-API ficam
   // no Vault e são resolvidas pela própria edge function.
-  async sendTestWhatsapp({ phone, message }) {
+  // buttonActions: botões interativos (opcional).
+  async sendTestWhatsapp({ phone, message, buttonActions }) {
     let testMsg = message || '';
+    let ctaFallback = '#';
+    try { const b = await this.getBranding(); if (b && b.link_loja) ctaFallback = b.link_loja; } catch (e) { /* usa '#' */ }
     if (testMsg.includes('{{cta_link}}')) {
-      let fallback = '#';
-      try { const b = await this.getBranding(); if (b && b.link_loja) fallback = b.link_loja; } catch (e) { /* usa '#' */ }
-      testMsg = testMsg.split('{{cta_link}}').join(fallback);
+      testMsg = testMsg.split('{{cta_link}}').join(ctaFallback);
     }
-    const { data, error } = await supabase.functions.invoke('send-whatsapp', { body: { phone, message: testMsg } });
+    const { data, error } = await supabase.functions.invoke('send-whatsapp', {
+      body: {
+        phone,
+        message: testMsg,
+        buttonActions: Array.isArray(buttonActions) && buttonActions.length ? buttonActions : undefined,
+        ctaLink: ctaFallback !== '#' ? ctaFallback : undefined,
+      },
+    });
     if (error) {
       // Em não-2xx (FunctionsHttpError) o corpo vem em error.context — tenta ler
       // para transformar erros conhecidos em mensagem amigável.
@@ -876,6 +951,87 @@ export const KoblyApi = {
     return { error: null, id: data && data.id };
   },
 
+  // ---- SMS (Twilio) — espelha WhatsApp (texto puro + {{cta_link}}/{{nome}}) -----
+  async listSmsMessages() {
+    const db = await loadDB();
+    return clone(db.smsMessages || []);
+  },
+  // Cria (sem id) ou atualiza (com id) uma mensagem de SMS da org.
+  async saveSmsMessage({ id, titulo, corpoTexto }, empresaId) {
+    if (id) {
+      const { error } = await supabase.from('sms_messages').update({
+        titulo, corpo_texto: corpoTexto, updated_at: new Date().toISOString(),
+      }).eq('id', id);
+      resetDb();
+      return { error: error ? error.message : null, id };
+    }
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    if (!orgId) return { error: 'Sua conta ainda não tem organização configurada.', id: null };
+    const { data, error } = await supabase.from('sms_messages').insert({
+      organization_id: orgId, titulo, corpo_texto: corpoTexto, created_by: me ? me.id : null,
+    }).select().single();
+    resetDb();
+    return { error: error ? error.message : null, id: data ? data.id : null };
+  },
+  // Envio de teste de SMS — espelha sendTestWhatsapp. {{cta_link}} resolvido pela
+  // URL da loja (ou vazio). Credenciais Twilio ficam no Vault (edge function).
+  async sendTestSms({ to, message }) {
+    let testMsg = message || '';
+    let ctaFallback = '';
+    try { const b = await this.getBranding(); if (b && b.link_loja) ctaFallback = b.link_loja; } catch (e) { /* vazio */ }
+    testMsg = testMsg.split('{{cta_link}}').join(ctaFallback);
+    const { data, error } = await supabase.functions.invoke('send-sms', {
+      body: { to, message: testMsg },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      if (body && body.error === 'secret_unavailable') return { error: 'Twilio não configurado — as credenciais são definidas pelo suporte.' };
+      if (body && (body.detail || body.error)) {
+        const msg = (body.detail && typeof body.detail === 'object') ? body.detail.message : body.detail;
+        return { error: msg || body.error };
+      }
+      return { error: error.message };
+    }
+    if (data && data.error) {
+      if (data.error === 'secret_unavailable') return { error: 'Twilio não configurado (faltam as credenciais no Vault).' };
+      const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
+      return { error: msg || data.error || 'Falha no envio' };
+    }
+    return { error: null, sid: data && data.sid, segments: data && data.segments };
+  },
+
+  // ---- Disparo em massa (bulk send) — email / WhatsApp / SMS -----------------
+  // filter: { tag_ids?: uuid[], evento?: string }. canal: 'email' | 'whatsapp' | 'sms'.
+  async estimateBulkAudience({ canal, filter, organizationId }) {
+    const { data, error } = await supabase.functions.invoke('bulk-send', {
+      body: { action: 'estimate', canal, filter: filter || {}, organization_id: organizationId },
+    });
+    if (error) { const body = await error.context?.json?.().catch(() => null); return { error: (body && (body.detail || body.error)) || error.message }; }
+    if (data && data.error) return { error: data.detail || data.error };
+    return { error: null, total: data.total || 0 };
+  },
+  async createBulkSend({ canal, templateId, filter, ratePorMin, organizationId }) {
+    const { data, error } = await supabase.functions.invoke('bulk-send', {
+      body: { action: 'create', canal, template_id: templateId, filter: filter || {}, rate_por_min: ratePorMin, organization_id: organizationId },
+    });
+    if (error) { const body = await error.context?.json?.().catch(() => null); return { error: (body && (body.detail || body.error)) || error.message }; }
+    if (data && data.error) return { error: data.detail || data.error };
+    return { error: null, bulkSendId: data.bulk_send_id, total: data.total };
+  },
+  async bulkSendStatus(id) {
+    const { data, error } = await supabase.functions.invoke('bulk-send', { body: { action: 'status', id } });
+    if (error) { const body = await error.context?.json?.().catch(() => null); return { error: (body && (body.detail || body.error)) || error.message }; }
+    return data || {};
+  },
+  async listBulkSends(empresaId) {
+    let q = supabase.from('bulk_sends').select('*').order('created_at', { ascending: false }).limit(20);
+    if (empresaId) q = q.eq('organization_id', empresaId);
+    const { data, error } = await q;
+    if (error) { console.error('[mockApi] listBulkSends:', error.message); return []; }
+    return data || [];
+  },
+
   // Estado da conexão WhatsApp (Z-API): conectado? qual número/nome está plugado?
   // Mostrado na aba WhatsApp pra ninguém precisar abrir o painel da Z-API.
   async getWhatsappStatus() {
@@ -887,6 +1043,110 @@ export const KoblyApi = {
     }
     if (data && data.error) return { error: data.detail || data.error };
     return { error: null, connected: !!(data && data.connected), smartphoneConnected: !!(data && data.smartphoneConnected), phone: (data && data.phone) || null, name: (data && data.name) || null };
+  },
+
+  // Telefone de teste WhatsApp persistido no profile (whatsapp_teste).
+  async getWhatsappTestPhone() {
+    const me = await currentProfile();
+    return { phone: (me && me.whatsapp_teste) || '' };
+  },
+  async saveWhatsappTestPhone(phone) {
+    const me = await currentProfile();
+    if (!me) return { error: 'Sem sessão' };
+    const digits = String(phone || '').replace(/\D/g, '');
+    const { error } = await supabase.from('profiles').update({ whatsapp_teste: digits || null }).eq('id', me.id);
+    resetDb();
+    return { error: error ? error.message : null };
+  },
+
+  // ---- Domínio de envio (Resend) ----------------------------------------
+  async listSendingDomains(empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    const { data, error } = await supabase.functions.invoke('resend-admin', {
+      body: { action: 'list', organization_id: orgId },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { error: (body && (body.detail || body.error)) || error.message, domains: [] };
+    }
+    if (data && data.error) return { error: data.detail || data.error, domains: [] };
+    return { error: null, domains: data.domains || [] };
+  },
+  async createSendingDomain({ name, fromEmail }, empresaId) {
+    const me = await currentProfile();
+    const orgId = empresaId || await firstOrgId(me);
+    const { data, error } = await supabase.functions.invoke('resend-admin', {
+      body: { action: 'create', name, from_email: fromEmail, organization_id: orgId },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { error: (body && (body.detail || body.error)) || error.message };
+    }
+    if (data && data.error) return { error: typeof data.detail === 'object' ? (data.detail.message || JSON.stringify(data.detail)) : (data.detail || data.error) };
+    resetDb();
+    return { error: null, domain: data.domain };
+  },
+  async verifySendingDomain(domainId) {
+    const { data, error } = await supabase.functions.invoke('resend-admin', {
+      body: { action: 'verify', id: domainId },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { error: (body && (body.detail || body.error)) || error.message };
+    }
+    if (data && data.error) return { error: data.detail || data.error };
+    resetDb();
+    return { error: null, domain: data.domain, verified: data.domain && (data.domain.validado || data.domain.status === 'verified') };
+  },
+  async deleteSendingDomain(domainId) {
+    const { data, error } = await supabase.functions.invoke('resend-admin', {
+      body: { action: 'delete', id: domainId },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { error: (body && (body.detail || body.error)) || error.message };
+    }
+    if (data && data.error) return { error: data.detail || data.error };
+    resetDb();
+    return { error: null };
+  },
+
+  // ---- Asaas (gateway) --------------------------------------------------
+  async getAsaasStatus() {
+    const { data, error } = await supabase.functions.invoke('asaas', { body: { action: 'status' } });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { configured: false, error: (body && (body.detail || body.error)) || error.message };
+    }
+    return { configured: !!(data && data.configured), env: data && data.env, error: null };
+  },
+  async createAsaasCheckout({ planId, billingType, cycle, organizationId }) {
+    const { data, error } = await supabase.functions.invoke('asaas', {
+      body: {
+        action: 'create_payment',
+        plan_id: planId,
+        billingType: billingType || 'PIX',
+        cycle: cycle || 'MONTHLY',
+        organization_id: organizationId,
+      },
+    });
+    if (error) {
+      const body = await error.context?.json?.().catch(() => null);
+      return { error: (body && (body.detail || body.error)) || error.message };
+    }
+    if (data && data.error) {
+      const d = data.detail;
+      const msg = typeof d === 'object' ? (d.errors?.[0]?.description || d.message || JSON.stringify(d)) : (d || data.error);
+      return { error: msg };
+    }
+    return {
+      error: null, invoiceUrl: data.invoiceUrl, paymentId: data.paymentId,
+      // PIX: QR (imagem base64) + copia-e-cola (payload EMV) vindos do follow-up
+      // GET /payments/{id}/pixQrCode na edge function.
+      pixQrCode: data.pixQrCode || null, pixCopyPaste: data.pixCopyPaste || null, pixExpiration: data.pixExpiration || null,
+      env: data.env, value: data.value, plan: data.plan,
+    };
   },
 
   // ---- Onboarding self-service (Cliente sem org cria a própria) -----------
@@ -1079,22 +1339,23 @@ export const KoblyApi = {
     const totalEnviados = porConta.reduce((s, r) => s + r.enviados, 0);
     const totalVendas = porConta.reduce((s, r) => s + r.vendas, 0);
 
-    // Disparos por canal — envios reais agrupados por dia × canal (sem SMS: canal não existe)
+    // Disparos por canal — envios reais agrupados por dia × canal (email/whatsapp/sms)
     const { data: sends } = await supabase.from('email_events')
       .select('created_at, channel')
       .eq('event', 'send').eq('status', 'enviado')
       .gte('created_at', sinceIso)
       .limit(10000);
-    const byDay = { email: {}, whatsapp: {} };
+    const byDay = { email: {}, whatsapp: {}, sms: {} };
     (sends || []).forEach((r) => {
       const k = String(r.created_at).slice(0, 10);
-      const ch = r.channel === 'whatsapp' ? 'whatsapp' : 'email';
+      const ch = r.channel === 'whatsapp' ? 'whatsapp' : r.channel === 'sms' ? 'sms' : 'email';
       byDay[ch][k] = (byDay[ch][k] || 0) + 1;
     });
     const disparosPorCanal = {
       labels,
       email: keys.map((k) => byDay.email[k] || 0),
       whatsapp: keys.map((k) => byDay.whatsapp[k] || 0),
+      sms: keys.map((k) => byDay.sms[k] || 0),
     };
 
     // Métricas de entrega reais do período

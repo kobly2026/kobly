@@ -346,6 +346,7 @@ const NAV = {
   clientes:     { id: 'clientes',     icon: 'building-2',       label: 'Clientes' },
   pipeline:     { id: 'pipeline',     icon: 'kanban',           label: 'Pipeline' },
   campanhas:    { id: 'campanhas',    icon: 'megaphone',        label: 'Campanhas' },
+  disparos:     { id: 'disparos',     icon: 'send',             label: 'Disparo em massa' },
   leads:        { id: 'leads',        icon: 'users-round',      label: 'Leads' },
   integracoes:  { id: 'integracoes',  icon: 'plug',             label: 'Integrações' },
   relatorios:   { id: 'relatorios',   icon: 'chart-column',     label: 'Relatórios' },
@@ -361,14 +362,14 @@ const roles = {
   Cliente: {
     label: 'Cliente',
     descricao: 'Dono da conta — dashboard, pipeline, campanhas, leads, integrações.',
-    nav: ['painel', 'pipeline', 'campanhas', 'leads', 'integracoes', 'planos', 'chamados', 'ajuda', 'perfil'],
+    nav: ['painel', 'pipeline', 'campanhas', 'disparos', 'leads', 'integracoes', 'planos', 'chamados', 'ajuda', 'perfil'],
     home: 'painel',
     can: { editCampaign: true, viewAllAccounts: false, createPlan: false, manageUsers: false, answerTickets: false },
   },
   Gestor: {
     label: 'Gestor',
     descricao: 'Agência — visão consolidada de várias contas.',
-    nav: ['painel', 'clientes', 'pipeline', 'campanhas', 'leads', 'integracoes', 'relatorios', 'chamados', 'ajuda', 'perfil'],
+    nav: ['painel', 'clientes', 'pipeline', 'campanhas', 'disparos', 'leads', 'integracoes', 'relatorios', 'chamados', 'ajuda', 'perfil'],
     home: 'painel',
     can: { editCampaign: true, viewAllAccounts: true, createPlan: false, manageUsers: false, answerTickets: false },
   },
@@ -391,6 +392,7 @@ const roles = {
 // Títulos de rota (topbar)
 const routeTitle = {
   painel: 'Dashboard', clientes: 'Clientes', pipeline: 'Pipeline', campanhas: 'Campanhas',
+  disparos: 'Disparo em massa',
   leads: 'Leads', integracoes: 'Integrações', relatorios: 'Relatórios', planos: 'Planos & cobrança',
   seguranca: 'Segurança', chamados: 'Chamados', ajuda: 'Central de ajuda', perfil: 'Perfil',
 };

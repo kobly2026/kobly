@@ -70,15 +70,16 @@ function KoblyReports() {
       </div>
 
       <div className="kbly-grid-main" style={{ gap: 16 }}>
-        <Card title="Disparos por canal" subtitle="E-mail · WhatsApp — envios reais do período">
+        <Card title="Disparos por canal" subtitle="E-mail · WhatsApp · SMS — envios reais do período">
           <Chart
             type="area" height={300}
             series={[
               { name: 'E-mail', data: d.disparosPorCanal.email },
               { name: 'WhatsApp', data: d.disparosPorCanal.whatsapp },
+              { name: 'SMS', data: d.disparosPorCanal.sms },
             ]}
             options={{
-              colors: [C.accent, C.green],
+              colors: [C.accent, C.green, C.amber || C.orange || '#f59e0b'],
               stroke: { curve: 'smooth', width: 2 },
               fill: { type: 'gradient', gradient: { opacityFrom: 0.25, opacityTo: 0.02 } },
               xaxis: axisX(d.disparosPorCanal.labels),

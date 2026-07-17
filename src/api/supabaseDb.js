@@ -42,6 +42,7 @@ function reshapeStep(s, flowMap) {
   else if (s.tipo_card === 'Remover Tag') config = { tags: (s.step_remove_tags || []).map((t) => t.tag_id) };
   else if (s.tipo_card === 'Envio de e-mail') config = { emailId: s.email_id, condicao: s.condicao || null };
   else if (s.tipo_card === 'Envio de WhatsApp') config = { whatsappMessageId: s.whatsapp_message_id, condicao: s.condicao || null };
+  else if (s.tipo_card === 'Envio de SMS') config = { smsMessageId: s.sms_message_id, condicao: s.condicao || null };
   else if (s.tipo_card === 'Condição') config = { condTipo: 'comprou' }; // v1: única condição
   else if (s.tipo_card === 'Acionar Fluxo') config = { fluxoAlvo: flowMap[s.fluxo_alvo_id] || s.fluxo_alvo_id };
   // parentId/ramo reconstroem a árvore de ramos do card Condição no builder.
@@ -73,7 +74,7 @@ async function sel(table, columns, order) {
 }
 
 async function hydrate() {
-  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, domains, webhooks, postbackTokens, brands, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
+  const [orgs, profiles, plans, templates, tags, emails, whatsappMsgs, smsMsgs, domains, webhooks, postbackTokens, brands, leads, campaigns, events, convs, txs, access, sessions, faq] = await Promise.all([
     sel('organizations', '*'),
     sel('profiles', '*'),
     sel('plans', '*'),
@@ -81,6 +82,7 @@ async function hydrate() {
     sel('tags', '*'),
     sel('emails', '*'),
     sel('whatsapp_messages', '*'),
+    sel('sms_messages', '*'),
     sel('domains', '*, domain_dns_records(*)'),
     sel('webhooks', '*, webhook_event_types(tipo_evento)'),
     // WEB-1: tokens de postback nomeados (webhooks por produto/plataforma).
@@ -136,15 +138,23 @@ async function hydrate() {
     })),
     tags: tags.map((t) => ({ id: t.id, nome: t.nome, descricao: t.descricao, tipoEvento: t.tipo_evento, empresaId: t.organization_id })),
     emails: emails.map((e) => ({ id: e.id, titulo: e.titulo, assunto: e.assunto, remetente: e.remetente, dominioId: e.dominio_id, corpoHtml: e.corpo_html })),
-    whatsappMessages: whatsappMsgs.map((m) => ({ id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, mediaUrl: m.media_url, empresaId: m.organization_id })),
+    whatsappMessages: whatsappMsgs.map((m) => ({
+      id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, mediaUrl: m.media_url,
+      botoes: Array.isArray(m.botoes) ? m.botoes : [],
+      empresaId: m.organization_id,
+    })),
+    // SMS (Twilio) — templates por org (espelha whatsappMessages).
+    smsMessages: smsMsgs.map((m) => ({ id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, empresaId: m.organization_id })),
     // WEB-1: webhooks nomeados (tokens de postback) — usados no seletor de
     // webhook do FlowBuilder e no CRUD da aba Integrações.
     postbackTokens: postbackTokens.map((t) => ({ id: t.id, nome: t.nome, token: t.token, ativo: t.ativo, empresaId: t.organization_id, criadoEm: fmtDate(t.created_at) })),
     // MARCA-1: marcas/produtos por org (1:N). Substitui org_branding (1:1).
     brands: brands.map((b) => ({ id: b.id, nome: b.nome, logoUrl: b.logo_url, cor: b.cor, modo: b.modo, linkLoja: b.link_loja, empresaId: b.organization_id })),
     dominios: domains.map((d) => ({
-      id: d.id, url: d.url, validado: d.validado, idSendGrid: d.id_sendgrid, empresaId: d.organization_id,
-      registros: (d.domain_dns_records || []).map((r) => ({ tipo: r.tipo, host: r.host, valor: r.valor, status: r.status })),
+      id: d.id, url: d.url, validado: d.validado, idSendGrid: d.id_sendgrid || d.id_resend,
+      idResend: d.id_resend || d.id_sendgrid, fromEmail: d.from_email, status: d.status || (d.validado ? 'verified' : 'pending'),
+      empresaId: d.organization_id,
+      registros: (d.domain_dns_records || []).map((r) => ({ tipo: r.tipo, host: r.host, valor: r.valor, status: r.status, role: r.record_role })),
     })),
     webhooks: webhooks.map((w) => ({
       id: w.id, nome: w.nome, descricao: w.descricao, url: w.url, secret: w.secret, testado: w.testado,

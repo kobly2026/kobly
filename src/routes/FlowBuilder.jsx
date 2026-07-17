@@ -7,6 +7,7 @@ import { useAsync } from '@/lib/hooks.jsx';
 import { AISuggestion, ErrorState } from '@/lib/ui.jsx';
 import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
 import { KoblyWhatsAppEditor } from '@/routes/WhatsAppEditor.jsx';
+import { KoblySmsEditor } from '@/routes/SmsEditor.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Construtor de fluxo (drag-drop). Paleta de cards (@TipoCardFluxo) → arrasta para
@@ -14,11 +15,11 @@ import { useKobly } from '@/store/store.jsx';
 // Layout com variações (tweak: builderVariant = vertical | horizontal | compact).
 // KoblyFlowBuilder
 
-const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Envio de WhatsApp', 'Condição', 'Acionar Fluxo'];
+const CARD_TYPES = ['Gatilho', 'Adicionar Tag', 'Remover Tag', 'Envio de e-mail', 'Envio de WhatsApp', 'Envio de SMS', 'Condição', 'Acionar Fluxo'];
 
-// Tom/ícone do card com fallback local p/ tipos ainda não mapeados no mockData (ex.: WhatsApp).
-const cardToneOf = (tipo) => KoblyMockDB.cardTone[tipo] || (tipo === 'Envio de WhatsApp' ? 'success' : tipo === 'Condição' ? 'info' : 'neutral');
-const cardIconOf = (tipo) => KoblyMockDB.cardIcon[tipo] || (tipo === 'Envio de WhatsApp' ? 'message-circle' : tipo === 'Condição' ? 'git-branch' : 'circle');
+// Tom/ícone do card com fallback local p/ tipos ainda não mapeados no mockData (ex.: WhatsApp/SMS).
+const cardToneOf = (tipo) => KoblyMockDB.cardTone[tipo] || (tipo === 'Envio de WhatsApp' ? 'success' : tipo === 'Envio de SMS' ? 'warning' : tipo === 'Condição' ? 'info' : 'neutral');
+const cardIconOf = (tipo) => KoblyMockDB.cardIcon[tipo] || (tipo === 'Envio de WhatsApp' ? 'message-circle' : tipo === 'Envio de SMS' ? 'smartphone' : tipo === 'Condição' ? 'git-branch' : 'circle');
 
 function fmtDelay(min) {
   if (!min) return 'imediato';
@@ -42,11 +43,14 @@ const condicaoBadge = (condicao) => (
 function defaultConfig(tipo, opts) {
   const o = opts || { webhooks: [], emails: [] };
   switch (tipo) {
-    case 'Gatilho': return { tipoEvento: 'Abandono de carrinho', webhookId: (o.webhooks || [])[0] ? o.webhooks[0].id : null };
+    // Webhook de origem fica no topo da campanha (seletor global) — não no card.
+    case 'Gatilho': return { tipoEvento: 'Abandono de carrinho' };
     case 'Adicionar Tag':
     case 'Remover Tag': return { tags: [] };
-    case 'Envio de e-mail': return { emailId: (o.emails || [])[0] ? o.emails[0].id : null };
+    // E-mail é criado/editado no card (sem lista de templates pré-prontos).
+    case 'Envio de e-mail': return { emailId: null };
     case 'Envio de WhatsApp': return { whatsappMessageId: (o.whatsappMessages || [])[0] ? o.whatsappMessages[0].id : null };
+    case 'Envio de SMS': return { smsMessageId: (o.smsMessages || [])[0] ? o.smsMessages[0].id : null };
     case 'Condição': return { condTipo: 'comprou' }; // v1: única condição — "o lead comprou?"
     case 'Acionar Fluxo': return { fluxoAlvo: '' };
     default: return {};
@@ -87,6 +91,7 @@ function StepCard({ step, index, selected, onSelect, onDelete, onDragStart, comp
     if (step.tipo === 'Adicionar Tag' || step.tipo === 'Remover Tag') return `${(c.tags || []).length} tag(s)`;
     if (step.tipo === 'Envio de e-mail') return ((opts.emails || []).find((e) => e.id === c.emailId) || {}).titulo || 'e-mail';
     if (step.tipo === 'Envio de WhatsApp') return ((opts.whatsappMessages || []).find((m) => m.id === c.whatsappMessageId) || {}).titulo || 'mensagem WhatsApp';
+    if (step.tipo === 'Envio de SMS') return ((opts.smsMessages || []).find((m) => m.id === c.smsMessageId) || {}).titulo || 'mensagem SMS';
     if (step.tipo === 'Condição') return 'O lead comprou?';
     if (step.tipo === 'Acionar Fluxo') return ((opts.campaigns || []).find((x) => x.id === c.fluxoAlvo) || {}).nome || 'selecionar fluxo';
     return '';
@@ -148,6 +153,7 @@ function BranchSplit({ cond, steps, selId, onSelect, onDelete, onAddChild, opts,
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <Button size="sm" variant="ghost" iconLeft="mail" onClick={() => onAddChild(cond.id, r.key, 'Envio de e-mail')}>+ E-mail</Button>
               <Button size="sm" variant="ghost" iconLeft="message-circle" onClick={() => onAddChild(cond.id, r.key, 'Envio de WhatsApp')}>+ WhatsApp</Button>
+              <Button size="sm" variant="ghost" iconLeft="smartphone" onClick={() => onAddChild(cond.id, r.key, 'Envio de SMS')}>+ SMS</Button>
             </div>
           </div>
         );
@@ -205,7 +211,7 @@ function ForkConnector() {
 }
 
 // ----- Inspetor da etapa -----
-function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, opts = {} }) {
+function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, onEditSms, opts = {} }) {
   const DB = KoblyMockDB;
   if (!step) {
     return (
@@ -233,7 +239,9 @@ function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, opts = {} }) {
       {step.tipo === 'Gatilho' && (
         <React.Fragment>
           <Select label="Tipo de evento" value={c.tipoEvento || ''} onChange={(e) => setCfg({ tipoEvento: e.target.value })} options={DB.optionSets.TipoEvento} />
-          <Select label="Webhook de origem" value={c.webhookId || ''} onChange={(e) => setCfg({ webhookId: e.target.value })} options={(opts.webhooks || []).map((w) => ({ value: w.id, label: w.nome }))} />
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            O webhook de origem é definido no topo da campanha (seletor global), não por etapa.
+          </div>
         </React.Fragment>
       )}
       {(step.tipo === 'Adicionar Tag' || step.tipo === 'Remover Tag') && (
@@ -254,14 +262,32 @@ function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, opts = {} }) {
       )}
       {step.tipo === 'Envio de e-mail' && (
         <React.Fragment>
-          <Select label="E-mail" value={c.emailId || ''} onChange={(e) => setCfg({ emailId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.emails || []).map((em) => ({ value: em.id, label: em.titulo }))]} />
-          <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditEmail(c.emailId)}>Editar e-mail</Button>
+          {/* Sem dropdown de templates pré-prontos: o e-mail é do card (criar/editar). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>Conteúdo do e-mail</div>
+            {c.emailId ? (
+              <div style={{ padding: '10px 12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>
+                {((opts.emails || []).find((em) => em.id === c.emailId) || {}).titulo || 'E-mail da etapa'}
+              </div>
+            ) : (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Nenhum e-mail ainda — abra o editor para criar o conteúdo desta etapa.</div>
+            )}
+            <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditEmail(c.emailId)}>
+              {c.emailId ? 'Editar e-mail' : 'Criar e-mail'}
+            </Button>
+          </div>
         </React.Fragment>
       )}
       {step.tipo === 'Envio de WhatsApp' && (
         <React.Fragment>
           <Select label="Mensagem WhatsApp" value={c.whatsappMessageId || ''} onChange={(e) => setCfg({ whatsappMessageId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.whatsappMessages || []).map((m) => ({ value: m.id, label: m.titulo }))]} />
           <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditWhatsApp(c.whatsappMessageId)}>Editar mensagem</Button>
+        </React.Fragment>
+      )}
+      {step.tipo === 'Envio de SMS' && (
+        <React.Fragment>
+          <Select label="Mensagem SMS" value={c.smsMessageId || ''} onChange={(e) => setCfg({ smsMessageId: e.target.value })} options={[{ value: '', label: 'Selecionar…' }, ...(opts.smsMessages || []).map((m) => ({ value: m.id, label: m.titulo }))]} />
+          <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditSms(c.smsMessageId)}>Editar mensagem</Button>
         </React.Fragment>
       )}
       {step.tipo === 'Acionar Fluxo' && (
@@ -275,7 +301,7 @@ function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, opts = {} }) {
           </div>
         </div>
       )}
-      {(step.tipo === 'Envio de e-mail' || step.tipo === 'Envio de WhatsApp') && (
+      {(step.tipo === 'Envio de e-mail' || step.tipo === 'Envio de WhatsApp' || step.tipo === 'Envio de SMS') && (
         step.parentId ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>Condição de envio</div>
@@ -310,7 +336,7 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const store = useKobly();
   const DB = KoblyMockDB;
   const optsA = useAsync(() => KoblyApi.getFlowOptions(), [store.role]);
-  const opts = optsA.data || { webhooks: [], emails: [], whatsappMessages: [], tags: [], campaigns: [] };
+  const opts = optsA.data || { webhooks: [], emails: [], whatsappMessages: [], smsMessages: [], tags: [], campaigns: [] };
   // UX-1: rascunho do fluxo em localStorage (restaurado ao reabrir a campanha).
   const draftKey = `kobly:flowdraft:${campaign.id}`;
   const [restoredDraft] = useState(() => {
@@ -324,6 +350,8 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const [emailModal, setEmailModal] = useState(null);
   // TPL-1: modal do editor de WhatsApp (espelha o emailModal).
   const [whatsappModal, setWhatsappModal] = useState(null);
+  // SMS: modal do editor de SMS (espelha o whatsappModal).
+  const [smsModal, setSmsModal] = useState(null);
   // TPL-2: objetivo = tipo_evento do Gatilho da campanha (passado à IA do WhatsApp).
   const objetivoCampanha = (steps.find((s) => s.tipo === 'Gatilho')?.config || {}).tipoEvento || null;
   const [dirty, setDirty] = useState(!!restoredDraft);
@@ -459,11 +487,13 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     const incompleto = steps.find((s) => {
       const c = s.config || {};
       if (s.tipo === 'Envio de WhatsApp' && !c.whatsappMessageId) return true;
+      if (s.tipo === 'Envio de SMS' && !c.smsMessageId) return true;
       if (s.tipo === 'Envio de e-mail' && !c.emailId) return true;
       return false;
     });
     if (incompleto) {
-      const oque = incompleto.tipo === 'Envio de WhatsApp' ? 'uma mensagem de WhatsApp' : 'um e-mail';
+      const oque = incompleto.tipo === 'Envio de WhatsApp' ? 'uma mensagem de WhatsApp'
+        : incompleto.tipo === 'Envio de SMS' ? 'uma mensagem de SMS' : 'um e-mail';
       store.notify('warning', `O card "${incompleto.nome || incompleto.tipo}" está incompleto: selecione ${oque} antes de salvar.`);
       return;
     }
@@ -611,7 +641,18 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <AISuggestion key={campaign.id} title="Sugestão da IA — esta campanha" load={(force) => KoblyAI.suggestForCampaign({ nome: campaign.nome, criticidade: campaign.stats && campaign.stats.criticidade }, force)} />
           <Card style={{ minHeight: 200 }}>
-            <Inspector step={selStep} onChange={updateStep} opts={opts} onEditEmail={(id) => setEmailModal((opts.emails || []).find((e) => e.id === id) || null)} onEditWhatsApp={(id) => setWhatsappModal((opts.whatsappMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })} />
+            <Inspector
+              step={selStep}
+              onChange={updateStep}
+              opts={opts}
+              onEditEmail={(id) => {
+                const found = id ? (opts.emails || []).find((e) => e.id === id) : null;
+                // Sem id ou sem template: abre editor vazio para criar e vincular à etapa.
+                setEmailModal(found || { titulo: '', assunto: '', remetente: '', corpoHtml: '' });
+              }}
+              onEditWhatsApp={(id) => setWhatsappModal((opts.whatsappMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })}
+              onEditSms={(id) => setSmsModal((opts.smsMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })}
+            />
           </Card>
           <Card icon="flag" title="Tags-meta (encerrar lead)">
             <p style={{ margin: '0 0 12px', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 'var(--lh-snug)' }}>Quando o lead recebe um evento com alguma destas tags, o fluxo é encerrado para ele.</p>
@@ -628,13 +669,82 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
       {emailModal !== null && React.createElement(KoblyEmailEditor, {
         email: emailModal,
         onClose: () => setEmailModal(null),
-        onSave: (p) => { if (p && p.id) { KoblyApi.updateEmail(p.id, p); optsA.reload(); } },
+        onSave: async (p) => {
+          if (!p) return { error: 'Dados inválidos' };
+          if (p.id) {
+            const { error } = await KoblyApi.updateEmail(p.id, p);
+            if (error) return { error };
+            await optsA.reload();
+            return { error: null };
+          }
+          // Cria template novo e vincula à etapa selecionada (sem lista pré-pronta).
+          const { error, id } = await KoblyApi.createEmail({
+            titulo: p.titulo, assunto: p.assunto, remetente: p.remetente, corpoHtml: p.corpoHtml,
+          }, campaign.empresaId);
+          if (error) return { error };
+          if (id && selId) {
+            setSteps((prev) => prev.map((s) => {
+              if (s.id !== selId) return s;
+              return { ...s, config: { ...(s.config || {}), emailId: id } };
+            }));
+            setDirty(true);
+          }
+          await optsA.reload();
+          return { error: null, id };
+        },
       })}
       {whatsappModal !== null && React.createElement(KoblyWhatsAppEditor, {
         message: whatsappModal,
         objetivo: objetivoCampanha,
         onClose: () => setWhatsappModal(null),
-        onSave: (p) => { if (p && p.id) { KoblyApi.saveWhatsappMessage(p); optsA.reload(); } },
+        onSave: async (p) => {
+          if (!p) return { error: 'Dados inválidos' };
+          if (p.id) {
+            const { error } = await KoblyApi.saveWhatsappMessage({
+              id: p.id, titulo: p.titulo, corpoTexto: p.corpoTexto, botoes: p.botoes,
+            });
+            if (error) return { error };
+            await optsA.reload();
+            return { error: null };
+          }
+          const { error, id } = await KoblyApi.saveWhatsappMessage({
+            titulo: p.titulo, corpoTexto: p.corpoTexto, botoes: p.botoes,
+          }, campaign.empresaId);
+          if (error) return { error };
+          if (id && selId) {
+            setSteps((prev) => prev.map((s) => {
+              if (s.id !== selId) return s;
+              return { ...s, config: { ...(s.config || {}), whatsappMessageId: id } };
+            }));
+            setDirty(true);
+          }
+          await optsA.reload();
+          return { error: null, id };
+        },
+      })}
+      {smsModal !== null && React.createElement(KoblySmsEditor, {
+        message: smsModal,
+        onClose: () => setSmsModal(null),
+        onSave: async (p) => {
+          if (!p) return { error: 'Dados inválidos' };
+          if (p.id) {
+            const { error } = await KoblyApi.saveSmsMessage({ id: p.id, titulo: p.titulo, corpoTexto: p.corpoTexto });
+            if (error) return { error };
+            await optsA.reload();
+            return { error: null };
+          }
+          const { error, id } = await KoblyApi.saveSmsMessage({ titulo: p.titulo, corpoTexto: p.corpoTexto }, campaign.empresaId);
+          if (error) return { error };
+          if (id && selId) {
+            setSteps((prev) => prev.map((s) => {
+              if (s.id !== selId) return s;
+              return { ...s, config: { ...(s.config || {}), smsMessageId: id } };
+            }));
+            setDirty(true);
+          }
+          await optsA.reload();
+          return { error: null, id };
+        },
       })}
     </div>
   );

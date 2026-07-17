@@ -25,7 +25,7 @@ function UsageBar({ label, used, limit }) {
   );
 }
 
-function PlanCard({ p, current, onChoose }) {
+function PlanCard({ p, current, onChoose, onCheckout, checkoutBusy, asaasReady }) {
   const DB = KoblyMockDB;
   return (
     <div className="kbly-lift" style={{
@@ -46,7 +46,16 @@ function PlanCard({ p, current, onChoose }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="megaphone" size={15} style={{ color: 'var(--accent)' }} /><span><span className="kbly-num">{KoblyApi.br(p.limiteCampanhas)}</span> campanhas</span></span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="zap" size={15} style={{ color: 'var(--accent)' }} /><span><span className="kbly-num">{KoblyApi.br(p.limiteExecucoes)}</span> execuções/mês</span></span>
       </div>
-      {!current && p.status === 'Ativo' && <Button variant="secondary" fullWidth onClick={() => onChoose(p)}>Falar com o comercial</Button>}
+      {!current && p.status === 'Ativo' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {asaasReady && (
+            <Button variant="primary" fullWidth loading={checkoutBusy === p.id} disabled={!!checkoutBusy} onClick={() => onCheckout(p)}>
+              {checkoutBusy === p.id ? 'Gerando cobrança…' : 'Assinar com Asaas (PIX)'}
+            </Button>
+          )}
+          <Button variant="secondary" fullWidth onClick={() => onChoose(p)}>Falar com o comercial</Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -55,9 +64,14 @@ function KoblyPlans() {
   const store = useKobly();
   const DB = KoblyMockDB;
   const a = useAsync(() => KoblyApi.getPlans(store.session.empresaId || 'emp_1'), [store.role]);
+  const asaasA = useAsync(() => KoblyApi.getAsaasStatus(), []);
   const [modal, setModal] = useState(false);
   const [pf, setPf] = useState({ nome: '', descricao: '', valorMensal: '', valorAnual: '', limiteCampanhas: '', limiteExecucoes: '' });
   const [busy, setBusy] = useState(false);
+  const [checkoutBusy, setCheckoutBusy] = useState(null);
+  // PIX gerado (QR + copia-e-cola) — mostrado em modal após criar a cobrança.
+  const [pixData, setPixData] = useState(null);
+  const [pixCopied, setPixCopied] = useState(false);
   const setField = (k) => (e) => setPf((f) => ({ ...f, [k]: e.target.value }));
   async function createPlan() {
     if (!pf.nome.trim()) return;
@@ -79,17 +93,61 @@ function KoblyPlans() {
   if (a.status === 'loading') return <SkeletonCards count={3} height={280} />;
   const d = a.data;
   const canCreate = store.can.createPlan;
-  // Upgrade/troca de plano sem gateway na v1: abre um chamado pro comercial já tipado.
+  const asaasReady = !!(asaasA.data && asaasA.data.configured);
+  // Upgrade: Asaas (PIX) se configurado; senão chamado pro comercial.
   const falarComComercial = (assunto) => {
     store.setTicketPrefill({ tipo: 'Pagamento', assunto });
     store.navigate('chamados');
   };
+  async function checkoutAsaas(plan) {
+    setCheckoutBusy(plan.id);
+    const r = await KoblyApi.createAsaasCheckout({
+      planId: plan.id,
+      billingType: 'PIX',
+      organizationId: store.session.empresaId,
+    });
+    setCheckoutBusy(null);
+    if (r.error) {
+      store.notify('danger', r.error);
+      return;
+    }
+    // PIX gerado: mostra QR + copia-e-cola no modal (mantém a fatura como fallback).
+    if (r.pixQrCode || r.pixCopyPaste) {
+      setPixCopied(false);
+      setPixData({ ...r, plan });
+      store.notify('success', `Cobrança PIX ${r.env === 'sandbox' ? '(sandbox) ' : ''}gerada`);
+    } else if (r.invoiceUrl) {
+      store.notify('success', `Cobrança ${r.env === 'sandbox' ? '(sandbox) ' : ''}criada — abrindo fatura…`);
+      window.open(r.invoiceUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      store.notify('success', `Cobrança criada (${r.paymentId || 'ok'}). Confira no painel Asaas.`);
+    }
+  }
+  async function copyPix() {
+    if (!pixData?.pixCopyPaste) return;
+    try {
+      await navigator.clipboard.writeText(pixData.pixCopyPaste);
+      setPixCopied(true);
+      store.notify('success', 'Código PIX copiado');
+    } catch (_) {
+      store.notify('warning', 'Não foi possível copiar — selecione o código manualmente.');
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageIntro action={canCreate ? <Button variant="primary" iconLeft="plus" onClick={() => setModal(true)}>Criar novo plano</Button> : null}>
         {canCreate ? 'Gestão de planos da plataforma e histórico de cobrança das contas.' : 'Seu plano atual, consumo do período e histórico de cobrança.'}
       </PageIntro>
+
+      {asaasA.data && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="credit-card" size={13} />
+          Gateway Asaas: {asaasReady
+            ? `configurado (${asaasA.data.env || 'sandbox'})`
+            : 'não configurado — defina asaas_api_key no Vault (sandbox)'}
+        </div>
+      )}
 
       {!canCreate && d.atual && (
         <Card title={`Plano ${d.atual.nome}`} subtitle="Consumo do período atual" action={<Button variant="primary" size="sm" iconLeft="arrow-up-circle" onClick={() => falarComComercial(`Upgrade do plano ${d.atual.nome}`)}>Falar com o comercial</Button>}>
@@ -102,7 +160,15 @@ function KoblyPlans() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         {d.planos.filter((p) => !p.deleted).map((p) => (
-          <PlanCard key={p.id} p={p} current={!!d.atual && p.id === d.atual.id && !canCreate} onChoose={(pl) => falarComComercial(`Mudança para o plano ${pl.nome}`)} />
+          <PlanCard
+            key={p.id}
+            p={p}
+            current={!!d.atual && p.id === d.atual.id && !canCreate}
+            onChoose={(pl) => falarComComercial(`Mudança para o plano ${pl.nome}`)}
+            onCheckout={checkoutAsaas}
+            checkoutBusy={checkoutBusy}
+            asaasReady={asaasReady && !canCreate}
+          />
         ))}
       </div>
 
@@ -120,6 +186,41 @@ function KoblyPlans() {
           rows={canCreate ? d.transacoes : d.transacoes.filter((t) => t.userId === store.session.userId)}
         />
       </Card>
+
+      <Modal open={!!pixData} onClose={() => setPixData(null)} title={`Pagar via PIX${pixData?.plan ? ` — ${pixData.plan.nome}` : ''}`} width={420}
+        footer={<>
+          {pixData?.invoiceUrl && (
+            <Button variant="ghost" iconLeft="external-link" onClick={() => window.open(pixData.invoiceUrl, '_blank', 'noopener,noreferrer')}>Abrir fatura</Button>
+          )}
+          <Button variant="primary" onClick={() => setPixData(null)}>Fechar</Button>
+        </>}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center' }}>
+          {pixData?.env === 'sandbox' && <Badge tone="warning">Ambiente sandbox — pagamento de teste</Badge>}
+          {pixData?.pixQrCode ? (
+            <img
+              src={`data:image/png;base64,${pixData.pixQrCode}`}
+              alt="QR Code PIX"
+              width={220} height={220}
+              style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', background: '#fff', padding: 8 }}
+            />
+          ) : (
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>QR indisponível — use o código copia-e-cola abaixo.</div>
+          )}
+          {pixData?.value != null && (
+            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>{KoblyApi.money(pixData.value)}</div>
+          )}
+          {pixData?.pixCopyPaste && (
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'start' }}>PIX copia e cola</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                <div style={{ flex: 1, minWidth: 0, padding: '8px 10px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pixData.pixCopyPaste}</div>
+                <Button variant="secondary" size="sm" iconLeft={pixCopied ? 'check' : 'copy'} onClick={copyPix}>{pixCopied ? 'Copiado' : 'Copiar'}</Button>
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Após o pagamento, a confirmação pode levar alguns instantes.</div>
+        </div>
+      </Modal>
 
       <Modal open={modal} onClose={() => setModal(false)} title="Criar novo plano" width={520}
         footer={<>

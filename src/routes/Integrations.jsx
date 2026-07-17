@@ -8,6 +8,9 @@ import { useAsync } from '@/lib/hooks.jsx';
 import { Segmented, Modal, PhoneField, ErrorState, SkeletonForm, SkeletonTable, SkeletonRow } from '@/lib/ui.jsx';
 import { renderEmail } from '@/lib/emailTemplate.js';
 import { useKobly } from '@/store/store.jsx';
+import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
+import { KoblyWhatsAppEditor } from '@/routes/WhatsAppEditor.jsx';
+import { KoblySmsEditor } from '@/routes/SmsEditor.jsx';
 
 // Kobly — Integrações simplificada. Postback URL + Templates de email + WhatsApp + Tags.
 // KoblyIntegrations
@@ -183,8 +186,14 @@ function PostbackTab({ data, empresaId }) {
   // WEB-1: exclui um webhook (campanhas vinculadas voltam a "qualquer webhook").
   async function deleteWebhook(t) {
     if (!confirm(`Excluir o webhook "${t.nome}"? Campanhas vinculadas a ele passarão a aceitar qualquer webhook da conta.`)) return;
-    const ok = await KoblyApi.deletePostbackToken(t.id);
-    if (ok) { store.notify('success', 'Webhook excluído'); await loadTokens(); }
+    const result = await KoblyApi.deletePostbackToken(t.id);
+    // API retorna { ok, error } (antes era boolean silencioso → clique "sem ação").
+    if (result && result.ok) {
+      store.notify('success', 'Webhook excluído');
+      await loadTokens();
+    } else {
+      store.notify('danger', (result && result.error) || 'Não foi possível excluir o webhook');
+    }
   }
 
   // URL do primeiro webhook ativo — usada pelo teste de evento e pelo banner.
@@ -484,68 +493,59 @@ function PostbackTab({ data, empresaId }) {
 }
 
 // ── Aba 2: Templates de Email ──
+// Editor completo (HTML + remetente + preview) — o modal simples não persistia o corpo.
 function EmailTemplatesTab({ data, reload, empresaId }) {
-  const store = useKobly();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ titulo: '', assunto: '', remetente: '' });
-  // UX-2: feedback visual de loading no botão Salvar (igual ao FlowBuilder).
-  const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState(null); // email em edição ou {} para novo
 
   function openNew() {
-    setEditing(null);
-    setForm({ titulo: '', assunto: '', remetente: '' });
-    setModal(true);
+    setEditor({ titulo: '', assunto: '', remetente: '', corpoHtml: '' });
   }
 
   function openEdit(email) {
-    setEditing(email);
-    setForm({ titulo: email.titulo, assunto: email.assunto, remetente: email.remetente });
-    setModal(true);
+    setEditor(email);
   }
 
-  async function save() {
-    if (!form.titulo.trim() || !form.assunto.trim()) return;
-    setSaving(true);
-    if (editing) {
-      const { error } = await KoblyApi.updateEmail(editing.id, form);
-      store.notify(error ? 'danger' : 'success', error ? 'Não foi possível atualizar.' : 'E-mail atualizado');
-    } else {
-      const { error } = await KoblyApi.createEmail(form, empresaId);
-      store.notify(error ? 'danger' : 'success', error || 'Template criado');
+  async function saveEmail(p) {
+    if (!p) return { error: 'Dados inválidos' };
+    if (p.id) {
+      const { error } = await KoblyApi.updateEmail(p.id, {
+        titulo: p.titulo, assunto: p.assunto, remetente: p.remetente, corpoHtml: p.corpoHtml,
+      });
+      if (error) return { error };
+      reload();
+      return { error: null };
     }
-    setSaving(false);
-    setModal(false);
+    const { error, id } = await KoblyApi.createEmail({
+      titulo: p.titulo, assunto: p.assunto, remetente: p.remetente, corpoHtml: p.corpoHtml,
+    }, empresaId);
+    if (error) return { error };
     reload();
+    return { error: null, id };
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {data.emails.map((e) => (
+      {(data.emails || []).map((e) => (
         <Card key={e.id} icon="mail" title={e.titulo} subtitle={e.assunto}
           action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(e)}>Editar</Button>}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <Icon name="at-sign" size={16} style={{ color: 'var(--text-subtle)' }} />
             <div>
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>{e.assunto}</div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Remetente: {e.remetente}</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Remetente: {e.remetente || '—'}</div>
             </div>
           </div>
         </Card>
       ))}
       <Button variant="secondary" iconLeft="plus" onClick={openNew}>Novo template de e-mail</Button>
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Editar e-mail' : 'Novo e-mail'} width={520}
-        footer={<>
-          <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
-          <Button variant="primary" loading={saving} disabled={saving || !form.titulo.trim() || !form.assunto.trim()} onClick={save}>{saving ? 'Salvando…' : 'Salvar'}</Button>
-        </>}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Input label="Título (intern)" placeholder="Ex.: Carrinho — lembrete" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
-          <Input label="Assunto do e-mail" placeholder="Ex.: Você esqueceu algo no carrinho" value={form.assunto} onChange={(e) => setForm({ ...form, assunto: e.target.value })} />
-          <Input label="Nome do remetente" placeholder="Ex.: Loja do João" value={form.remetente} onChange={(e) => setForm({ ...form, remetente: e.target.value })} />
-        </div>
-      </Modal>
+      {editor !== null && (
+        <KoblyEmailEditor
+          email={editor}
+          onClose={() => setEditor(null)}
+          onSave={saveEmail}
+        />
+      )}
     </div>
   );
 }
@@ -569,78 +569,75 @@ function WhatsappTab({ empresaId }) {
   const store = useKobly();
   const msgs = useAsync(() => KoblyApi.listWhatsappMessages(), [empresaId]);
   const conn = useAsync(() => KoblyApi.getWhatsappStatus(), []);
+  const testPhoneA = useAsync(() => KoblyApi.getWhatsappTestPhone(), []);
   const [testPhone, setTestPhone] = useState('');
+  const [phoneLoaded, setPhoneLoaded] = useState(false);
+  const [savingPhone, setSavingPhone] = useState(false);
   const [sending, setSending] = useState(false);
-  const [testResult, setTestResult] = useState(null); // { ok, msg } do último teste
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ titulo: '', corpoTexto: '' });
-  const [saving, setSaving] = useState(false);
-  // Geração do texto por IA (ai-chat task=whatsapp) — preenche o form, o usuário revisa e salva.
-  const [aiBrief, setAiBrief] = useState('');
-  const [aiGenerating, setAiGenerating] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testMsgId, setTestMsgId] = useState(''); // template a enviar no teste ('' = conexão)
+  const [editor, setEditor] = useState(null); // mensagem em edição / nova
 
-  async function generateWithAI() {
-    if (!aiBrief.trim()) return;
-    setAiGenerating(true);
-    try {
-      const r = await KoblyAI.generateWhatsappText({ brief: aiBrief.trim(), empresaId });
-      setForm((f) => ({ titulo: f.titulo.trim() ? f.titulo : (r.titulo || 'Mensagem WhatsApp'), corpoTexto: r.texto || f.corpoTexto }));
-      store.notify('success', 'Texto gerado — revise e salve');
-    } finally {
-      setAiGenerating(false);
-    }
+  // Hidrata o número de teste salvo no perfil (uma vez).
+  useEffect(() => {
+    if (phoneLoaded || !testPhoneA.data) return;
+    if (testPhoneA.data.phone) setTestPhone(testPhoneA.data.phone);
+    setPhoneLoaded(true);
+  }, [testPhoneA.data, phoneLoaded]);
+
+  async function saveTestPhone() {
+    setSavingPhone(true);
+    const { error } = await KoblyApi.saveWhatsappTestPhone(testPhone);
+    setSavingPhone(false);
+    store.notify(error ? 'danger' : 'success', error || 'Número de teste salvo no seu perfil');
   }
 
   async function sendTest() {
     if (!testPhone.trim()) return;
     setSending(true);
     setTestResult(null);
-    const r = await KoblyApi.sendTestWhatsapp({
-      phone: testPhone.trim(),
-      message: 'Mensagem de teste da Koblay — sua conexão WhatsApp está funcionando.',
-    });
+    // Persiste o número ao testar (vínculo para testes futuros).
+    await KoblyApi.saveWhatsappTestPhone(testPhone);
+    // Envia a MENSAGEM COMPOSTA do template selecionado (texto + botões reais),
+    // não uma string hardcoded — é o preview de verdade do que o lead recebe.
+    // Sem template selecionado → teste genérico de conexão.
+    const selected = testMsgId ? (msgs.data || []).find((m) => m.id === testMsgId) : null;
+    const payload = selected
+      ? { phone: testPhone.trim(), message: selected.corpoTexto || selected.titulo || '', buttonActions: selected.botoes || [] }
+      : {
+          phone: testPhone.trim(),
+          message: 'Mensagem de teste da Koblay — sua conexão WhatsApp está funcionando.',
+          buttonActions: [{ id: '1', type: 'URL', label: 'Abrir site', url: 'https://koblay.io' }],
+        };
+    const r = await KoblyApi.sendTestWhatsapp(payload);
     setSending(false);
     if (r.error) {
       setTestResult({ ok: false, msg: r.error });
       store.notify('danger', r.error);
     } else {
-      setTestResult({ ok: true, msg: 'Mensagem de teste enviada — confira o WhatsApp do número informado.' });
+      const okMsg = selected
+        ? `Mensagem "${selected.titulo || 'template'}" enviada — confira o WhatsApp.`
+        : 'Mensagem de teste enviada (com botão CTA) — confira o WhatsApp.';
+      setTestResult({ ok: true, msg: okMsg });
       store.notify('success', 'Mensagem de teste enviada');
     }
   }
 
-  function openNew() {
-    setEditing(null);
-    setForm({ titulo: '', corpoTexto: '' });
-    setAiBrief('');
-    setModal(true);
-  }
-  function openEdit(m) {
-    setEditing(m);
-    setForm({ titulo: m.titulo, corpoTexto: m.corpoTexto || '' });
-    setAiBrief('');
-    setModal(true);
-  }
-  async function saveMsg() {
-    if (!form.titulo.trim() || !form.corpoTexto.trim()) return;
-    setSaving(true);
-    const r = await KoblyApi.saveWhatsappMessage({ id: editing ? editing.id : null, titulo: form.titulo.trim(), corpoTexto: form.corpoTexto }, empresaId);
-    setSaving(false);
-    if (r.error) { store.notify('danger', 'Não foi possível salvar a mensagem'); return; }
-    store.notify('success', editing ? 'Mensagem atualizada' : 'Mensagem criada');
-    setModal(false);
+  async function saveMsg(p) {
+    const r = await KoblyApi.saveWhatsappMessage({
+      id: p.id || null, titulo: p.titulo, corpoTexto: p.corpoTexto, botoes: p.botoes,
+    }, empresaId);
+    if (r.error) return { error: r.error };
     msgs.reload();
+    return { error: null, id: r.id };
   }
 
   const messages = (msgs.data || []).filter((m) => !empresaId || m.empresaId === empresaId);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Conexão Z-API + envio de teste */}
-      <Card icon="message-circle" title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam guardadas com segurança no servidor.">
+      <Card icon="message-circle" title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam no servidor.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Estado REAL da conexão: qual número/nome de WhatsApp está plugado */}
           {conn.loading ? (
             <Banner tone="info" title="Verificando conexão…">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -661,8 +658,144 @@ function WhatsappTab({ empresaId }) {
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
-            Nenhuma credencial é digitada aqui. Para conectar ou trocar o número, fale com o suporte. Use o teste abaixo para verificar se a conexão está ativa.
+            Vincule um número de celular focado em testes — fica salvo no seu perfil.
           </div>
+          {messages.length > 0 && (
+            <div style={{ maxWidth: 380 }}>
+              <Select
+                label="Mensagem a testar"
+                value={testMsgId}
+                onChange={(e) => setTestMsgId(e.target.value)}
+                options={[{ value: '', label: 'Teste de conexão (padrão)' }, ...messages.map((m) => ({ value: m.id, label: m.titulo || 'Mensagem' }))]}
+              />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 280px', maxWidth: 380 }}>
+              <PhoneField label="Telefone de teste" value={testPhone} onChange={setTestPhone} />
+            </div>
+            <Button variant="secondary" iconLeft="save" disabled={savingPhone || testPhone.replace(/\D/g, '').length < 10} onClick={saveTestPhone}>
+              {savingPhone ? 'Salvando…' : 'Salvar número'}
+            </Button>
+            <Button variant="primary" iconLeft="send" disabled={sending || testPhone.replace(/\D/g, '').length < 10} onClick={sendTest}>
+              {sending ? 'Enviando…' : 'Enviar teste'}
+            </Button>
+          </div>
+          {testResult && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: testResult.ok ? 'var(--status-success-fg)' : 'var(--status-danger-fg)' }}>
+              <Icon name={testResult.ok ? 'check-circle-2' : 'alert-triangle'} size={15} style={{ flex: 'none' }} />
+              {testResult.msg}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {messages.map((m) => (
+        <Card key={m.id} icon="message-circle" title={m.titulo}
+          subtitle={(m.botoes && m.botoes.length) ? `${m.botoes.length} botão(ões) interativo(s)` : 'Mensagem de WhatsApp'}
+          action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => setEditor(m)}>Editar</Button>}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{
+              maxWidth: 460,
+              background: 'color-mix(in srgb, var(--status-success-fg) 12%, var(--surface-sunken))',
+              border: '1px solid color-mix(in srgb, var(--status-success-fg) 22%, transparent)',
+              borderRadius: '4px 14px 14px 14px',
+              padding: '10px 13px',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-strong)',
+              lineHeight: 'var(--lh-normal)',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+            }}>
+              {m.corpoTexto}
+            </div>
+            {(m.botoes || []).map((b, i) => (
+              <div key={i} style={{ maxWidth: 220, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-default)', textAlign: 'center', fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--accent)' }}>
+                {b.label}
+              </div>
+            ))}
+          </div>
+        </Card>
+      ))}
+      <Button variant="secondary" iconLeft="plus" onClick={() => setEditor({ titulo: '', corpoTexto: '', botoes: [] })}>Nova mensagem de WhatsApp</Button>
+
+      {editor !== null && (
+        <KoblyWhatsAppEditor
+          message={editor}
+          onClose={() => setEditor(null)}
+          onSave={saveMsg}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Aba: SMS (Twilio) — templates + envio de teste ──
+function SmsTab({ empresaId }) {
+  const store = useKobly();
+  const msgs = useAsync(() => KoblyApi.listSmsMessages(), [empresaId]);
+  const testPhoneA = useAsync(() => KoblyApi.getWhatsappTestPhone(), []);
+  const [testPhone, setTestPhone] = useState('');
+  const [phoneLoaded, setPhoneLoaded] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testMsgId, setTestMsgId] = useState(''); // template a enviar ('' = mensagem padrão)
+  const [editor, setEditor] = useState(null);
+
+  // Reaproveita o número de teste do perfil (mesmo campo do WhatsApp).
+  useEffect(() => {
+    if (phoneLoaded || !testPhoneA.data) return;
+    if (testPhoneA.data.phone) setTestPhone(testPhoneA.data.phone);
+    setPhoneLoaded(true);
+  }, [testPhoneA.data, phoneLoaded]);
+
+  async function sendTest() {
+    if (!testPhone.trim()) return;
+    setSending(true);
+    setTestResult(null);
+    await KoblyApi.saveWhatsappTestPhone(testPhone);
+    const selected = testMsgId ? (msgs.data || []).find((m) => m.id === testMsgId) : null;
+    const message = selected
+      ? (selected.corpoTexto || selected.titulo || '')
+      : 'Teste de SMS da Koblay — sua integração está funcionando.';
+    const r = await KoblyApi.sendTestSms({ to: testPhone.trim(), message });
+    setSending(false);
+    if (r.error) {
+      setTestResult({ ok: false, msg: r.error });
+      store.notify('danger', r.error);
+    } else {
+      setTestResult({ ok: true, msg: `SMS enviado${r.segments ? ` (${r.segments} segmento(s))` : ''} — confira o celular.` });
+      store.notify('success', 'SMS de teste enviado');
+    }
+  }
+
+  async function saveMsg(p) {
+    const r = await KoblyApi.saveSmsMessage({ id: p.id || null, titulo: p.titulo, corpoTexto: p.corpoTexto }, empresaId);
+    if (r.error) return { error: r.error };
+    msgs.reload();
+    return { error: null, id: r.id };
+  }
+
+  const messages = (msgs.data || []).filter((m) => !empresaId || m.empresaId === empresaId);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card icon="smartphone" title="SMS (Twilio)" subtitle="As credenciais Twilio ficam no servidor (Vault). Envie um teste para validar.">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+            <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />
+            O número de teste é o mesmo do WhatsApp (salvo no seu perfil).
+          </div>
+          {messages.length > 0 && (
+            <div style={{ maxWidth: 380 }}>
+              <Select
+                label="Mensagem a testar"
+                value={testMsgId}
+                onChange={(e) => setTestMsgId(e.target.value)}
+                options={[{ value: '', label: 'Mensagem padrão de teste' }, ...messages.map((m) => ({ value: m.id, label: m.titulo || 'Mensagem' }))]}
+              />
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 280px', maxWidth: 380 }}>
               <PhoneField label="Telefone de teste" value={testPhone} onChange={setTestPhone} />
@@ -677,70 +810,136 @@ function WhatsappTab({ empresaId }) {
               {testResult.msg}
             </div>
           )}
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Escolha o país e digite com DDD — a máscara formata sozinha, e o envio resolve o formato real do número no WhatsApp (com ou sem o nono dígito).
+        </div>
+      </Card>
+
+      {messages.map((m) => (
+        <Card key={m.id} icon="smartphone" title={m.titulo} subtitle="Mensagem de SMS"
+          action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => setEditor(m)}>Editar</Button>}>
+          <div style={{
+            maxWidth: 460, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)',
+            borderRadius: '4px 14px 14px 14px', padding: '10px 13px', fontSize: 'var(--text-sm)',
+            color: 'var(--text-strong)', lineHeight: 'var(--lh-normal)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+          }}>
+            {m.corpoTexto}
+          </div>
+        </Card>
+      ))}
+      <Button variant="secondary" iconLeft="plus" onClick={() => setEditor({ titulo: '', corpoTexto: '' })}>Nova mensagem de SMS</Button>
+
+      {editor !== null && (
+        <KoblySmsEditor message={editor} onClose={() => setEditor(null)} onSave={saveMsg} />
+      )}
+    </div>
+  );
+}
+
+// ── Aba: Domínio de envio (Resend) — remetente customizado ──
+function DomainTab({ empresaId }) {
+  const store = useKobly();
+  const a = useAsync(() => KoblyApi.listSendingDomains(empresaId), [empresaId]);
+  const [name, setName] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  async function create() {
+    if (!name.trim()) return;
+    setCreating(true);
+    const { error } = await KoblyApi.createSendingDomain({
+      name: name.trim().toLowerCase(),
+      fromEmail: fromEmail.trim() || undefined,
+    }, empresaId);
+    setCreating(false);
+    if (error) { store.notify('danger', typeof error === 'string' ? error : 'Falha ao criar domínio'); return; }
+    store.notify('success', 'Domínio criado — adicione os registros DNS abaixo');
+    setName(''); setFromEmail('');
+    a.reload();
+  }
+  async function verify(id) {
+    setBusyId(id);
+    const { error, verified } = await KoblyApi.verifySendingDomain(id);
+    setBusyId(null);
+    if (error) { store.notify('danger', error); return; }
+    store.notify(verified ? 'success' : 'warning', verified ? 'Domínio verificado!' : 'Ainda pendente — confira o DNS (pode levar alguns minutos)');
+    a.reload();
+  }
+  async function remove(id, url) {
+    if (!confirm(`Remover o domínio ${url}?`)) return;
+    setBusyId(id);
+    const { error } = await KoblyApi.deleteSendingDomain(id);
+    setBusyId(null);
+    if (error) { store.notify('danger', error); return; }
+    store.notify('success', 'Domínio removido');
+    a.reload();
+  }
+
+  const domains = a.data?.domains || [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card icon="globe" title="Domínio de envio (Resend)" subtitle="Conecte seu domínio para enviar e-mails com remetente próprio (ex.: contato@sualoja.com.br).">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Banner tone="info">
+            Após criar o domínio, adicione os registros DNS no seu provedor (Registro.br, Cloudflare, etc.). Depois clique em Verificar.
+          </Banner>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'flex-end' }}>
+            <Input label="Domínio" placeholder="envio.sualoja.com.br" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input label="E-mail remetente" placeholder="contato@envio.sualoja.com.br" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
+            <Button variant="primary" iconLeft="plus" loading={creating} disabled={creating || !name.trim()} onClick={create}>
+              {creating ? 'Criando…' : 'Adicionar'}
+            </Button>
           </div>
         </div>
       </Card>
 
-      {/* Mensagens de WhatsApp (análogo aos templates de e-mail) — preview em bolha de chat */}
-      {messages.map((m) => (
-        <Card key={m.id} icon="message-circle" title={m.titulo} subtitle="Mensagem de WhatsApp"
-          action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(m)}>Editar</Button>}>
-          <div style={{ display: 'flex' }}>
-            <div
-              style={{
-                maxWidth: 460,
-                background: 'color-mix(in srgb, var(--status-success-fg) 12%, var(--surface-sunken))',
-                border: '1px solid color-mix(in srgb, var(--status-success-fg) 22%, transparent)',
-                borderRadius: '4px 14px 14px 14px',
-                padding: '10px 13px',
-                fontSize: 'var(--text-sm)',
-                color: 'var(--text-strong)',
-                lineHeight: 'var(--lh-normal)',
-                whiteSpace: 'pre-wrap',
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {m.corpoTexto}
-            </div>
-          </div>
-        </Card>
-      ))}
-      <Button variant="secondary" iconLeft="plus" onClick={openNew}>Nova mensagem de WhatsApp</Button>
+      {a.loading && <SkeletonForm fields={2} />}
+      {a.data?.error && <Banner tone="danger">{a.data.error}</Banner>}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Editar mensagem' : 'Nova mensagem'} width={520}
-        footer={<>
-          <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
-          <Button variant="primary" disabled={saving || !form.titulo.trim() || !form.corpoTexto.trim()} onClick={saveMsg}>{saving ? 'Salvando…' : 'Salvar'}</Button>
-        </>}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Gerar com IA — mesmo padrão do editor de e-mail: descreve o objetivo, a IA escreve, você revisa */}
-          <div style={{ background: 'var(--surface-sunken)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>
-              <Icon name="sparkles" size={15} style={{ color: 'var(--accent)' }} /> Gerar com IA
+      {domains.map((d) => {
+        const verified = d.validado || d.status === 'verified';
+        const records = d.domain_dns_records || d.registros || [];
+        return (
+          <Card key={d.id} icon="mail" title={d.url}
+            subtitle={d.from_email || d.fromEmail || '—'}
+            action={<Badge tone={verified ? 'success' : 'warning'} dot>{verified ? 'Verificado' : 'Pendente'}</Badge>}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {records.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '6px 8px' }}>Tipo</th>
+                        <th style={{ padding: '6px 8px' }}>Host</th>
+                        <th style={{ padding: '6px 8px' }}>Valor</th>
+                        <th style={{ padding: '6px 8px' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {records.map((r, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '6px 8px', color: 'var(--text-strong)' }}>{r.tipo}</td>
+                          <td style={{ padding: '6px 8px', color: 'var(--text-body)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.host}>{r.host}</td>
+                          <td style={{ padding: '6px 8px', color: 'var(--text-body)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.valor}>{r.valor}</td>
+                          <td style={{ padding: '6px 8px' }}><Badge tone={r.status === 'verificado' ? 'success' : 'neutral'}>{r.status}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button size="sm" variant="secondary" iconLeft="refresh-cw" loading={busyId === d.id} disabled={busyId === d.id} onClick={() => verify(d.id)}>
+                  Verificar DNS
+                </Button>
+                <Button size="sm" variant="ghost" iconLeft="trash-2" disabled={busyId === d.id} onClick={() => remove(d.id, d.url)}>
+                  Remover
+                </Button>
+              </div>
             </div>
-            <textarea value={aiBrief} onChange={(e) => setAiBrief(e.target.value)} rows={2}
-              placeholder="Ex.: lembrete amigável de carrinho abandonado, com senso de urgência"
-              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', color: 'var(--text-body)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 8, outline: 'none' }} />
-            <div>
-              <Button size="sm" variant="secondary" iconLeft="sparkles" disabled={aiGenerating || !aiBrief.trim()} onClick={generateWithAI}>
-                {aiGenerating ? 'Gerando…' : 'Gerar texto'}
-              </Button>
-            </div>
-          </div>
-          <Input label="Título (interno)" placeholder="Ex.: Carrinho — lembrete WhatsApp" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
-          <div>
-            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)', marginBottom: 8 }}>Texto da mensagem</div>
-            <textarea value={form.corpoTexto} onChange={(e) => setForm({ ...form, corpoTexto: e.target.value })} rows={6}
-              placeholder={'Ex.: Oi! Vi que você deixou itens no carrinho. Finalize por aqui: {{cta_link}}'}
-              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10, outline: 'none' }} />
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>
-              Use <code>{'{{cta_link}}'}</code> onde o link de recuperação deve entrar — ele é trocado automaticamente no envio.
-            </div>
-          </div>
-        </div>
-      </Modal>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -943,13 +1142,15 @@ function KoblyIntegrations() {
     { value: 'postback', label: 'Postback URL', icon: 'webhook' },
     { value: 'marca', label: 'Marca', icon: 'palette' },
     { value: 'emails', label: 'Templates de e-mail', icon: 'mail' },
+    { value: 'dominio', label: 'Domínio / Remetente', icon: 'globe' },
     { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
+    { value: 'sms', label: 'SMS', icon: 'smartphone' },
     { value: 'tags', label: 'Tags', icon: 'tag' },
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageHeader tabs={<Tabs value={tab} onChange={setTab} options={tabs} />}>
-        Configure a URL de postback, templates de e-mail, mensagens de WhatsApp e tags por evento.
+        Configure postback, domínio de envio, templates, WhatsApp e tags.
       </PageHeader>
       {isGestor && (
         <Select
@@ -966,7 +1167,9 @@ function KoblyIntegrations() {
             {tab === 'postback' && <PostbackTab data={a.data} empresaId={empresaId} />}
             {tab === 'marca' && <BrandTab empresaId={empresaId} />}
             {tab === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} empresaId={empresaId} />}
+            {tab === 'dominio' && <DomainTab empresaId={empresaId} />}
             {tab === 'whatsapp' && <WhatsappTab empresaId={empresaId} />}
+            {tab === 'sms' && <SmsTab empresaId={empresaId} />}
             {tab === 'tags' && <TagsTab data={a.data} reload={a.reload} />}
           </>)}
     </div>
