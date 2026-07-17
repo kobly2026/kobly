@@ -87,25 +87,27 @@ Deno.serve(async (req: Request) => {
     const { data: tpl } = await sb.from(templateTable[canal]).select("id, organization_id").eq("id", templateId).maybeSingle();
     if (!tpl || tpl.organization_id !== orgId) return json({ error: "invalid_template" }, 400);
 
+    // Idempotência: retry de rede / duplo-clique NÃO deve criar um 2º disparo. Dedup por
+    // (org, canal, template, filtro) ainda ativo criado nos últimos 60s → devolve o existente.
+    const { data: cands } = await sb.from("bulk_sends")
+      .select("id, total, filtro")
+      .eq("organization_id", orgId).eq("canal", canal).eq(templateCol[canal], templateId)
+      .in("status", ["enfileirando", "enviando"])
+      .gte("created_at", new Date(Date.now() - 60_000).toISOString());
+    const dupe = (cands || []).find((c) => JSON.stringify(c.filtro || {}) === JSON.stringify(filter || {}));
+    if (dupe) return json({ ok: true, bulk_send_id: dupe.id, total: dupe.total, deduped: true });
+
     // Audiência prévia (para checar limite antes de enfileirar).
     const { data: total, error: cErr } = await sb.rpc("bulk_count_audience", { p_org: orgId, p_canal: canal, p_filter: filter });
     if (cErr) return json({ error: "estimate_failed", detail: cErr.message }, 500);
     const audience = Number(total) || 0;
     if (audience <= 0) return json({ error: "empty_audience", detail: "Nenhum lead corresponde ao filtro." }, 400);
 
-    // Checagem de limite do plano (usage_counters vs plans.limite_execucoes).
-    const { data: org } = await sb.from("organizations").select("plano_id").eq("id", orgId).maybeSingle();
-    if (org?.plano_id) {
-      const { data: plan } = await sb.from("plans").select("limite_execucoes").eq("id", org.plano_id).maybeSingle();
-      const limite = Number(plan?.limite_execucoes) || 0;
-      if (limite > 0) {
-        const { data: uc } = await sb.from("usage_counters").select("numero_execucoes").eq("organization_id", orgId).maybeSingle();
-        const usadas = Number(uc?.numero_execucoes) || 0;
-        if (usadas + audience > limite) {
-          return json({ error: "plan_limit_exceeded", detail: `O disparo (${audience}) excede o limite do plano (${usadas}/${limite}).` }, 403);
-        }
-      }
-    }
+    // Reserva de uso ATÔMICA: cria a linha do contador se faltar + incrementa respeitando o
+    // limite, travando a linha (sem TOCTOU/lost-update entre chamadas concorrentes).
+    const { data: reserved, error: rErr } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: audience });
+    if (rErr) return json({ error: "reserve_failed", detail: rErr.message }, 500);
+    if (!reserved) return json({ error: "plan_limit_exceeded", detail: `O disparo (${audience}) excede o limite do plano.` }, 403);
 
     // Cria o cabeçalho e enfileira.
     const insert: Record<string, unknown> = {
@@ -122,12 +124,7 @@ Deno.serve(async (req: Request) => {
       return json({ error: "enqueue_failed", detail: eErr.message }, 500);
     }
     const enqueued = Number(enq) || 0;
-
-    // Contabiliza execuções e libera para o worker.
-    if (enqueued > 0) {
-      const { data: uc } = await sb.from("usage_counters").select("id, numero_execucoes").eq("organization_id", orgId).maybeSingle();
-      if (uc) await sb.from("usage_counters").update({ numero_execucoes: (Number(uc.numero_execucoes) || 0) + enqueued, updated_at: new Date().toISOString() }).eq("id", uc.id);
-    }
+    // Uso já reservado atomicamente acima (bulk_reserve_usage) — nada a incrementar aqui.
     await sb.from("bulk_sends").update({ status: "enviando" }).eq("id", bs.id);
     return json({ ok: true, bulk_send_id: bs.id, total: enqueued });
   }
