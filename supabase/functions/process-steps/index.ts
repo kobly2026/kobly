@@ -83,7 +83,7 @@ Deno.serve(async (req: Request) => {
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
