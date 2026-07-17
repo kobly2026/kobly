@@ -48,20 +48,42 @@ Deno.serve(async (req: Request) => {
 
   const { data: apiKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
   const { data: fromCfg } = await sb.rpc("get_secret", { p_name: "resend_from" });
-  // Só o endereço do remetente vem da config (domínio verificado); o NOME de exibição
-  // é o da marca do cliente (loja), resolvido por e-mail/org logo abaixo.
-  const senderEmail = extractEmail(fromCfg) || "onboarding@resend.dev";
+  // Só o endereço do remetente vem da config (domínio verificado da plataforma);
+  // por org, se houver domain validado, usa domains.from_email. Nome = campo remetente.
+  const platformSenderEmail = extractEmail(fromCfg) || "onboarding@resend.dev";
+  const senderEmailCache = new Map<string, string>();
+  const resolveSenderEmail = async (orgId: string) => {
+    if (senderEmailCache.has(orgId)) return senderEmailCache.get(orgId)!;
+    const { data: dom } = await sb.from("domains")
+      .select("from_email, url, validado, status")
+      .eq("organization_id", orgId)
+      .or("validado.eq.true,status.eq.verified")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    let addr = platformSenderEmail;
+    if (dom) {
+      const fe = extractEmail(dom.from_email) || (dom.url ? `contato@${dom.url}` : null);
+      if (fe) addr = fe;
+    }
+    senderEmailCache.set(orgId, addr);
+    return addr;
+  };
   // Credenciais Z-API (canal WhatsApp) — resolvidas UMA vez por varredura, como o Resend.
   // Client-Token (conta) é OPCIONAL: header enviado só se a secret existir (a conta
   // atual não o exige — mesma regra da edge function send-whatsapp).
   const { data: zapiInstanceId } = await sb.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
+  // Credenciais Twilio (canal SMS) — resolvidas UMA vez por varredura, como Resend/Z-API.
+  const { data: twilioSid } = await sb.rpc("get_secret", { p_name: "twilio_account_sid" });
+  const { data: twilioAuth } = await sb.rpc("get_secret", { p_name: "twilio_auth_token" });
+  const { data: twilioFrom } = await sb.rpc("get_secret", { p_name: "twilio_from" });
 
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, flow_id, condicao, campaign_flows(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
@@ -130,6 +152,12 @@ Deno.serve(async (req: Request) => {
     const step = (s as any).flow_steps; const lead = (s as any).leads;
     const curAttempts = Number((s as any).attempts) || 0;
     try {
+      if (step?.tipo_card === "Envio de e-mail" && (!step.email_id || !lead?.email)) {
+        // Sem template ou lead sem e-mail → finaliza com erro (não fica preso na fila).
+        await finalize(s.id, curAttempts + 1, !step.email_id ? "etapa sem e-mail vinculado" : "lead sem e-mail");
+        failed++; processed++;
+        continue;
+      }
       if (step?.tipo_card === "Envio de e-mail" && step.email_id && lead?.email) {
         // IF/ELSE do fluxo: condição não atendida → pula sem enviar (e sem retry).
         if (!(await condicaoAtendida(s, step.condicao ?? null))) {
@@ -144,17 +172,23 @@ Deno.serve(async (req: Request) => {
           campaignId = cf?.campaign_id ?? null;
         }
         const { data: em } = await sb.from("emails").select("assunto, corpo_html, remetente").eq("id", step.email_id).maybeSingle();
+        if (!em) {
+          await finalize(s.id, curAttempts + 1, "template de e-mail não encontrado");
+          failed++; processed++;
+          continue;
+        }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
-        const html = (em?.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
-        // Remetente: NOME da marca do cliente (do e-mail ou da org) + endereço do domínio verificado.
-        const from = `${fromNameSafe(em?.remetente || brand.nome)} <${senderEmail}>`;
+        const html = (em.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
+        // Remetente: NOME (campo/marca) + e-mail do domínio verificado da org (ou plataforma).
+        const senderEmail = await resolveSenderEmail(s.organization_id);
+        const from = `${fromNameSafe(em.remetente || brand.nome)} <${senderEmail}>`;
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         if (apiKey) {
           const resp = await fetch("https://api.resend.com/emails", {
             method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from, to: [lead.email], subject: em?.assunto || "Koblay", html }),
+            body: JSON.stringify({ from, to: [lead.email], subject: em.assunto || "Koblay", html }),
           });
           const out = await resp.json().catch(() => ({}));
           ok = resp.ok; msgId = out?.id ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
@@ -183,6 +217,16 @@ Deno.serve(async (req: Request) => {
           if (r === "gaveup") gaveup++; else retried++;
           failed++;
         }
+      } else if (step?.tipo_card === "Envio de WhatsApp" && (!step.whatsapp_message_id || !lead?.telefone)) {
+        // Sem template ou lead sem telefone → finaliza com erro (espelha e-mail órfão).
+        // (Lead sem telefone também cai aqui se message_id ausente; o ramo só-telefone fica abaixo por retrocompat.)
+        await finalize(
+          s.id,
+          curAttempts + 1,
+          !step.whatsapp_message_id ? "etapa sem mensagem WhatsApp vinculada" : "lead sem telefone",
+        );
+        failed++; processed++;
+        continue;
       } else if (step?.tipo_card === "Envio de WhatsApp" && step.whatsapp_message_id && lead?.telefone) {
         // IF/ELSE do fluxo: mesma avaliação de condição do e-mail.
         if (!(await condicaoAtendida(s, step.condicao ?? null))) {
@@ -196,11 +240,45 @@ Deno.serve(async (req: Request) => {
           const { data: cf } = await sb.from("campaign_flows").select("campaign_id").eq("id", step.flow_id).maybeSingle();
           campaignId = cf?.campaign_id ?? null;
         }
-        const { data: wm } = await sb.from("whatsapp_messages").select("titulo, corpo_texto").eq("id", step.whatsapp_message_id).maybeSingle();
+        const { data: wm } = await sb.from("whatsapp_messages").select("titulo, corpo_texto, botoes").eq("id", step.whatsapp_message_id).maybeSingle();
+        if (!wm) {
+          // Template de WhatsApp deletado → finaliza com erro (espelha o e-mail órfão ~171).
+          // Antes caía em message="" e postava um send-text vazio, queimando 4 tentativas.
+          await finalize(s.id, curAttempts + 1, "template de WhatsApp não encontrado");
+          failed++; processed++;
+          continue;
+        }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Mesmo destino do botão do e-mail: link do lead (postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
         const message = String(wm?.corpo_texto || wm?.titulo || "").split("{{cta_link}}").join(ctaLink);
+        // Botões interativos (Z-API send-button-actions): resolve {{cta_link}} nas URLs.
+        const rawButtons = Array.isArray(wm?.botoes) ? (wm!.botoes as any[]) : [];
+        const buttonActions = rawButtons.slice(0, 3).map((b: any, i: number) => {
+          const type = String(b?.type || "URL").toUpperCase();
+          const label = String(b?.label || "Abrir").slice(0, 20);
+          const id = String(b?.id || String(i + 1));
+          if (type === "URL") {
+            let url = String(b?.url || "{{cta_link}}");
+            url = url.split("{{cta_link}}").join(ctaLink);
+            if (!/^https?:\/\//i.test(url)) return null;
+            return { id, type: "URL", label, url };
+          }
+          if (type === "CALL") {
+            const phone = String(b?.phone || "").replace(/\D/g, "");
+            if (!phone) return null;
+            return { id, type: "CALL", label, phone };
+          }
+          if (type === "REPLY") return { id, type: "REPLY", label };
+          return null;
+        }).filter(Boolean) as Array<Record<string, string>>;
+        // Z-API: não misturar REPLY com CALL/URL.
+        const hasReply = buttonActions.some((x) => x.type === "REPLY");
+        const hasAction = buttonActions.some((x) => x.type === "URL" || x.type === "CALL");
+        const buttons = hasReply && hasAction
+          ? buttonActions.filter((x) => x.type !== "REPLY")
+          : buttonActions;
+
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let semWhatsapp = false; // número não existe no WhatsApp → falha DEFINITIVA (sem retry)
         if (zapiInstanceId && zapiToken) {
@@ -219,9 +297,12 @@ Deno.serve(async (req: Request) => {
             }
           } catch (_) { /* segue com o número normalizado */ }
           if (!semWhatsapp) {
-            const resp = await fetch(`${zapiBase}/send-text`, {
+            const endpoint = buttons.length > 0 ? "send-button-actions" : "send-text";
+            const payload: Record<string, unknown> = { phone: target, message };
+            if (buttons.length > 0) payload.buttonActions = buttons;
+            const resp = await fetch(`${zapiBase}/${endpoint}`, {
               method: "POST", headers: zapiHeaders,
-              body: JSON.stringify({ phone: target, message }),
+              body: JSON.stringify(payload),
             });
             const out = await resp.json().catch(() => ({}));
             // Prefere o messageId (id do WhatsApp): o callback de status da Z-API manda
@@ -262,10 +343,89 @@ Deno.serve(async (req: Request) => {
           if (r === "gaveup") gaveup++; else retried++;
           failed++;
         }
-      } else if (step?.tipo_card === "Envio de WhatsApp" && !lead?.telefone) {
-        // Lead sem telefone → finaliza com erro registrado (não fica em loop, não conta envio).
-        await finalize(s.id, curAttempts + 1, "lead sem telefone");
-        processed++;
+      } else if (step?.tipo_card === "Envio de SMS" && (!step.sms_message_id || !lead?.telefone)) {
+        // Sem template ou lead sem telefone → finaliza com erro (espelha e-mail/WhatsApp órfão).
+        await finalize(
+          s.id,
+          curAttempts + 1,
+          !step.sms_message_id ? "etapa sem SMS vinculado" : "lead sem telefone",
+        );
+        failed++; processed++;
+        continue;
+      } else if (step?.tipo_card === "Envio de SMS" && step.sms_message_id && lead?.telefone) {
+        // IF/ELSE do fluxo: mesma avaliação de condição do e-mail/WhatsApp.
+        if (!(await condicaoAtendida(s, step.condicao ?? null))) {
+          await finalize(s.id, curAttempts + 1, `pulado: condição '${step.condicao}' não atendida`);
+          skipped++; processed++;
+          continue;
+        }
+        let campaignId: string | null = null;
+        if (step.flow_id) {
+          const { data: cf } = await sb.from("campaign_flows").select("campaign_id").eq("id", step.flow_id).maybeSingle();
+          campaignId = cf?.campaign_id ?? null;
+        }
+        const { data: sm } = await sb.from("sms_messages").select("titulo, corpo_texto").eq("id", step.sms_message_id).maybeSingle();
+        if (!sm) {
+          // Template de SMS deletado → finaliza com erro (espelha o e-mail/WhatsApp órfão).
+          await finalize(s.id, curAttempts + 1, "template de SMS não encontrado");
+          failed++; processed++;
+          continue;
+        }
+        const brand = await resolveBrand(s.organization_id, brandIdOf(s));
+        const ctaLink = lead.link_recuperacao || brand.link || "";
+        // Substitui {{cta_link}} e {{nome}} no corpo do SMS.
+        const message = String(sm.corpo_texto || sm.titulo || "")
+          .split("{{cta_link}}").join(ctaLink)
+          .split("{{nome}}").join(lead.nome || "");
+
+        let ok = false, msgId: string | null = null, errDetail: string | null = null;
+        let smsFatal = false; // 4xx do Twilio (nº inválido) → falha DEFINITIVA (sem retry)
+        if (twilioSid && twilioAuth && twilioFrom) {
+          // Twilio exige E.164 COM '+', form-urlencoded e Basic auth (sid:auth_token).
+          const to = `+${normalizePhone(lead.telefone)}`;
+          const form = new URLSearchParams({ From: String(twilioFrom), To: to, Body: message });
+          const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${btoa(`${twilioSid}:${twilioAuth}`)}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: form.toString(),
+          });
+          const out = await resp.json().catch(() => ({}));
+          ok = resp.ok; msgId = out?.sid ?? null;
+          if (!ok) {
+            errDetail = JSON.stringify(out).slice(0, 200);
+            if (resp.status >= 400 && resp.status < 500) smsFatal = true; // nº/param inválido
+          }
+        } else { errDetail = "twilio secrets ausentes"; }
+
+        await sb.from("email_events").insert({
+          organization_id: s.organization_id, campaign_id: campaignId, event: "send", channel: "sms",
+          email: lead.email, status: ok ? "enviado" : "falhou", sg_message_id: msgId, reason: errDetail, "timestamp": new Date().toISOString(),
+        });
+
+        if (ok) {
+          const { data: lm } = await sb.from("lead_metrics").select("id, enviados").eq("lead_id", lead.id).limit(1).maybeSingle();
+          if (lm) await sb.from("lead_metrics").update({ enviados: (Number(lm.enviados) || 0) + 1 }).eq("id", lm.id);
+          else await sb.from("lead_metrics").insert({ lead_id: lead.id, organization_id: s.organization_id, enviados: 1 });
+          if (campaignId) {
+            // Métrica por CANAL: SMS incrementa sms_enviados (0038), nunca emails_enviados.
+            const { data: cs } = await sb.from("campaign_stats").select("id, sms_enviados").eq("campaign_id", campaignId).maybeSingle();
+            if (cs) await sb.from("campaign_stats").update({ sms_enviados: (Number(cs.sms_enviados) || 0) + 1, ultimo_calculo: new Date().toISOString() }).eq("id", cs.id);
+          }
+          await finalize(s.id, curAttempts + 1);
+          sent++; processed++;
+        } else if (smsFatal) {
+          // Número/param inválido → falha DEFINITIVA: finaliza sem retry.
+          await finalize(s.id, curAttempts + 1, errDetail);
+          failed++; processed++;
+        } else {
+          // Falha transitória (5xx/rede/secret) → reagenda com backoff.
+          const r = await failStep(s.id, curAttempts, errDetail);
+          if (r === "gaveup") gaveup++; else retried++;
+          failed++;
+        }
       } else if (step?.tipo_card === "Adicionar Tag" && lead?.id) {
         const { data: tags } = await sb.from("step_add_tags").select("tag_id").eq("step_id", step.id);
         for (const t of tags || []) await sb.from("lead_tags").upsert({ lead_id: lead.id, tag_id: t.tag_id });
