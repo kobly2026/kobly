@@ -237,9 +237,13 @@ export const KoblyApi = {
     resetDb();
     return !error;
   },
+  // Retorna { ok, idMap } — idMap mapeia id do builder → id no banco (identidade p/ steps
+  // existentes, id novo p/ inseridos). O FlowBuilder aplica esse map ao estado local pra
+  // que um 2º save consecutivo (sem reload) veja os steps como EXISTENTES e faça UPDATE
+  // in-place — senão recriaria os steps novos e apagaria os antigos (com a fila junto).
   async saveFlow(id, fluxo, tagsMeta) {
     const { data: flowRow } = await supabase.from('campaign_flows').select('id, organization_id').eq('campaign_id', id).maybeSingle();
-    if (!flowRow) return false;
+    if (!flowRow) return { ok: false };
     const flowId = flowRow.id; const orgId = flowRow.organization_id;
 
     // BUG CRÍTICO (fila): NÃO apagar+recriar todos os steps a cada save. O delete-all
@@ -249,7 +253,7 @@ export const KoblyApi = {
     // Step existente → UPDATE in-place (mantém o id → a fila referenciada sobrevive);
     // step novo → INSERT; step removido do builder → DELETE (aí o cascade é correto).
     const { data: existingRows, error: exErr } = await supabase.from('flow_steps').select('id').eq('flow_id', flowId);
-    if (exErr) { console.error('saveFlow: falha ao ler steps existentes', exErr); return false; }
+    if (exErr) { console.error('saveFlow: falha ao ler steps existentes', exErr); return { ok: false }; }
     const existing = new Set((existingRows || []).map((r) => r.id));
 
     const arr = fluxo || [];
@@ -312,8 +316,8 @@ export const KoblyApi = {
 
     // Duas passadas: raiz primeiro (os filhos dos ramos referenciam o id do pai —
     // o card Condição pode estar DEPOIS dos filhos no array após um drag).
-    for (let i = 0; i < arr.length; i++) if (!arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return false; }
-    for (let i = 0; i < arr.length; i++) if (arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return false; }
+    for (let i = 0; i < arr.length; i++) if (!arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return { ok: false }; }
+    for (let i = 0; i < arr.length; i++) if (arr[i].parentId) { if (!(await upsertStep(arr[i], i))) return { ok: false }; }
 
     // Só depois de TODOS os upserts terem dado certo removemos os steps que saíram
     // do builder. Se um upsert falha acima, retornamos sem deletar nada — a fila
@@ -327,7 +331,7 @@ export const KoblyApi = {
     if ((tagsMeta || []).length) await supabase.from('flow_meta_tags').insert(tagsMeta.map((t) => ({ flow_id: flowId, tag_id: t })));
 
     resetDb();
-    return true;
+    return { ok: true, idMap };
   },
 
   // ---- Leads --------------------------------------------------------------

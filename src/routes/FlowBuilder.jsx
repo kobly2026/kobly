@@ -499,11 +499,22 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
     }
     // UX-2: feedback visual imediato (loading no botão) para o usuário saber que está salvando.
     setSaving(true);
-    const ok = await KoblyApi.saveFlow(campaign.id, steps, tagsMeta);
+    const res = await KoblyApi.saveFlow(campaign.id, steps, tagsMeta);
     setSaving(false);
-    if (!ok) {
+    if (!res || !res.ok) {
       store.notify('danger', 'Não foi possível salvar o fluxo. Tente novamente.');
       return; // mantém o estado "não salvo" (dirty)
+    }
+    // Reconcilia ids temporários (st_...) → ids do banco. Sem isto, um 2º save seguido
+    // (sem sair da tela) recriaria os steps novos e apagaria os antigos — junto com a fila.
+    const idMap = res.idMap || {};
+    if (Object.keys(idMap).length) {
+      setSteps((prev) => prev.map((s) => ({
+        ...s,
+        id: idMap[s.id] || s.id,
+        parentId: s.parentId ? (idMap[s.parentId] || s.parentId) : s.parentId,
+      })));
+      setSelId((cur) => (cur && idMap[cur]) || cur);
     }
     try { localStorage.removeItem(draftKey); } catch (_) { /* noop */ }
     setDirty(false);
