@@ -18,6 +18,9 @@ function extractEmail(s: string | null): string | null {
   const m = String(s).match(/<([^>]+)>/);
   return (m ? m[1] : String(s)).trim() || null;
 }
+function fromNameSafe(n: string | null | undefined): string {
+  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "Koblay";
+}
 function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
@@ -36,8 +39,29 @@ Deno.serve(async (req: Request) => {
   // Secrets (uma vez por varredura).
   const { data: resendKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
   const { data: resendFrom } = await sb.rpc("get_secret", { p_name: "resend_from" });
-  const senderEmail = extractEmail(resendFrom) || "onboarding@resend.dev";
-  const senderName = (resendFrom && String(resendFrom).includes("<")) ? String(resendFrom) : `Koblay <${senderEmail}>`;
+  const { data: sendingDomainRaw } = await sb.rpc("get_secret", { p_name: "resend_sending_domain" });
+  const platformSenderEmail = extractEmail(resendFrom) || "onboarding@resend.dev";
+  const sendingDomain = (sendingDomainRaw && String(sendingDomainRaw).trim()) || null;
+  // Remetente por org (mesma prioridade do process-steps): domínio próprio verificado
+  // > subdomínio da plataforma (<sender_local>@sendingDomain) > fallback resend_from.
+  const senderCache = new Map<string, string>();
+  const resolveSender = async (orgId: string): Promise<string> => {
+    if (senderCache.has(orgId)) return senderCache.get(orgId)!;
+    const { data: dom } = await sb.from("domains")
+      .select("from_email, url, status, id_resend")
+      .eq("organization_id", orgId).eq("status", "verified")
+      .not("id_resend", "is", null).not("id_resend", "like", "sg%")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    let addr: string | null = null;
+    if (dom) addr = extractEmail(dom.from_email) || (dom.url ? `contato@${dom.url}` : null);
+    if (!addr && sendingDomain) {
+      const { data: o } = await sb.from("organizations").select("sender_local").eq("id", orgId).maybeSingle();
+      if (o?.sender_local) addr = `${o.sender_local}@${sendingDomain}`;
+    }
+    if (!addr) addr = platformSenderEmail;
+    senderCache.set(orgId, addr);
+    return addr;
+  };
   const { data: zapiInstanceId } = await sb.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
@@ -65,7 +89,7 @@ Deno.serve(async (req: Request) => {
     if (templateCache.has(header.id)) return templateCache.get(header.id);
     let tpl: any = null;
     if (header.canal === "email" && header.email_id) {
-      const { data } = await sb.from("emails").select("assunto, corpo_html").eq("id", header.email_id).maybeSingle();
+      const { data } = await sb.from("emails").select("assunto, corpo_html, remetente").eq("id", header.email_id).maybeSingle();
       tpl = data;
     } else if (header.canal === "Whatsapp" && header.whatsapp_message_id) {
       const { data } = await sb.from("whatsapp_messages").select("titulo, corpo_texto").eq("id", header.whatsapp_message_id).maybeSingle();
@@ -108,9 +132,10 @@ Deno.serve(async (req: Request) => {
       else if (!resendKey) { errDetail = "resend_api_key ausente"; }
       else {
         const html = subst(tpl.corpo_html || "<p></p>", lead);
+        const fromHeader = `${fromNameSafe(tpl.remetente || "Koblay")} <${await resolveSender(r.organization_id)}>`;
         const resp = await fetch("https://api.resend.com/emails", {
           method: "POST", headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: senderName, to: [destino], subject: tpl.assunto || "Koblay", html }),
+          body: JSON.stringify({ from: fromHeader, to: [destino], subject: tpl.assunto || "Koblay", html }),
         });
         const out = await resp.json().catch(() => ({}));
         ok = resp.ok; msgId = out?.id ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true; }

@@ -93,7 +93,14 @@ Deno.serve(async (req: Request) => {
         .select("*, domain_dns_records(*)")
         .eq("organization_id", orgId)
         .order("created_at", { ascending: false });
-      return json({ ok: true, domains: rows || [] });
+      // Remetente automático da org (subdomínio da plataforma, zero-DNS) + domínio de envio ativo.
+      const { data: org } = await sb.from("organizations").select("sender_local").eq("id", orgId).maybeSingle();
+      const { data: sd } = await sb.rpc("get_secret", { p_name: "resend_sending_domain" });
+      return json({
+        ok: true, domains: rows || [],
+        sender_local: org?.sender_local || null,
+        sending_domain: (sd && String(sd).trim()) || null,
+      });
     }
 
     // ── CREATE ────────────────────────────────────────────────────────────

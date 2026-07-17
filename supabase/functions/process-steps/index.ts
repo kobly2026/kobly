@@ -48,16 +48,21 @@ Deno.serve(async (req: Request) => {
 
   const { data: apiKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
   const { data: fromCfg } = await sb.rpc("get_secret", { p_name: "resend_from" });
+  const { data: sendingDomainRaw } = await sb.rpc("get_secret", { p_name: "resend_sending_domain" });
   // Só o endereço do remetente vem da config (domínio verificado da plataforma);
   // por org, se houver domain validado, usa domains.from_email. Nome = campo remetente.
   const platformSenderEmail = extractEmail(fromCfg) || "onboarding@resend.dev";
+  // Subdomínio de envio da plataforma, verificado UMA vez no Resend (ex.: envio.koblay.io).
+  // Se definido, cada org envia de <sender_local>@<sendingDomain> — remetente único e
+  // branded, SEM nenhum DNS do lado do cliente.
+  const sendingDomain = (sendingDomainRaw && String(sendingDomainRaw).trim()) || null;
   const senderEmailCache = new Map<string, string>();
   const resolveSenderEmail = async (orgId: string) => {
     if (senderEmailCache.has(orgId)) return senderEmailCache.get(orgId)!;
-    // Só usa o domínio da org como remetente se estiver REALMENTE verificado no Resend:
-    // status=verified E id_resend real. Domínios legados migrados do SendGrid têm
-    // id_resend 'sg_*' (0035 copiou id_sendgrid→id_resend) e NUNCA foram verificados no
-    // Resend — usá-los como From faz o Resend recusar (403 "domain is not verified").
+    // Prioridade do remetente:
+    // 1) Domínio PRÓPRIO do cliente, realmente verificado no Resend (id real, não 'sg_*').
+    //    Domínios legados migrados do SendGrid têm id_resend 'sg_*' (0035) e NUNCA foram
+    //    verificados no Resend — usá-los faria o Resend recusar (403 "domain not verified").
     const { data: dom } = await sb.from("domains")
       .select("from_email, url, status, id_resend")
       .eq("organization_id", orgId)
@@ -67,11 +72,15 @@ Deno.serve(async (req: Request) => {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    let addr = platformSenderEmail;
-    if (dom) {
-      const fe = extractEmail(dom.from_email) || (dom.url ? `contato@${dom.url}` : null);
-      if (fe) addr = fe;
+    let addr: string | null = null;
+    if (dom) addr = extractEmail(dom.from_email) || (dom.url ? `contato@${dom.url}` : null);
+    // 2) Subdomínio automático da plataforma (zero-DNS por cliente): <sender_local>@<sendingDomain>.
+    if (!addr && sendingDomain) {
+      const { data: o } = await sb.from("organizations").select("sender_local").eq("id", orgId).maybeSingle();
+      if (o?.sender_local) addr = `${o.sender_local}@${sendingDomain}`;
     }
+    // 3) Fallback global (remetente da plataforma).
+    if (!addr) addr = platformSenderEmail;
     senderEmailCache.set(orgId, addr);
     return addr;
   };

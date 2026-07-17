@@ -1071,7 +1071,11 @@ export const KoblyApi = {
       return { error: (body && (body.detail || body.error)) || error.message, domains: [] };
     }
     if (data && data.error) return { error: data.detail || data.error, domains: [] };
-    return { error: null, domains: data.domains || [] };
+    return {
+      error: null, domains: data.domains || [],
+      // Remetente automático da org (subdomínio da plataforma) + domínio de envio ativo.
+      senderLocal: data.sender_local || null, sendingDomain: data.sending_domain || null,
+    };
   },
   async createSendingDomain({ name, fromEmail }, empresaId) {
     const me = await currentProfile();

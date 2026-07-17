@@ -875,10 +875,33 @@ function DomainTab({ empresaId }) {
   }
 
   const domains = a.data?.domains || [];
+  // Remetente EFETIVO (mesma prioridade do worker): domínio próprio verificado >
+  // subdomínio automático da plataforma > remetente da plataforma. Zero setup por padrão.
+  const senderLocal = a.data?.senderLocal;
+  const sendingDomain = a.data?.sendingDomain;
+  const verifiedDomain = domains.find((d) => (d.validado || d.status === 'verified') && d.id_resend && !String(d.id_resend).startsWith('sg'));
+  const effectiveFrom = verifiedDomain
+    ? (verifiedDomain.from_email || (verifiedDomain.url ? `contato@${verifiedDomain.url}` : null))
+    : (sendingDomain && senderLocal ? `${senderLocal}@${sendingDomain}` : null);
+  const effectiveLabel = effectiveFrom || 'contato@koblay.io';
+  const effectiveTipo = verifiedDomain ? 'seu domínio verificado'
+    : (effectiveFrom ? 'subdomínio automático · sem DNS' : 'remetente da plataforma');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card icon="globe" title="Domínio de envio (Resend)" subtitle="Conecte seu domínio para enviar e-mails com remetente próprio (ex.: contato@sualoja.com.br).">
+      <Card icon="send" title="Seu remetente atual" subtitle="É daqui que seus e-mails saem — já funciona sem você configurar nada.">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className="kbly-num" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-md)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>{effectiveLabel}</span>
+            <Badge tone={verifiedDomain || effectiveFrom ? 'success' : 'neutral'} dot>{effectiveTipo}</Badge>
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Usar o <b>seu próprio domínio</b> no remetente é <b>opcional</b> — só adicione abaixo se quiser. Caso contrário, seus envios já saem com a sua marca automaticamente.
+          </div>
+        </div>
+      </Card>
+
+      <Card icon="globe" title="Domínio próprio (opcional)" subtitle="Só se quiser o remetente no SEU domínio (ex.: contato@sualoja.com.br). Requer publicar os registros DNS abaixo.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Banner tone="info">
             Após criar o domínio, adicione os registros DNS no seu provedor (Registro.br, Cloudflare, etc.). Depois clique em Verificar.
