@@ -358,25 +358,42 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── 2b) Atribuição de VENDA RECUPERADA (dado real) ──
-  // Se este é o 1º "Compra Aprovada" deste lead, credita cada campanha que já
-  // enviou um e-mail de recuperação pra ele (email_events.status='enviado').
+  // Regra: só conta como recuperado se o lead RECEBEU e-mail de automação
+  // (email_events.status='enviado', canal e-mail) ANTES desta compra.
+  // 1ª "Compra Aprovada" do lead; credita cada campanha que já enviou pra ele.
   if (tipoEvento === "Compra Aprovada" && leadId) {
     const { count: convCount } = await sb.from("webhook_events")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", org).eq("lead_id", leadId).eq("tipo_evento", "Compra Aprovada");
     // convCount já inclui o evento recém-inserido → == 1 significa primeira conversão
     if ((convCount ?? 0) <= 1) {
-      const { data: sent } = await sb.from("email_events")
+      const purchaseAt = new Date().toISOString();
+      // Só e-mail de automação (channel null/email) enviado ANTES da compra.
+      const { data: sentEmail } = await sb.from("email_events")
         .select("campaign_id")
         .eq("organization_id", org).eq("email", norm.email).eq("status", "enviado")
-        .not("campaign_id", "is", null);
-      const campIds = Array.from(new Set((sent || []).map((e: any) => e.campaign_id)));
+        .not("campaign_id", "is", null)
+        .lt("timestamp", purchaseAt)
+        .or("channel.is.null,channel.eq.email");
+      const campIds = Array.from(new Set((sentEmail || []).map((e: any) => e.campaign_id).filter(Boolean)));
       for (const cid of campIds) {
-        const { data: cs } = await sb.from("campaign_stats").select("id, vendas_recuperadas").eq("campaign_id", cid).maybeSingle();
-        if (cs) {
-          await sb.from("campaign_stats")
-            .update({ vendas_recuperadas: (Number(cs.vendas_recuperadas) || 0) + 1, ultimo_calculo: new Date().toISOString() })
-            .eq("id", cs.id);
+        // Incremento atômico via RPC (evita race read-modify-write).
+        const { error: bumpErr } = await sb.rpc("increment_vendas_recuperadas", { p_campaign_id: cid });
+        if (bumpErr) {
+          // Fallback se a RPC ainda não estiver deployada: select + update + create se faltar row.
+          const { data: cs } = await sb.from("campaign_stats").select("id, vendas_recuperadas").eq("campaign_id", cid).maybeSingle();
+          if (cs) {
+            await sb.from("campaign_stats")
+              .update({ vendas_recuperadas: (Number(cs.vendas_recuperadas) || 0) + 1, ultimo_calculo: new Date().toISOString() })
+              .eq("id", cs.id);
+          } else {
+            const { data: camp } = await sb.from("campaigns").select("organization_id").eq("id", cid).maybeSingle();
+            if (camp) {
+              await sb.from("campaign_stats").insert({
+                campaign_id: cid, organization_id: camp.organization_id, vendas_recuperadas: 1, ultimo_calculo: new Date().toISOString(),
+              });
+            }
+          }
         }
       }
     }
