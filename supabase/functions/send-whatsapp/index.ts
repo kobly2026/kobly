@@ -65,6 +65,16 @@ Deno.serve(async (req: Request) => {
   }
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  // Auditoria E2E (Canais M1): exige perfil autenticado (não confia só no gateway
+  // verify_jwt) — impede disparo de WhatsApp com credenciais compartilhadas do
+  // Vault por sessão anônima/mal-configurada (fraude de custo).
+  const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  const { data: authUser } = await admin.auth.getUser(jwt);
+  if (!authUser?.user) return json({ error: "unauthorized" }, 401);
+  const { data: caller } = await admin.from("profiles").select("id").eq("auth_id", authUser.user.id).maybeSingle();
+  if (!caller) return json({ error: "forbidden" }, 403);
+
   const { data: instanceId } = await admin.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: token } = await admin.rpc("get_secret", { p_name: "zapi_token" });
   const { data: clientToken } = await admin.rpc("get_secret", { p_name: "zapi_client_token" });

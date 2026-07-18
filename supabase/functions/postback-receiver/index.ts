@@ -437,14 +437,21 @@ Deno.serve(async (req: Request) => {
       .filter((s: any) => s.tipo_card !== "Gatilho" && s.tipo_card !== "Condição")
       .sort((a: any, b: any) => a.posicao - b.posicao);
 
-    const rows = acoes.map((s: any) => ({
-      organization_id: org,
-      step_id: s.id,
-      lead_id: leadId,
-      webhook_event_id: webhookEventId,
-      status_agendamento: "Iniciado",
-      run_at: new Date(Date.now() + (Number(s.atraso) || 0) * 60000).toISOString(),
-    }));
+    // Auditoria E2E (Flow engine ALTO): o atraso é CUMULATIVO — cada etapa aguarda
+    // "X após a etapa anterior" (como a UI promete), não X após o gatilho. Sem isto,
+    // três etapas com atraso 30/30/30 disparavam TODAS juntas em +30min.
+    let accMin = 0;
+    const rows = acoes.map((s: any) => {
+      accMin += Number(s.atraso) || 0;
+      return {
+        organization_id: org,
+        step_id: s.id,
+        lead_id: leadId,
+        webhook_event_id: webhookEventId,
+        status_agendamento: "Iniciado",
+        run_at: new Date(Date.now() + accMin * 60000).toISOString(),
+      };
+    });
 
     if (rows.length) {
       const r = await sb.from("scheduled_steps").insert(rows);

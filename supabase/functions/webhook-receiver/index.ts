@@ -128,11 +128,21 @@ Deno.serve(async (req: Request) => {
     const steps = (flow && flow.flow_steps) || [];
     const casa = steps.some((s: any) => s.tipo_card === "Gatilho" && s.tipo_evento === ev.tipo_evento);
     if (!casa || !leadId) continue;
-    const acoes = steps.filter((s: any) => s.tipo_card !== "Gatilho").sort((a: any, b: any) => a.posicao - b.posicao);
-    const rows = acoes.map((s: any) => ({
-      organization_id: org, step_id: s.id, lead_id: leadId, webhook_event_id: webhookEventId,
-      status_agendamento: "Iniciado", run_at: new Date(Date.now() + (Number(s.atraso) || 0) * 60000).toISOString(),
-    }));
+    // Exclui Gatilho E Condição (marcador visual — a condição é avaliada por
+    // process-steps nos filhos), igual ao postback-receiver. Antes incluía Condição,
+    // criando um scheduled_step inútil por execução.
+    const acoes = steps
+      .filter((s: any) => s.tipo_card !== "Gatilho" && s.tipo_card !== "Condição")
+      .sort((a: any, b: any) => a.posicao - b.posicao);
+    // Atraso CUMULATIVO (cada etapa após a anterior) — mesmo fix do postback-receiver.
+    let accMin = 0;
+    const rows = acoes.map((s: any) => {
+      accMin += Number(s.atraso) || 0;
+      return {
+        organization_id: org, step_id: s.id, lead_id: leadId, webhook_event_id: webhookEventId,
+        status_agendamento: "Iniciado", run_at: new Date(Date.now() + accMin * 60000).toISOString(),
+      };
+    });
     if (rows.length) {
       const r = await sb.from("scheduled_steps").insert(rows);
       if (!r.error) { enqueued += rows.length; campanhasAcionadas.push((c as any).id); }

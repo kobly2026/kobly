@@ -30,6 +30,36 @@ const MAP: Record<string, { event: string; col: "aberturas" | "cliques"; status:
   "email.clicked": { event: "click", col: "cliques", status: "clicado" },
 };
 
+// Verificação de assinatura svix (Resend). signedContent = "<id>.<ts>.<body>";
+// secret = base64 após o prefixo "whsec_". Compara HMAC-SHA256 com o header
+// svix-signature ("v1,<b64> v1,<b64>"). Auditoria E2E (Canais A1).
+function b64ToBytes(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+function bytesToB64(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+function tsafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let out = 0;
+  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return out === 0;
+}
+async function verifySvix(secret: string, id: string, ts: string, sigHeader: string, body: string): Promise<boolean> {
+  try {
+    const raw = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+    const key = await crypto.subtle.importKey("raw", b64ToBytes(raw), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${ts}.${body}`));
+    const expected = bytesToB64(new Uint8Array(mac));
+    return sigHeader.split(" ").some((part) => {
+      const val = part.split(",")[1];
+      return !!val && tsafeEqual(val, expected);
+    });
+  } catch { return false; }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -38,6 +68,22 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try { body = JSON.parse(raw || "{}"); } catch { return json({ error: "invalid_json" }, 400); }
 
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  // Verificação de assinatura svix (auditoria E2E — Canais A1): sem isto, qualquer
+  // um podia POSTar aberturas/cliques forjados e inflar métricas. A secret vem do
+  // Vault (resend_webhook_secret = signing secret do webhook no painel do Resend).
+  // Se não estiver definida, seguimos sem verificar (dev) — defina-a em produção.
+  const { data: signingSecret } = await sb.rpc("get_secret", { p_name: "resend_webhook_secret" });
+  if (signingSecret) {
+    const id = req.headers.get("svix-id") || "";
+    const ts = req.headers.get("svix-timestamp") || "";
+    const sig = req.headers.get("svix-signature") || "";
+    if (!id || !ts || !sig || !(await verifySvix(String(signingSecret), id, ts, sig, raw))) {
+      return json({ error: "invalid_signature" }, 401);
+    }
+  }
+
   const m = MAP[body?.type];
   if (!m) return json({ ok: true, ignored: true, type: body?.type ?? null }); // demais eventos → 200 ignore
 
@@ -45,8 +91,6 @@ Deno.serve(async (req: Request) => {
   const messageId: string | null = data.email_id || null;
   const recipient: string | null = Array.isArray(data.to) ? data.to[0] : (data.to || null);
   if (!messageId && !recipient) return json({ ok: true, ignored: true, reason: "no_match_key" });
-
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   // Resolve org + campanha a partir do ENVIO original (casado por sg_message_id)
   let org: string | null = null;
