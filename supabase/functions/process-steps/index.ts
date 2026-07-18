@@ -163,6 +163,16 @@ Deno.serve(async (req: Request) => {
     return "retry";
   };
 
+  // Reserva 1 unidade da cota do plano ANTES do envio (auditoria E2E — Billing C4:
+  // fluxos/automações também consomem cota, não só o disparo em massa). Atômico
+  // via bulk_reserve_usage. false = plano estourado → não envia. Fail-open só em
+  // erro de infra (não trava a fila por hiccup do banco).
+  const reserveOne = async (orgId: string): Promise<boolean> => {
+    const { data, error } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: 1 });
+    if (error) return true;
+    return data === true;
+  };
+
   for (const s of due || []) {
     // Claim OTIMISTA (evita envio DUPLICADO se dois ticks do cron se sobrepõem): empurra
     // run_at 5min p/ frente condicionalmente. Se 0 linhas voltarem, outro tick já pegou
@@ -212,6 +222,12 @@ Deno.serve(async (req: Request) => {
         // Remetente: NOME (campo/marca) + e-mail do domínio verificado da org (ou plataforma).
         const senderEmail = await resolveSenderEmail(s.organization_id);
         const from = `${fromNameSafe(em.remetente || brand.nome)} <${senderEmail}>`;
+        // Cota do plano: reserva antes de enviar (não conta condição-pulada/órfão).
+        if (!(await reserveOne(s.organization_id))) {
+          await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
+          skipped++; processed++;
+          continue;
+        }
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         if (apiKey) {
           const resp = await fetch("https://api.resend.com/emails", {
@@ -324,6 +340,12 @@ Deno.serve(async (req: Request) => {
               else if (typeof chkOut.phone === "string" && chkOut.phone) target = chkOut.phone;
             }
           } catch (_) { /* segue com o número normalizado */ }
+          if (!semWhatsapp && !(await reserveOne(s.organization_id))) {
+            // Cota do plano estourada → não envia (número válido, mas sem saldo).
+            await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
+            skipped++; processed++;
+            continue;
+          }
           if (!semWhatsapp) {
             const endpoint = buttons.length > 0 ? "send-button-actions" : "send-text";
             const payload: Record<string, unknown> = { phone: target, message };
@@ -406,6 +428,12 @@ Deno.serve(async (req: Request) => {
           .split("{{cta_link}}").join(ctaLink)
           .split("{{nome}}").join(lead.nome || "");
 
+        // Cota do plano: reserva antes de enviar (mesmo trilho de e-mail/WhatsApp).
+        if (!(await reserveOne(s.organization_id))) {
+          await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
+          skipped++; processed++;
+          continue;
+        }
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let smsFatal = false; // 4xx do Twilio (nº inválido) → falha DEFINITIVA (sem retry)
         if (twilioSid && twilioAuth && twilioFrom) {

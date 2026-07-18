@@ -75,6 +75,24 @@ Deno.serve(async (req: Request) => {
   await sb.from("bulk_send_recipients").update({ status: "pendente" })
     .eq("status", "processando").lte("run_at", now.toISOString());
 
+  // 0.1) Recupera cabeçalhos presos em 'enfileirando' (create crashou antes de virar
+  //      'enviando'). Com destinatários → promove p/ 'enviando'; vazio → 'falhou' +
+  //      estorna a cota. Sem isto, o índice único parcial (0047) bloquearia para sempre
+  //      um novo disparo idêntico ao preso.
+  const staleIso = new Date(Date.now() - 2 * 60000).toISOString();
+  const { data: stuck } = await sb.from("bulk_sends")
+    .select("id").eq("status", "enfileirando").lte("created_at", staleIso);
+  for (const h of stuck || []) {
+    const { count } = await sb.from("bulk_send_recipients")
+      .select("id", { count: "exact", head: true }).eq("bulk_send_id", (h as any).id);
+    if ((count || 0) > 0) {
+      await sb.from("bulk_sends").update({ status: "enviando", updated_at: new Date().toISOString() }).eq("id", (h as any).id);
+    } else {
+      await sb.from("bulk_sends").update({ status: "falhou", updated_at: new Date().toISOString() }).eq("id", (h as any).id);
+      await sb.rpc("bulk_settle_usage", { p_bulk: (h as any).id });
+    }
+  }
+
   // 1) Busca destinatários devidos de cabeçalhos 'enviando'.
   const { data: due, error } = await sb.from("bulk_send_recipients")
     .select("id, bulk_send_id, organization_id, lead_id, destino, attempts, bulk_sends!inner(id, canal, email_id, whatsapp_message_id, sms_message_id, status), leads(nome, email, telefone)")
@@ -202,6 +220,9 @@ Deno.serve(async (req: Request) => {
     const { data: hdr } = await sb.from("bulk_sends").select("status").eq("id", bulkId).maybeSingle();
     if (hdr?.status === "cancelado") { delete patch.status; }
     await sb.from("bulk_sends").update(patch).eq("id", bulkId);
+    // A2: ao concluir, liquida a cota — estorna o reservado que não virou 'enviado'
+    // (pulados/falhados/estimativa acima do real). Idempotente.
+    if (patch.status === "concluido") await sb.rpc("bulk_settle_usage", { p_bulk: bulkId });
   }
 
   return json({ ok: true, due: (due || []).length, sent, failed, skipped, headers: touched.size });

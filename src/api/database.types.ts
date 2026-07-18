@@ -1,6 +1,3 @@
-// Kobly — tipos gerados do schema Supabase (projeto hvkuymprmfrjrgpqaxbw).
-// Gerado via supabase generate types. NÃO editar à mão — regenerar após mudanças de schema.
-
 export type Json =
   | string
   | number
@@ -288,6 +285,7 @@ export type Database = {
           canal: Database["public"]["Enums"]["tipo_envio"]
           created_at: string
           created_by: string | null
+          dedup_key: string | null
           email_id: string | null
           enviados: number
           falhados: number
@@ -300,12 +298,15 @@ export type Database = {
           status: string
           total: number
           updated_at: string
+          uso_estornado: number
+          uso_reservado: number
           whatsapp_message_id: string | null
         }
         Insert: {
           canal: Database["public"]["Enums"]["tipo_envio"]
           created_at?: string
           created_by?: string | null
+          dedup_key?: string | null
           email_id?: string | null
           enviados?: number
           falhados?: number
@@ -318,12 +319,15 @@ export type Database = {
           status?: string
           total?: number
           updated_at?: string
+          uso_estornado?: number
+          uso_reservado?: number
           whatsapp_message_id?: string | null
         }
         Update: {
           canal?: Database["public"]["Enums"]["tipo_envio"]
           created_at?: string
           created_by?: string | null
+          dedup_key?: string | null
           email_id?: string | null
           enviados?: number
           falhados?: number
@@ -336,6 +340,8 @@ export type Database = {
           status?: string
           total?: number
           updated_at?: string
+          uso_estornado?: number
+          uso_reservado?: number
           whatsapp_message_id?: string | null
         }
         Relationships: [
@@ -1365,6 +1371,7 @@ export type Database = {
       organizations: {
         Row: {
           asaas_customer_id: string | null
+          asaas_subscription_id: string | null
           campanhas_ativas_count: number
           created_at: string
           created_by: string | null
@@ -1373,7 +1380,10 @@ export type Database = {
           leads_count: number
           legacy_id: string | null
           nome: string
+          plano_ativado_em: string | null
+          plano_expira_em: string | null
           plano_id: string | null
+          plano_status: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -1381,6 +1391,7 @@ export type Database = {
         }
         Insert: {
           asaas_customer_id?: string | null
+          asaas_subscription_id?: string | null
           campanhas_ativas_count?: number
           created_at?: string
           created_by?: string | null
@@ -1389,7 +1400,10 @@ export type Database = {
           leads_count?: number
           legacy_id?: string | null
           nome: string
+          plano_ativado_em?: string | null
+          plano_expira_em?: string | null
           plano_id?: string | null
+          plano_status?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -1397,6 +1411,7 @@ export type Database = {
         }
         Update: {
           asaas_customer_id?: string | null
+          asaas_subscription_id?: string | null
           campanhas_ativas_count?: number
           created_at?: string
           created_by?: string | null
@@ -1405,7 +1420,10 @@ export type Database = {
           leads_count?: number
           legacy_id?: string | null
           nome?: string
+          plano_ativado_em?: string | null
+          plano_expira_em?: string | null
           plano_id?: string | null
+          plano_status?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -2439,6 +2457,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      asaas_activate_plan: {
+        Args: {
+          p_expira?: string
+          p_org: string
+          p_payment_id: string
+          p_plano: string
+          p_subscription?: string
+          p_value: number
+        }
+        Returns: undefined
+      }
+      asaas_mark_overdue: { Args: { p_org: string }; Returns: undefined }
       bulk_count_audience: {
         Args: {
           p_canal: Database["public"]["Enums"]["tipo_envio"]
@@ -2451,10 +2481,15 @@ export type Database = {
         Args: { p_bulk_send_id: string; p_filter: Json }
         Returns: number
       }
+      bulk_release_usage: {
+        Args: { p_n: number; p_org: string }
+        Returns: undefined
+      }
       bulk_reserve_usage: {
         Args: { p_n: number; p_org: string }
         Returns: boolean
       }
+      bulk_settle_usage: { Args: { p_bulk: string }; Returns: undefined }
       classify_criticidade: {
         Args: { enviados: number; valor: number }
         Returns: Database["public"]["Enums"]["status_criticidade"]
@@ -2463,6 +2498,7 @@ export type Database = {
         Args: { p_nome: string; p_plano_id?: string; p_segmento: string }
         Returns: {
           asaas_customer_id: string | null
+          asaas_subscription_id: string | null
           campanhas_ativas_count: number
           created_at: string
           created_by: string | null
@@ -2471,7 +2507,10 @@ export type Database = {
           leads_count: number
           legacy_id: string | null
           nome: string
+          plano_ativado_em: string | null
+          plano_expira_em: string | null
           plano_id: string | null
+          plano_status: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -2488,6 +2527,7 @@ export type Database = {
         Args: { p_nome: string; p_segmento?: string }
         Returns: {
           asaas_customer_id: string | null
+          asaas_subscription_id: string | null
           campanhas_ativas_count: number
           created_at: string
           created_by: string | null
@@ -2496,7 +2536,10 @@ export type Database = {
           leads_count: number
           legacy_id: string | null
           nome: string
+          plano_ativado_em: string | null
+          plano_expira_em: string | null
           plano_id: string | null
+          plano_status: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -2598,6 +2641,7 @@ export type Database = {
           valor: number
         }[]
       }
+      reset_usage_cycles: { Args: never; Returns: number }
       validate_postback_token: { Args: { p_token: string }; Returns: string }
     }
     Enums: {

@@ -60,6 +60,8 @@ Deno.serve(async (req: Request) => {
     if (!(await hasOrgAccess(sb, role, prof, bs.organization_id))) return json({ error: "forbidden" }, 403);
     if (action === "cancel") {
       await sb.from("bulk_sends").update({ status: "cancelado", updated_at: new Date().toISOString() }).eq("id", id);
+      // A2: estorna a cota reservada que não vai mais ser enviada (idempotente).
+      await sb.rpc("bulk_settle_usage", { p_bulk: id });
       return json({ ok: true, status: "cancelado" });
     }
     return json({ ok: true, id: bs.id, status: bs.status, total: bs.total, enviados: bs.enviados, falhados: bs.falhados, pulados: bs.pulados });
@@ -87,15 +89,19 @@ Deno.serve(async (req: Request) => {
     const { data: tpl } = await sb.from(templateTable[canal]).select("id, organization_id").eq("id", templateId).maybeSingle();
     if (!tpl || tpl.organization_id !== orgId) return json({ error: "invalid_template" }, 400);
 
-    // Idempotência: retry de rede / duplo-clique NÃO deve criar um 2º disparo. Dedup por
-    // (org, canal, template, filtro) ainda ativo criado nos últimos 60s → devolve o existente.
-    const { data: cands } = await sb.from("bulk_sends")
-      .select("id, total, filtro")
-      .eq("organization_id", orgId).eq("canal", canal).eq(templateCol[canal], templateId)
-      .in("status", ["enfileirando", "enviando"])
-      .gte("created_at", new Date(Date.now() - 60_000).toISOString());
-    const dupe = (cands || []).find((c) => JSON.stringify(c.filtro || {}) === JSON.stringify(filter || {}));
-    if (dupe) return json({ ok: true, bulk_send_id: dupe.id, total: dupe.total, deduped: true });
+    // Fast-path de idempotência (duplo-clique / retry): já existe um disparo ATIVO
+    // idêntico? devolve-o. A garantia REAL contra corrida é o índice único parcial
+    // uq_bulk_sends_active_dedup (0047) — o INSERT abaixo falha com 23505 se dois
+    // requests concorrentes passarem por este SELECT juntos.
+    const findActiveDupe = async () => {
+      const { data: cands } = await sb.from("bulk_sends")
+        .select("id, total, filtro")
+        .eq("organization_id", orgId).eq("canal", canal).eq(templateCol[canal], templateId)
+        .in("status", ["enfileirando", "enviando"]);
+      return (cands || []).find((c) => JSON.stringify(c.filtro || {}) === JSON.stringify(filter || {})) || null;
+    };
+    const pre = await findActiveDupe();
+    if (pre) return json({ ok: true, bulk_send_id: pre.id, total: pre.total, deduped: true });
 
     // Audiência prévia (para checar limite antes de enfileirar).
     const { data: total, error: cErr } = await sb.rpc("bulk_count_audience", { p_org: orgId, p_canal: canal, p_filter: filter });
@@ -103,28 +109,44 @@ Deno.serve(async (req: Request) => {
     const audience = Number(total) || 0;
     if (audience <= 0) return json({ error: "empty_audience", detail: "Nenhum lead corresponde ao filtro." }, 400);
 
-    // Reserva de uso ATÔMICA: cria a linha do contador se faltar + incrementa respeitando o
-    // limite, travando a linha (sem TOCTOU/lost-update entre chamadas concorrentes).
-    const { data: reserved, error: rErr } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: audience });
-    if (rErr) return json({ error: "reserve_failed", detail: rErr.message }, 500);
-    if (!reserved) return json({ error: "plan_limit_exceeded", detail: `O disparo (${audience}) excede o limite do plano.` }, 403);
-
-    // Cria o cabeçalho e enfileira.
+    // Cria o cabeçalho PRIMEIRO — o índice único parcial serializa concorrentes.
+    // uso_reservado guarda a cota reservada p/ liquidar (estornar o não-enviado) depois.
     const insert: Record<string, unknown> = {
       organization_id: orgId, canal, filtro: filter, status: "enfileirando",
       rate_por_min: Math.max(1, Number(body.rate_por_min) || 60), created_by: prof.id,
+      uso_reservado: audience,
     };
     insert[templateCol[canal]] = templateId;
     const { data: bs, error: iErr } = await sb.from("bulk_sends").insert(insert).select("id").single();
-    if (iErr || !bs) return json({ error: "create_failed", detail: iErr?.message }, 500);
+    if (iErr || !bs) {
+      // 23505 = corrida perdida p/ o índice único → devolve o disparo vencedor.
+      if ((iErr as any)?.code === "23505") {
+        const won = await findActiveDupe();
+        if (won) return json({ ok: true, bulk_send_id: won.id, total: won.total, deduped: true });
+      }
+      return json({ error: "create_failed", detail: iErr?.message }, 500);
+    }
+
+    // Reserva de uso ATÔMICA (só o INSERT vencedor chega aqui).
+    const { data: reserved, error: rErr } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: audience });
+    if (rErr) {
+      await sb.from("bulk_sends").delete().eq("id", bs.id);
+      return json({ error: "reserve_failed", detail: rErr.message }, 500);
+    }
+    if (!reserved) {
+      // Estouraria o plano: nenhuma cota foi incrementada → basta remover o cabeçalho.
+      await sb.from("bulk_sends").delete().eq("id", bs.id);
+      return json({ error: "plan_limit_exceeded", detail: `O disparo (${audience}) excede o limite do plano.` }, 403);
+    }
 
     const { data: enq, error: eErr } = await sb.rpc("bulk_enqueue_recipients", { p_bulk_send_id: bs.id, p_filter: filter });
     if (eErr) {
-      await sb.from("bulk_sends").update({ status: "falhou" }).eq("id", bs.id);
+      // A2: estorna toda a cota reservada (nada foi enviado) e marca liquidado.
+      await sb.rpc("bulk_release_usage", { p_org: orgId, p_n: audience });
+      await sb.from("bulk_sends").update({ status: "falhou", uso_estornado: audience }).eq("id", bs.id);
       return json({ error: "enqueue_failed", detail: eErr.message }, 500);
     }
     const enqueued = Number(enq) || 0;
-    // Uso já reservado atomicamente acima (bulk_reserve_usage) — nada a incrementar aqui.
     await sb.from("bulk_sends").update({ status: "enviando" }).eq("id", bs.id);
     return json({ ok: true, bulk_send_id: bs.id, total: enqueued });
   }

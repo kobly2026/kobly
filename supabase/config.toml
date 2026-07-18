@@ -1,0 +1,56 @@
+# Kobly / Koblay — configuração Supabase versionada.
+# Auditoria E2E (Segurança A1): a postura verify_jwt de cada Edge Function vivia
+# só no dashboard (fora do Git, invisível a code review). Aqui ela fica explícita
+# e versionada. `verify_jwt = false` = função PÚBLICA (webhooks/crons); qualquer
+# alteração passa a aparecer no diff.
+
+project_id = "hvkuymprmfrjrgpqaxbw"
+
+# --- Funções que EXIGEM sessão autenticada (JWT do usuário) -----------------
+[functions.ai-chat]
+verify_jwt = true
+
+[functions.asaas]
+verify_jwt = true
+
+[functions.bulk-send]
+verify_jwt = true
+
+[functions.invite-client]
+verify_jwt = true
+
+[functions.resend-admin]
+verify_jwt = true
+
+[functions.send-email]
+verify_jwt = true
+
+[functions.send-sms]
+verify_jwt = true
+
+[functions.send-whatsapp]
+verify_jwt = true
+
+# --- Funções PÚBLICAS: webhooks de entrada e workers de cron -----------------
+# Autenticam por token/assinatura própria (svix, token na URL, asaas-access-token)
+# ou são idempotentes e limitadas por run_at. NÃO usam JWT de usuário.
+[functions.asaas-webhook]
+verify_jwt = false
+
+[functions.postback-receiver]
+verify_jwt = false
+
+[functions.process-bulk]
+verify_jwt = false
+
+[functions.process-steps]
+verify_jwt = false
+
+[functions.resend-webhook]
+verify_jwt = false
+
+[functions.webhook-receiver]
+verify_jwt = false
+
+[functions.zapi-webhook]
+verify_jwt = false

@@ -47,7 +47,18 @@ function KoblyStoreProvider({ children }) {
   }, []);
 
   const hydrate = useCallback(async () => {
-    const s = await KoblyApi.loadAppSession();
+    // Auditoria E2E (Frontend ALTO): sem try/catch, uma falha de loadAppSession
+    // (rede/RLS/Supabase fora) deixava phase preso em 'loading' → spinner eterno
+    // sem recuperação. Agora, falha no boot cai para 'login' (com aviso).
+    let s;
+    try {
+      s = await KoblyApi.loadAppSession();
+    } catch (e) {
+      didInit.current = false;
+      setPhase('login');
+      fireToast('warn', 'Não foi possível carregar sua sessão. Tente entrar novamente.');
+      return;
+    }
     if (s) {
       setSession(s);
       setRoleState(s.role);
@@ -63,7 +74,7 @@ function KoblyStoreProvider({ children }) {
       didInit.current = false;
       setPhase('login');
     }
-  }, [DB]);
+  }, [DB, fireToast]);
 
   // Onboarding: cria a org própria e re-hidrata (a sessão nova já vem com empresaId).
   const completeOnboarding = useCallback(async ({ nome, segmento, nichos }) => {

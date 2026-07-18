@@ -789,7 +789,12 @@ export const KoblyApi = {
   async createWebhook({ nome, descricao, eventos, provider, signingSecret }) {
     const me = await currentProfile();
     const orgId = await firstOrgId(me);
-    const rand = Math.random().toString(16).slice(2, 14);
+    // Auditoria E2E (Canais A2): o secret do webhook é a ÚNICA auth do caminho
+    // generic — Math.random() (~48 bits, previsível) era forjável. Agora CSPRNG,
+    // 192 bits em hex, via Web Crypto.
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
     const prov = provider || 'generic';
     const base = SUPABASE_URL;
     const secret = 'whsec_' + rand;
