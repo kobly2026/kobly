@@ -24,7 +24,7 @@ set search_path = ''
 as $$
 begin
   new.dedup_key := md5(
-    new.organization_id::text || '|' || coalesce(new.canal, '') || '|' ||
+    new.organization_id::text || '|' || coalesce(new.canal::text, '') || '|' ||
     coalesce(new.email_id::text, '') || coalesce(new.whatsapp_message_id::text, '') ||
     coalesce(new.sms_message_id::text, '') || '|' ||
     coalesce(new.filtro::text, '{}')
@@ -40,7 +40,7 @@ create trigger trg_bulk_sends_dedup_key
 
 -- Backfill dos cabeçalhos existentes (para o índice não falhar com dedup_key nulo).
 update public.bulk_sends set dedup_key = md5(
-  organization_id::text || '|' || coalesce(canal, '') || '|' ||
+  organization_id::text || '|' || coalesce(canal::text, '') || '|' ||
   coalesce(email_id::text, '') || coalesce(whatsapp_message_id::text, '') ||
   coalesce(sms_message_id::text, '') || '|' || coalesce(filtro::text, '{}')
 ) where dedup_key is null;
