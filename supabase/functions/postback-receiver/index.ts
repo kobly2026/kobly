@@ -253,25 +253,14 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try { body = JSON.parse(rawBody || "{}"); } catch { return json({ error: "invalid_json" }, 400); }
 
-  // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
-  // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
-  // Hotmart desativam automaticamente um Webhook que fica respondendo erro, o que
-  // derrubaria TODOS os eventos futuros por causa de um único tipo não mapeado ainda.
-  const norm = normalizePayload(body);
-  if (!norm) {
-    return json({
-      ok: true, ignored: true, reason: "unknown_event_or_missing_email",
-      // NexoPayt não tem `event` no raiz — devolve o status recebido p/ facilitar o debug.
-      received_event: body?.event ?? body?.transaction?.payment_status ?? body?.status ?? null,
-    });
-  }
-  const tipoEvento = norm.tipoEvento;
-
   // ── Supabase client ──
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   // ── Validar token → organization_id + token id (WEB-1) ──
   // Precisamos do id do token para filtrar campanhas vinculadas a um webhook nomeado.
+  // IMPORTANTE: isto roda ANTES do normalizePayload/dead-letter de propósito — assim
+  // só remetente autenticado (token válido) consegue gravar em webhook_dead_letter,
+  // e a tabela não vira alvo de flood anônimo (?token=qualquercoisa + payload lixo).
   const { data: tokRow, error: tokErr } = await sb.from("postback_tokens")
     .select("id, organization_id")
     .eq("token", token)
@@ -287,6 +276,32 @@ Deno.serve(async (req: Request) => {
     .select("id", { count: "exact", head: true })
     .eq("organization_id", org).gte("created_at", since);
   if ((recent ?? 0) > RATE_LIMIT_PER_MIN) return json({ error: "rate_limited" }, 429);
+
+  // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
+  // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
+  // Hotmart desativam automaticamente um Webhook que fica respondendo erro, o que
+  // derrubaria TODOS os eventos futuros por causa de um único tipo não mapeado ainda.
+  // Grava dead-letter ANTES de responder — sem isso o evento desaparecia sem rastro
+  // (era o bug provado pela auditoria E2E: 18 POSTs 200 em ~25min, 0 linhas gravadas).
+  const norm = normalizePayload(body);
+  if (!norm) {
+    const receivedEvent = body?.event ?? body?.transaction?.payment_status ?? body?.status ?? null;
+    const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
+      organization_id: org,
+      postback_token_id: tokenId,
+      provider: "postback",
+      reason: "unknown_event_or_missing_email",
+      detail: receivedEvent != null ? `received_event=${String(receivedEvent)}` : null,
+      raw_payload: body,
+    });
+    if (dlErr) console.error("webhook_dead_letter insert failed (unknown_event)", dlErr.message);
+    return json({
+      ok: true, ignored: true, reason: "unknown_event_or_missing_email",
+      // NexoPayt não tem `event` no raiz — devolve o status recebido p/ facilitar o debug.
+      received_event: receivedEvent,
+    });
+  }
+  const tipoEvento = norm.tipoEvento;
 
   // ── Idempotência: dedup por external_id (se fornecido), composto com a ORG ──
   // A unique de webhook_events é global (webhook_id NULL colide entre orgs) — a mesma
@@ -314,7 +329,18 @@ Deno.serve(async (req: Request) => {
     payload: body,
   };
   const ins = await sb.from("webhook_events").insert(evt).select("id").single();
-  if (ins.error) return json({ ok: true, deduped: true, detail: ins.error.message });
+  if (ins.error) {
+    const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
+      organization_id: org,
+      postback_token_id: tokenId,
+      provider: "postback",
+      reason: "insert_failed",
+      detail: ins.error.message,
+      raw_payload: body,
+    });
+    if (dlErr) console.error("webhook_dead_letter insert failed (insert_failed)", dlErr.message);
+    return json({ ok: true, deduped: true, detail: ins.error.message });
+  }
   const webhookEventId = ins.data.id;
 
   // ── 2) Lead por (org, email) ──
