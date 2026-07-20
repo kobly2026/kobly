@@ -81,6 +81,20 @@ function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
 }
+// Formata valor_compra (number) como moeda BRL — SEM Intl (locale pode variar no runtime
+// Deno): duas casas decimais fixas, vírgula decimal, ponto de milhar manual. null/undefined/
+// não-finito → string vazia (placeholder some do e-mail em vez de virar "R$ NaN").
+function formatBRL(valor: number | null | undefined): string {
+  const n = Number(valor);
+  if (valor === null || valor === undefined || !isFinite(n)) return "";
+  const cents = Math.round(n * 100);
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const intPart = Math.floor(abs / 100);
+  const decPart = String(abs % 100).padStart(2, "0");
+  const intStr = String(intPart).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${sign}R$ ${intStr},${decPart}`;
+}
 // 4xx que é FATAL (falha DEFINITIVA do destinatário/remetente — ex.: endereço/número
 // rejeitado, domínio não verificado) — exclui os que são erro GLOBAL de plataforma
 // (401 chave inválida/rotacionada, 402 conta suspensa) ou transitório (408 timeout,
@@ -170,7 +184,7 @@ Deno.serve(async (req: Request) => {
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, last_error, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, last_error, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao, produto, valor_compra)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
@@ -314,7 +328,14 @@ Deno.serve(async (req: Request) => {
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
-        const html = (em.corpo_html || "<p></p>").split("{{cta_link}}").join(ctaLink);
+        // Placeholders do e-mail de fluxo: {{cta_link}} (link de recuperação/loja), {{nome}},
+        // {{produto}} (fallback neutro p/ checkout multi-produto sob o mesmo token) e {{valor}}
+        // (moeda BRL via formatBRL — nunca deixa o literal chegar cru na caixa do comprador).
+        const html = (em.corpo_html || "<p></p>")
+          .split("{{cta_link}}").join(ctaLink)
+          .split("{{nome}}").join(lead.nome || "")
+          .split("{{produto}}").join(lead.produto || "seu pedido")
+          .split("{{valor}}").join(formatBRL(lead.valor_compra));
         // Remetente: NOME (campo/marca) + e-mail do domínio verificado da org (ou plataforma).
         const senderEmail = await resolveSenderEmail(s.organization_id);
         const from = `${fromNameSafe(em.remetente || brand.nome)} <${senderEmail}>`;
@@ -470,7 +491,12 @@ Deno.serve(async (req: Request) => {
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Mesmo destino do botão do e-mail: link do lead (postback) > URL da loja (org) > '#'.
         const ctaLink = lead.link_recuperacao || brand.link || "#";
-        const message = String(wm?.corpo_texto || wm?.titulo || "").split("{{cta_link}}").join(ctaLink);
+        // Mesmos 4 placeholders do e-mail (consistência entre canais do mesmo fluxo).
+        const message = String(wm?.corpo_texto || wm?.titulo || "")
+          .split("{{cta_link}}").join(ctaLink)
+          .split("{{nome}}").join(lead.nome || "")
+          .split("{{produto}}").join(lead.produto || "seu pedido")
+          .split("{{valor}}").join(formatBRL(lead.valor_compra));
         // Botões interativos (Z-API send-button-actions): resolve {{cta_link}} nas URLs.
         const rawButtons = Array.isArray(wm?.botoes) ? (wm!.botoes as any[]) : [];
         const buttonActions = rawButtons.slice(0, 3).map((b: any, i: number) => {
@@ -602,10 +628,13 @@ Deno.serve(async (req: Request) => {
         }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         const ctaLink = lead.link_recuperacao || brand.link || "";
-        // Substitui {{cta_link}} e {{nome}} no corpo do SMS.
+        // Substitui {{cta_link}} e {{nome}} no corpo do SMS (já existia) + {{produto}} e
+        // {{valor}} (novos, mesmos fallbacks do e-mail/WhatsApp).
         const message = String(sm.corpo_texto || sm.titulo || "")
           .split("{{cta_link}}").join(ctaLink)
-          .split("{{nome}}").join(lead.nome || "");
+          .split("{{nome}}").join(lead.nome || "")
+          .split("{{produto}}").join(lead.produto || "seu pedido")
+          .split("{{valor}}").join(formatBRL(lead.valor_compra));
 
         // Cota do plano: reserva antes de enviar (mesmo trilho de e-mail/WhatsApp).
         const reserveResultSms = await reserveOne(s.organization_id);
