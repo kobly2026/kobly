@@ -282,12 +282,21 @@ Deno.serve(async (req: Request) => {
             unsubUrl = `${baseUrl}/functions/v1/unsubscribe?token=${token}`;
             htmlBody = htmlBody.split("{{unsubscribe_url}}").join(unsubUrl)
                                .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="${unsubUrl}"$1`);
+          } else {
+            // Sem secret: nunca deixa o literal "{{unsubscribe_url}}" (ou o href="#" morto)
+            // ir pro destinatário — melhor um mailto genérico funcional no rodapé.
+            htmlBody = htmlBody.split("{{unsubscribe_url}}").join("mailto:unsubscribe@koblay.io")
+                               .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="mailto:unsubscribe@koblay.io"$1`);
           }
           const listUnsub = unsubUrl ? `<${unsubUrl}>, <mailto:unsubscribe@koblay.io>` : `<mailto:unsubscribe@koblay.io>`;
           const replyTo = await resolveReplyTo(s.organization_id);
+          // List-Unsubscribe-Post (RFC 8058 one-click) só faz sentido junto de uma URL
+          // https clicável; omitido quando só temos o mailto (sem unsubUrl).
           const payload: Record<string, unknown> = {
             from, to: [lead.email], subject: em.assunto || "Koblay", html: htmlBody,
-            headers: { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+            headers: unsubUrl
+              ? { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+              : { "List-Unsubscribe": listUnsub },
           };
           if (replyTo) payload.reply_to = replyTo;
           const resp = await fetch("https://api.resend.com/emails", {

@@ -81,6 +81,12 @@ Deno.serve(async (req: Request) => {
                      .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="${unsubUrl}"$1`);
     }
     const listUnsub = unsubUrl ? `<${unsubUrl}>, <mailto:unsubscribe@koblay.io>` : `<mailto:unsubscribe@koblay.io>`;
+    // List-Unsubscribe-Post (RFC 8058 one-click) só faz sentido junto de uma URL https
+    // clicável; anunciá-lo ao lado de um List-Unsubscribe só-mailto é combinação sem
+    // sentido pra RFC 8058 — omitido quando não há unsubUrl.
+    const unsubHeaders: Record<string, string> = unsubUrl
+      ? { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+      : { "List-Unsubscribe": listUnsub };
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -89,7 +95,7 @@ Deno.serve(async (req: Request) => {
         from: sender,
         to: Array.isArray(to) ? to : [to],
         subject, html: htmlOut, text,
-        headers: { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+        headers: unsubHeaders,
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });

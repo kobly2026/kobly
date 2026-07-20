@@ -77,9 +77,18 @@ Deno.serve(async (req: Request) => {
   // Verificação de assinatura svix (auditoria E2E — Canais A1): sem isto, qualquer
   // um podia POSTar aberturas/cliques forjados e inflar métricas. A secret vem do
   // Vault (resend_webhook_secret = signing secret do webhook no painel do Resend).
-  // Se não estiver definida, seguimos sem verificar (dev) — defina-a em produção.
+  //
+  // FAIL CLOSED: se a secret não estiver definida, REJEITAMOS a request (503) em vez
+  // de processar sem verificar. Antes disto, "sem secret → segue sem checar" era
+  // aceitável quando este endpoint só gravava telemetria; agora que ele também
+  // escreve email_suppressions (bounce permanente → bloqueio GLOBAL, todo tenant),
+  // pular a verificação vira um curl anônimo capaz de suprimir qualquer endereço
+  // pra sempre em toda a plataforma. Não "simplifique" isto de volta para opcional.
   const { data: signingSecret } = await sb.rpc("get_secret", { p_name: "resend_webhook_secret" });
-  if (signingSecret) {
+  if (!signingSecret) {
+    return json({ error: "webhook_unconfigured" }, 503);
+  }
+  {
     const id = req.headers.get("svix-id") || "";
     const ts = req.headers.get("svix-timestamp") || "";
     const sig = req.headers.get("svix-signature") || "";
@@ -118,8 +127,15 @@ Deno.serve(async (req: Request) => {
     email, sg_message_id: messageId, url: (body.data?.click?.link ?? null), "timestamp": new Date().toISOString(),
   });
 
-  // Supressão automática: hard bounce → global; reclamação de spam → por org.
-  if (m.kind === "bounce" && email) {
+  // Supressão automática: SÓ bounce PERMANENTE vira supressão global; reclamação de
+  // spam → por org (abaixo). Resend manda data.bounce.type = "Permanent" | "Transient"
+  // | "Undetermined". "Transient" cobre coisas como MailboxFull/MessageTooLarge — uma
+  // caixa cheia por um dia não pode virar bloqueio PERMANENTE e PLATAFORMA INTEIRA
+  // (organization_id=null): a policy de leitura esconde linhas globais até de admins
+  // e não existe policy de escrita nem UI pra reverter — vira definitivo. Transient/
+  // Undetermined/ausente: já gravamos o email_events acima (telemetria), mas NÃO suprime.
+  const bounceType: string | null = body?.data?.bounce?.type ?? null;
+  if (m.kind === "bounce" && email && bounceType === "Permanent") {
     await sb.from("email_suppressions").upsert(
       { email: String(email).toLowerCase(), organization_id: null, reason: "bounce", source: "webhook" },
       { onConflict: "email,organization_id", ignoreDuplicates: true },
