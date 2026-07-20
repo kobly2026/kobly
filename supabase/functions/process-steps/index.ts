@@ -73,8 +73,17 @@ Deno.serve(async (req: Request) => {
   };
   async function isEmailSuppressed(email: string, org: string): Promise<boolean> {
     const e = String(email).toLowerCase();
-    const { data } = await sb.from("email_suppressions").select("id, organization_id")
+    const { data, error } = await sb.from("email_suppressions").select("id, organization_id")
       .eq("email", e).or(`organization_id.eq.${org},organization_id.is.null`).limit(1);
+    // Falha FECHADA: se a consulta falhar não sabemos se este e-mail está suprimido, e
+    // enviar para quem optou por sair não é reversível. Lançar (em vez de devolver false)
+    // é capturado pelo try/catch do step e vira reagendamento via failStep — a próxima
+    // tentativa reconsulta em vez de assumir "não suprimido" por um erro transitório.
+    // NÃO troque isto por "return false" em caso de erro — é exatamente o bug que isto evita.
+    if (error) {
+      console.error("process-steps: falha ao consultar email_suppressions, tratando como erro do step (fail-closed)", error);
+      throw new Error(`suppression_lookup_failed: ${error.message}`);
+    }
     return !!(data && data.length);
   }
   const { data: fromCfg } = await sb.rpc("get_secret", { p_name: "resend_from" });
