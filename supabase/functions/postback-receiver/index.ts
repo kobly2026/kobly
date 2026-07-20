@@ -7,6 +7,10 @@
 // pelo cliente: { event: "PURCHASE_APPROVED", data: { buyer: {...}, purchase: {...} } },
 // e o postback nativo da NexoPayt/NexusPayt (família Payt), detectado pelo shape
 // { transaction: {...}, customer: {...}, integration_key } — sem campo `event` no raiz.
+// Também aceita o envelope ENTITY (provedor de checkout tipo CloudEvents), detectado por
+// { kind: "ENTITY", event: "entity.transaction.created"|"entity.transaction.paid"|...,
+// data: { customer, items, amount (CENTAVOS), status: {value}, method: {value,label} } } —
+// reaproveita a MESMA regra de negócio do adapter NexoPayt (resolveNexopaytTipoEvento).
 // Mapeamento event/status → tipo_evento é feito internamente (EVENT_MAP / HOTMART_EVENT_MAP /
 // NEXOPAYT_PAYMENT_STATUS_MAP + NEXOPAYT_ORDER_STATUS_MAP).
 // Link de recuperação: extractRecoveryLink varre o payload por um link de checkout/carrinho
@@ -123,8 +127,17 @@ function isNexopaytShaped(body: any): boolean {
   return hasTx || hasCustomer || typeof body.integration_key === "string";
 }
 
-// Normaliza os três formatos aceitos (genérico Kobly, nativo Hotmart e nativo
-// NexoPayt/NexusPayt) para um único shape interno. Retorna null quando o evento não é
+// Payload é "formato ENTITY" (envelope tipo CloudEvents de um provedor de checkout)
+// quando kind === "ENTITY" e event começa com "entity.transaction.". Confirmado por
+// payload REAL capturado em produção (webhook_dead_letter, reason=unknown_event_or_missing_email,
+// 20/07/2026): 16x entity.transaction.created (status.value=waiting_payment, method.value=pix)
+// e 10x entity.transaction.paid (status.value=paid, method.value=pix).
+function isEntityShaped(body: any): boolean {
+  return !!(body && body.kind === "ENTITY" && typeof body.event === "string" && body.event.startsWith("entity.transaction."));
+}
+
+// Normaliza os quatro formatos aceitos (genérico Kobly, nativo Hotmart, nativo
+// NexoPayt/NexusPayt e envelope ENTITY) para um único shape interno. Retorna null quando o evento não é
 // reconhecido/mapeável (nesse caso o chamador deve responder 200 "ignored", nunca 4xx —
 // a Hotmart desativa automaticamente um Webhook que fica respondendo erro).
 // `isPix` é opcional: só o branch nexopayt o preenche; nos demais o chamador deriva
@@ -187,6 +200,46 @@ function normalizePayload(body: any): {
       paymentMethod: NEXOPAYT_PAYMENT_LABEL[pm] ?? (pm || null),
       externalId: txId ? `${txId}:${tipoEvento}` : null, // idempotência por transição de status
       sourceEvent: String(tx.payment_status || body.payment_status || body.status || ""),
+      isPix: tipoEvento === "Pix Gerado",
+    };
+  }
+
+  // Envelope ENTITY: NÃO inventa mapeamento novo — reaproveita resolveNexopaytTipoEvento
+  // (a MESMA função/regra de negócio do adapter NexoPayt), passando data.status.value como
+  // payment_status/status e data.method.value como método. waiting_payment+pix => "Pix
+  // Gerado", waiting_payment+boleto => "Boleto Gerado", paid => "Compra Aprovada", e os
+  // demais status (refused/refunded/chargeback/canceled) já herdam de NEXOPAYT_PAYMENT_STATUS_MAP
+  // por usarem o mesmo vocabulário de valores.
+  if (isEntityShaped(body)) {
+    const d = (body.data ?? {}) as Record<string, any>;
+    const pm = String(d.method?.value ?? "").toLowerCase();
+    const statusValue = String(d.status?.value ?? "").toLowerCase();
+    const tipoEvento = resolveNexopaytTipoEvento({ status: statusValue, payment_status: statusValue }, {}, pm);
+    if (!tipoEvento) return null;
+    const c = (d.customer ?? {}) as Record<string, any>;
+    if (!c.email) return null;
+    const items = Array.isArray(d.items) ? d.items : [];
+    const product = items.map((i: any) => i?.name).filter(Boolean).join(", ") || null;
+    // amount vem em CENTAVOS — confirmado no dead-letter real comparando com o preço do
+    // item (ex.: amount=1490 + item "Atendimento Prioritário" price=1490 => R$14,90 plausível).
+    const value = d.amount != null && !Number.isNaN(Number(d.amount)) ? Math.round(Number(d.amount)) / 100 : null;
+    const rawPhone = c.phone;
+    const phone = rawPhone && typeof rawPhone === "object"
+      ? (`${rawPhone.countryCode ?? ""}${rawPhone.number ?? ""}` || null)
+      : (typeof rawPhone === "string" ? rawPhone : null);
+    const txId = d.id ?? null;
+    return {
+      tipoEvento,
+      email: c.email,
+      name: c.name ?? null,
+      phone,
+      product,
+      value,
+      paymentMethod: d.method?.label || NEXOPAYT_PAYMENT_LABEL[pm] || (pm || null),
+      // idempotência por TRANSIÇÃO de status: o mesmo data.id se repete entre
+      // entity.transaction.created e entity.transaction.paid (confirmado no dead-letter real).
+      externalId: txId ? `${txId}:${tipoEvento}` : null,
+      sourceEvent: statusValue || body.event,
       isPix: tipoEvento === "Pix Gerado",
     };
   }
