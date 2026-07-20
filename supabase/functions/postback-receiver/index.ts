@@ -29,6 +29,11 @@ const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
 const RATE_LIMIT_PER_MIN = 120;
+// Achados dos revisores (Tarefa 3d): sem limite no que é gravado por evento no
+// dead-letter — trunca o payload cru quando passa de ~16 KB, guardando só o
+// início (~8 KB) em vez do corpo inteiro.
+const DEAD_LETTER_MAX_BYTES = 16 * 1024;
+const DEAD_LETTER_HEAD_BYTES = 8 * 1024;
 
 // ── Mapeamento event → tipo_evento (enum do banco) — contrato genérico Kobly ──
 const EVENT_MAP: Record<string, string> = {
@@ -292,6 +297,16 @@ function extractRecoveryLink(payload: any): string | null {
   return best ? best.url : null;
 }
 
+// Achados dos revisores (Tarefa 3d): dead-letter sem limite gravava o payload cru
+// inteiro, sem teto. Se o corpo bruto passar de ~16 KB, guarda só um objeto
+// {_truncated:true, head:<primeiros ~8 KB do texto cru>} em vez do JSON completo —
+// evita linhas gigantes de payloads mal-comportados/abusivos.
+function deadLetterPayload(raw: string, parsed: any): any {
+  const bytes = new TextEncoder().encode(raw).length;
+  if (bytes <= DEAD_LETTER_MAX_BYTES) return parsed;
+  return { _truncated: true, head: raw.slice(0, DEAD_LETTER_HEAD_BYTES) };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -324,11 +339,19 @@ Deno.serve(async (req: Request) => {
   const tokenId = tokRow.id as string;
 
   // ── Rate limit ──
+  // Achados dos revisores (Tarefa 3d): antes só contava webhook_events — o caminho de
+  // dead-letter nunca gravava lá, então um token válido com tráfego de eventos não
+  // mapeados nunca disparava o limite (gravando dead-letter ilimitadamente). Agora soma
+  // as duas tabelas na mesma janela de 60s, por org.
   const since = new Date(Date.now() - 60_000).toISOString();
-  const { count: recent } = await sb.from("webhook_events")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", org).gte("created_at", since);
-  if ((recent ?? 0) > RATE_LIMIT_PER_MIN) return json({ error: "rate_limited" }, 429);
+  const [{ count: recentEvents }, { count: recentDeadLetters }] = await Promise.all([
+    sb.from("webhook_events").select("id", { count: "exact", head: true })
+      .eq("organization_id", org).gte("created_at", since),
+    sb.from("webhook_dead_letter").select("id", { count: "exact", head: true })
+      .eq("organization_id", org).gte("created_at", since),
+  ]);
+  const recent = (recentEvents ?? 0) + (recentDeadLetters ?? 0);
+  if (recent > RATE_LIMIT_PER_MIN) return json({ error: "rate_limited" }, 429);
 
   // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
   // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
@@ -345,7 +368,7 @@ Deno.serve(async (req: Request) => {
       provider: "postback",
       reason: "unknown_event_or_missing_email",
       detail: receivedEvent != null ? `received_event=${String(receivedEvent)}` : null,
-      raw_payload: body,
+      raw_payload: deadLetterPayload(rawBody, body),
     });
     if (dlErr) console.error("webhook_dead_letter insert failed (unknown_event)", dlErr.message);
     return json({
@@ -383,15 +406,24 @@ Deno.serve(async (req: Request) => {
   };
   const ins = await sb.from("webhook_events").insert(evt).select("id").single();
   if (ins.error) {
-    const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
-      organization_id: org,
-      postback_token_id: tokenId,
-      provider: "postback",
-      reason: "insert_failed",
-      detail: ins.error.message,
-      raw_payload: body,
-    });
-    if (dlErr) console.error("webhook_dead_letter insert failed (insert_failed)", dlErr.message);
+    // Achados dos revisores (Tarefa 3c): unique (webhook_id, id_webhook) NULLS NOT
+    // DISTINCT faz de 'insert_failed' o caminho NORMAL de dedupe — toda reentrega
+    // idempotente do provedor cai aqui via violação de unicidade (código '23505' no
+    // Postgres/PostgREST). Isso não é falha: não grava dead-letter (evita ruído com o
+    // payload cru inteiro para tráfego legítimo), só responde 200 'deduped' como antes.
+    // Só grava dead-letter para erros que são de fato falha de insert.
+    const isDuplicate = (ins.error as { code?: string }).code === "23505";
+    if (!isDuplicate) {
+      const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
+        organization_id: org,
+        postback_token_id: tokenId,
+        provider: "postback",
+        reason: "insert_failed",
+        detail: ins.error.message,
+        raw_payload: deadLetterPayload(rawBody, body),
+      });
+      if (dlErr) console.error("webhook_dead_letter insert failed (insert_failed)", dlErr.message);
+    }
     return json({ ok: true, deduped: true, detail: ins.error.message });
   }
   const webhookEventId = ins.data.id;

@@ -15,8 +15,12 @@
 // RETRY: se o envio FALHA (erro do Resend, exceção), NÃO finaliza — reagenda com backoff e
 // attempts++, até MAX_ATTEMPTS; só então desiste (Finalizado + last_error). Isso evita perder
 // e-mail de recuperação por soluço transitório do Resend (ex.: 500 application_error).
-// 4xx (exceto 429) é FATAL — não é "transitório", não retenta (mesmo critério do
-// process-bulk). COTA: cada tentativa reserva 1 unidade antes de disparar; se a tentativa
+// 4xx é FATAL (não retenta), EXCETO os que não são específicos do destinatário/remetente:
+// 401 (chave inválida/rotacionada) e 402 (conta suspensa) são erros GLOBAIS de plataforma
+// — tratá-los como fatal mataria em definitivo TODOS os steps devidos no primeiro tick após
+// uma rotação de chave, sem janela de recuperação; 408/409/429 são transitórios (timeout,
+// conflito, rate limit). Esses cinco continuam com retry/backoff — ver isFatalClientError().
+// COTA: cada tentativa reserva 1 unidade antes de disparar; se a tentativa
 // termina em definitivo sem entregar (4xx fatal ou gaveup ao esgotar MAX_ATTEMPTS), a
 // unidade é ESTORNADA (scheduled_step_release_usage, nunca abaixo de zero).
 // Em produção é chamada por pg_cron a cada minuto.
@@ -59,6 +63,14 @@ function fromNameSafe(n: string | null | undefined): string {
 function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
+}
+// 4xx que é FATAL (falha DEFINITIVA do destinatário/remetente — ex.: endereço/número
+// rejeitado, domínio não verificado) — exclui os que são erro GLOBAL de plataforma
+// (401 chave inválida/rotacionada, 402 conta suspensa) ou transitório (408 timeout,
+// 409 conflito, 429 rate limit): esses cinco continuam com retry/backoff.
+const NON_FATAL_4XX = new Set([401, 402, 408, 409, 429]);
+function isFatalClientError(status: number): boolean {
+  return status >= 400 && status < 500 && !NON_FATAL_4XX.has(status);
 }
 
 Deno.serve(async (req: Request) => {
@@ -208,16 +220,20 @@ Deno.serve(async (req: Request) => {
 
   // Reserva 1 unidade da cota do plano ANTES do envio (auditoria E2E — Billing C4:
   // fluxos/automações também consomem cota, não só o disparo em massa). Atômico
-  // via bulk_reserve_usage. false = plano estourado → não envia. Fail-open só em
-  // erro de infra (não trava a fila por hiccup do banco) — mas o erro agora fica
-  // visível no log da edge function (antes era engolido em silêncio).
-  const reserveOne = async (orgId: string): Promise<boolean> => {
+  // via bulk_reserve_usage. Devolve o estado REAL da reserva — 'error' NÃO é
+  // sinônimo de reservado: é fail-open (deixa enviar, não trava a fila por hiccup
+  // do banco), mas sem ter de fato somado ao contador. Achado dos revisores: antes
+  // isto devolvia boolean e os chamadores tratavam 'error' como reservado, então o
+  // estorno em falha definitiva decrementava numero_execucoes de uma unidade que
+  // NUNCA foi somada — o contador ficava abaixo do uso real (deriva de cota). Agora
+  // os chamadores só marcam reservedThisAttempt=true quando o retorno é 'reserved'.
+  const reserveOne = async (orgId: string): Promise<"reserved" | "denied" | "error"> => {
     const { data, error } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: 1 });
     if (error) {
-      console.error("process-steps: reserveOne RPC (bulk_reserve_usage) falhou, fail-open (deixando enviar)", orgId, error);
-      return true;
+      console.error("process-steps: reserveOne RPC (bulk_reserve_usage) falhou, fail-open (deixando enviar, SEM contar como reservado)", orgId, error);
+      return "error";
     }
-    return data === true;
+    return data === true ? "reserved" : "denied";
   };
 
   // Estorna 1 unidade da cota reservada por reserveOne quando a tentativa termina em
@@ -306,12 +322,15 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         // Cota do plano: reserva antes de enviar (não conta condição-pulada/órfão).
-        if (!(await reserveOne(s.organization_id))) {
+        const reserveResultEmail = await reserveOne(s.organization_id);
+        if (reserveResultEmail === "denied") {
           await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
           skipped++; processed++;
           continue;
         }
-        reservedThisAttempt = true;
+        // Só marca reservado quando a RPC de fato reservou ('error' é fail-open: envia
+        // mesmo assim, mas sem reserva real — releaseOne() não deve estornar depois).
+        reservedThisAttempt = reserveResultEmail === "reserved";
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let emailFatal = false; // 4xx definitivo do Resend (ex.: 403 domain is not verified) → sem retry
         if (apiKey) {
@@ -347,9 +366,9 @@ Deno.serve(async (req: Request) => {
           ok = resp.ok; msgId = out?.id ?? null;
           if (!ok) {
             errDetail = JSON.stringify(out).slice(0, 200);
-            // 4xx = definitivo (ex.: 403 domain is not verified) — EXCETO 429 (rate
-            // limit), que é transitório e deve reagendar. Espelha o process-bulk.
-            if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) emailFatal = true;
+            // 4xx = definitivo (ex.: 403 domain is not verified) — EXCETO os não
+            // específicos do destinatário/remetente (ver isFatalClientError). Espelha o process-bulk.
+            if (isFatalClientError(resp.status)) emailFatal = true;
           }
         } else { errDetail = "resend_api_key ausente"; }
 
@@ -463,14 +482,16 @@ Deno.serve(async (req: Request) => {
               else if (typeof chkOut.phone === "string" && chkOut.phone) target = chkOut.phone;
             }
           } catch (_) { /* segue com o número normalizado */ }
-          if (!semWhatsapp && !(await reserveOne(s.organization_id))) {
-            // Cota do plano estourada → não envia (número válido, mas sem saldo).
-            await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
-            skipped++; processed++;
-            continue;
-          }
           if (!semWhatsapp) {
-            reservedThisAttempt = true;
+            const reserveResultWa = await reserveOne(s.organization_id);
+            if (reserveResultWa === "denied") {
+              // Cota do plano estourada → não envia (número válido, mas sem saldo).
+              await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
+              skipped++; processed++;
+              continue;
+            }
+            // Só marca reservado quando a RPC de fato reservou (ver reserveOne).
+            reservedThisAttempt = reserveResultWa === "reserved";
             const endpoint = buttons.length > 0 ? "send-button-actions" : "send-text";
             const payload: Record<string, unknown> = { phone: target, message };
             if (buttons.length > 0) payload.buttonActions = buttons;
@@ -554,12 +575,14 @@ Deno.serve(async (req: Request) => {
           .split("{{nome}}").join(lead.nome || "");
 
         // Cota do plano: reserva antes de enviar (mesmo trilho de e-mail/WhatsApp).
-        if (!(await reserveOne(s.organization_id))) {
+        const reserveResultSms = await reserveOne(s.organization_id);
+        if (reserveResultSms === "denied") {
           await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
           skipped++; processed++;
           continue;
         }
-        reservedThisAttempt = true;
+        // Só marca reservado quando a RPC de fato reservou (ver reserveOne).
+        reservedThisAttempt = reserveResultSms === "reserved";
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let smsFatal = false; // 4xx do Twilio (nº inválido) → falha DEFINITIVA (sem retry)
         if (twilioSid && twilioAuth && twilioFrom) {
@@ -578,8 +601,9 @@ Deno.serve(async (req: Request) => {
           ok = resp.ok; msgId = out?.sid ?? null;
           if (!ok) {
             errDetail = JSON.stringify(out).slice(0, 200);
-            // 4xx = definitivo (nº/param inválido) — EXCETO 429 (rate limit), que reagenda.
-            if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) smsFatal = true;
+            // 4xx = definitivo (nº/param inválido) — EXCETO os não específicos do
+            // destinatário/remetente (ver isFatalClientError).
+            if (isFatalClientError(resp.status)) smsFatal = true;
           }
         } else { errDetail = "twilio secrets ausentes"; }
 
