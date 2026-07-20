@@ -134,17 +134,21 @@ Deno.serve(async (req: Request) => {
     .filter((r: any) => r.bulk_sends?.canal === "email" && r.destino)
     .map((r: any) => String(r.destino).toLowerCase()))];
   const suppressed = new Set<string>();
+  // Falha FECHADA, mas escopada ao canal de e-mail: se não conseguimos confirmar quem
+  // está suprimido, não sabemos se é seguro enviar — então NENHUM e-mail é reivindicado
+  // nesta varredura (ficam 'pendente', reprocessados no próximo tick). Isto NÃO deve
+  // abortar o tick inteiro: WhatsApp/SMS não usam email_suppressions e não têm nada a
+  // ver com esta falha. NÃO troque isto por "segue sem checar supressão" para e-mail —
+  // é exatamente o bug que isto evita.
+  let suppressionUnavailable = false;
   if (dueEmails.length) {
     const { data: sup, error: supError } = await sb.from("email_suppressions").select("email, organization_id").in("email", dueEmails);
-    // Falha FECHADA: se não conseguimos confirmar quem está suprimido, não sabemos se é
-    // seguro enviar. Devolver 200 sem processar ninguém (cron tenta de novo no próximo
-    // minuto) é quase de graça; enviar p/ alguém que optou por sair não é reversível.
-    // NÃO troque isto por "segue sem checar supressão" — é exatamente o bug que isto evita.
     if (supError) {
-      console.error("process-bulk: falha ao consultar email_suppressions, abortando tick (fail-closed)", supError);
-      return json({ ok: false, error: "suppression_lookup_failed" }, 200);
+      console.error("process-bulk: falha ao consultar email_suppressions — pulando destinatários de e-mail nesta varredura (fail-closed); WhatsApp/SMS seguem normalmente", supError);
+      suppressionUnavailable = true;
+    } else {
+      for (const row of sup || []) suppressed.add(`${String((row as any).email).toLowerCase()}::${(row as any).organization_id ?? "*"}`);
     }
-    for (const row of sup || []) suppressed.add(`${String((row as any).email).toLowerCase()}::${(row as any).organization_id ?? "*"}`);
   }
   const isSuppressed = (email: string, org: string) =>
     suppressed.has(`${String(email).toLowerCase()}::${org}`) || suppressed.has(`${String(email).toLowerCase()}::*`);
@@ -173,6 +177,11 @@ Deno.serve(async (req: Request) => {
   for (const r of due || []) {
     const header = (r as any).bulk_sends; const lead = (r as any).leads;
     touched.add(r.bulk_send_id);
+
+    // Supressão indisponível nesta varredura: não reivindica o destinatário de e-mail
+    // (permanece 'pendente', run_at intacto) — será reprocessado no próximo tick, sem
+    // marcar falha definitiva. Restrito ao canal 'email'; WhatsApp/SMS seguem abaixo.
+    if (header.canal === "email" && suppressionUnavailable) continue;
 
     // Claim otimista: só prossegue quem virar 'processando' (evita duplo-envio em ticks sobrepostos).
     const holdUntil = new Date(Date.now() + CLAIM_HOLD_MIN * 60000).toISOString();
