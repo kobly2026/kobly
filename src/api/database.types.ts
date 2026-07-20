@@ -1419,6 +1419,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -1439,6 +1440,7 @@ export type Database = {
           plano_expira_em?: string | null
           plano_id?: string | null
           plano_status?: string | null
+          reply_to_email?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -1459,6 +1461,7 @@ export type Database = {
           plano_expira_em?: string | null
           plano_id?: string | null
           plano_status?: string | null
+          reply_to_email?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -2546,6 +2549,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -2575,6 +2579,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
