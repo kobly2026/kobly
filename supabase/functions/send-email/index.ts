@@ -1,7 +1,12 @@
-// Kobly — Edge Function `send-email`: proxy seguro para o Resend.
+// Kobly — Edge Function `send-email`: proxy seguro para o Resend ("Enviar teste").
 // Chave do Resend no Supabase Vault (RPC get_secret, service_role). NUNCA no browser.
-// from: body.from completo → body.fromName + e-mail do secret → secret `resend_from` → fallback.
+// from: body.from completo é IGNORADO (anti-abuso); body.fromName (display) + endereço
+// resolvido pela MESMA prioridade dos workers (process-bulk/process-steps):
+// domínio próprio verificado da org > <sender_local>@resend_sending_domain > secret
+// `resend_from` (fallback antigo, usado também quando a org não é resolvível).
 // verify_jwt = true: só usuários autenticados (a UI envia o JWT da sessão).
+// Persiste o resultado em public.email_events (event='send') para diagnosticar testes
+// sem consumir cota do plano — nenhuma RPC de reserva/consumo é chamada aqui.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -41,7 +46,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
     // `from` completo do body é IGNORADO (anti-abuso na chave compartilhada).
-    // Só aceita fromName (display) + endereço do secret resend_from.
+    // Só aceita fromName (display); o endereço vem da resolução por org abaixo.
     const { to, subject, html, text, fromName } = await req.json();
     if (!to || !subject || (!html && !text)) return json({ error: "missing_fields", detail: "to, subject e html/text são obrigatórios" }, 400);
 
@@ -49,13 +54,13 @@ Deno.serve(async (req: Request) => {
     const { data: apiKey } = await admin.rpc("get_secret", { p_name: "resend_api_key" });
     if (!apiKey) return json({ error: "secret_unavailable", detail: "Defina a secret 'resend_api_key' no Vault." }, 500);
     const { data: fromCfg } = await admin.rpc("get_secret", { p_name: "resend_from" });
-    const addr = extractEmail(fromCfg) || "onboarding@resend.dev";
-    let sender: string;
-    if (fromName) sender = `${fromNameSafe(fromName)} <${addr}>`;
-    else if (fromCfg && fromCfg.includes("<")) sender = fromCfg;
-    else sender = `Koblay <${addr}>`;
+    const { data: sendingDomainRaw } = await admin.rpc("get_secret", { p_name: "resend_sending_domain" });
+    const sendingDomain = (sendingDomainRaw && String(sendingDomainRaw).trim()) || null;
+    const platformAddr = extractEmail(fromCfg) || "onboarding@resend.dev";
 
-    // org do chamador (para token de descadastro + Reply-To)
+    // org do chamador (para remetente real, token de descadastro e Reply-To). Se não der
+    // pra resolver (JWT inválido/sem profile/sem org), callerOrg fica null e tudo abaixo
+    // degrada graciosamente para o comportamento antigo (fallback resend_from, sem token).
     let callerOrg: string | null = null, replyTo: string | null = null;
     try {
       const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
@@ -68,7 +73,32 @@ Deno.serve(async (req: Request) => {
           replyTo = (org?.reply_to_email && String(org.reply_to_email).trim()) || null;
         }
       }
-    } catch { /* teste sem org resolvível → segue sem token/reply */ }
+    } catch { /* teste sem org resolvível → segue sem token/reply/remetente-de-org */ }
+
+    // Remetente por org — mesma prioridade de process-bulk/process-steps (resolveSender):
+    // 1) domínio próprio verificado da org (domains.status='verified', com id_resend
+    //    real, não SendGrid legado); 2) <sender_local>@resend_sending_domain;
+    // 3) fallback antigo (secret resend_from / onboarding@resend.dev). Sem org
+    // resolvível, cai direto no fallback — nunca falha o envio por causa disso.
+    let addr = platformAddr;
+    if (callerOrg) {
+      const { data: dom } = await admin.from("domains")
+        .select("from_email, url, status, id_resend")
+        .eq("organization_id", callerOrg).eq("status", "verified")
+        .not("id_resend", "is", null).not("id_resend", "like", "sg%")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      let resolved: string | null = null;
+      if (dom) resolved = extractEmail(dom.from_email) || (dom.url ? `contato@${dom.url}` : null);
+      if (!resolved && sendingDomain) {
+        const { data: o } = await admin.from("organizations").select("sender_local").eq("id", callerOrg).maybeSingle();
+        if (o?.sender_local) resolved = `${o.sender_local}@${sendingDomain}`;
+      }
+      if (resolved) addr = resolved;
+    }
+    let sender: string;
+    if (fromName) sender = `${fromNameSafe(fromName)} <${addr}>`;
+    else if (!callerOrg && fromCfg && fromCfg.includes("<")) sender = fromCfg;
+    else sender = `Koblay <${addr}>`;
 
     const primeiroTo = Array.isArray(to) ? to[0] : to;
     const { data: unsubSecret } = await admin.rpc("get_secret", { p_name: "unsubscribe_secret" });
@@ -100,6 +130,29 @@ Deno.serve(async (req: Request) => {
       }),
     });
     const out = await resp.json().catch(() => ({}));
+
+    // Persiste o resultado do teste em email_events (mesmo formato do worker) para dar
+    // ao cliente algo diagnosticável — sem isso, "não funciona" não deixa rastro no banco.
+    // NÃO chama nenhuma RPC de reserva/consumo de cota: teste não deve custar cota do plano.
+    // Sem org resolvível não sabemos de quem é o evento — não inventamos organization_id,
+    // só avisamos no log da function.
+    if (callerOrg) {
+      const { error: evErr } = await admin.from("email_events").insert({
+        organization_id: callerOrg,
+        campaign_id: null,
+        event: "send",
+        channel: "email",
+        email: primeiroTo,
+        status: resp.ok ? "enviado" : "falhou",
+        sg_message_id: resp.ok ? (out?.id ?? null) : null,
+        reason: resp.ok ? null : JSON.stringify(out).slice(0, 300),
+        timestamp: new Date().toISOString(),
+      });
+      if (evErr) console.warn("send-email: falha ao gravar email_events do teste", evErr);
+    } else {
+      console.warn("send-email: organização do chamador não resolvida — evento de teste não registrado", { to: primeiroTo });
+    }
+
     if (!resp.ok) return json({ error: "resend_error", status: resp.status, detail: out }, 502);
     return json({ ok: true, id: out.id, from: sender });
   } catch (e) {
