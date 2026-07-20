@@ -26,8 +26,12 @@ function timelineVisual(item, DB) {
     return { icon: 'zap', tone: DB.eventTone[item.tipoEvento] || 'info' };
   }
   if (item.kind === 'email') {
-    const base = item.canal === 'whatsapp' ? 'message-circle' : 'mail';
-    if (item.falhou) return { icon: item.canal === 'whatsapp' ? 'message-circle-x' : 'mail-x', tone: 'danger' };
+    // Um ícone por canal — SMS não pode herdar o envelope do e-mail (mentiria sobre o
+    // canal real). Sem "smartphone-x" no lucide, "phone-off" é o mais próximo pra falha.
+    const CANAL_ICON = { whatsapp: 'message-circle', sms: 'smartphone', email: 'mail' };
+    const CANAL_ICON_FALHA = { whatsapp: 'message-circle-x', sms: 'phone-off', email: 'mail-x' };
+    const base = CANAL_ICON[item.canal] || CANAL_ICON.email;
+    if (item.falhou) return { icon: CANAL_ICON_FALHA[item.canal] || CANAL_ICON_FALHA.email, tone: 'danger' };
     if (item.pulado) return { icon: 'circle-slash', tone: 'neutral' };
     return { icon: base, tone: item.enviado ? 'success' : 'warning' };
   }
