@@ -49,6 +49,9 @@ verify_jwt = false
 [functions.resend-webhook]
 verify_jwt = false
 
+[functions.unsubscribe]
+verify_jwt = false
+
 [functions.webhook-receiver]
 verify_jwt = false
 
