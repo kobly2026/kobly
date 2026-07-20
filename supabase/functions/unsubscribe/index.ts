@@ -50,17 +50,28 @@ Deno.serve(async (req: Request) => {
     try { const b = await req.json(); token = b?.token || ""; } catch { /* body pode ser vazio no one-click */ }
   }
 
+  // Rejeita tokens com formato inválido localmente, antes de consultar o Vault
+  // (evita round-trip de decrypt no Postgres para requests obviamente malformadas).
+  const tokenParts = token.split(".");
+  if (!token || tokenParts.length !== 2) return page("Link de descadastro inválido.", 400);
+
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: secret } = await sb.rpc("get_secret", { p_name: "unsubscribe_secret" });
   if (!secret) return page("Descadastro indisponível no momento.", 500);
 
   const res = await verifyUnsubToken(String(secret), token);
-  if (!res) return page("Link de descadastro inválido ou expirado.", 400);
+  if (!res) return page("Link de descadastro inválido.", 400);
 
-  await sb.from("email_suppressions").upsert(
+  const { error: upsertError } = await sb.from("email_suppressions").upsert(
     { email: res.email.toLowerCase(), organization_id: res.orgId, reason: "unsubscribe", source: req.method === "POST" ? "header" : "link" },
     { onConflict: "email,organization_id", ignoreDuplicates: true },
   );
+
+  if (upsertError) {
+    console.error("unsubscribe: falha ao gravar email_suppressions", upsertError);
+    if (req.method === "POST") return new Response(null, { status: 500 });
+    return page("Não foi possível concluir o descadastro agora. Tente novamente em instantes.", 500);
+  }
 
   if (req.method === "POST") return new Response(null, { status: 200 });
   return page("Pronto! Você não receberá mais estes e-mails.");
