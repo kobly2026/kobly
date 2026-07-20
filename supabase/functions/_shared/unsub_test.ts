@@ -24,3 +24,15 @@ Deno.test("rejeita secret errado", async () => {
 Deno.test("rejeita formato inválido", async () => {
   assertEquals(await verifyUnsubToken(SECRET, "lixo"), null);
 });
+
+Deno.test("rejeita payload base64url inválido (dispara catch do decode)", async () => {
+  // Dois segmentos (passa no guard de parts.length), mas o payload não é
+  // base64url válido — atob() lança e o catch deve converter em null.
+  assertEquals(await verifyUnsubToken(SECRET, "!!!.abc"), null);
+});
+
+Deno.test("rejeita assinatura com tamanho diferente do esperado", async () => {
+  const t = await signUnsubToken(SECRET, "org-1", "a@b.com", 1700000000000);
+  const bad = t.slice(0, -1); // remove 1 char da assinatura -> tamanho diferente do HMAC esperado
+  assertEquals(await verifyUnsubToken(SECRET, bad), null);
+});
