@@ -105,6 +105,23 @@ const NEXOPAYT_ORDER_STATUS_MAP: Record<string, string> = {
 };
 const NEXOPAYT_PAYMENT_LABEL: Record<string, string> = { pix: "Pix", credit_card: "Cartão", boleto: "Boleto" };
 
+// ── Mapeamento nativo ENTITY: sufixo de body.event ("entity.transaction.<x>") → tipo_evento ──
+// Achados dos revisores: antes o tipo_evento saía SÓ de data.status.value, ignorando
+// body.event. Provedores costumam mandar entity.transaction.refunded/.chargeback/.canceled
+// mantendo status.value="paid" (o status "congela" no último valor conhecido do pagamento
+// em si) — sem cruzar com o event, isso mapearia como "Compra Aprovada" (erro silencioso).
+// Sufixos com mapeamento próprio CONFIRMADO aqui PREVALECEM sobre o status (ver uso abaixo).
+// "created" fica de fora de propósito: não tem tipo_evento fixo (depende do método via
+// status.value=waiting_payment → Pix Gerado/Boleto Gerado), então cai no fallback por status.
+const ENTITY_EVENT_SUFFIX_MAP: Record<string, string> = {
+  paid: "Compra Aprovada",
+  refused: "Compra Recusada",
+  refunded: "Compra Reembolsada",
+  chargeback: "Chargeback",
+  canceled: "Compra cancelada",
+  cancelled: "Compra cancelada",
+};
+
 function resolveNexopaytTipoEvento(root: Record<string, any>, tx: Record<string, any>, pm: string): string | null {
   const payStatus = String(tx.payment_status ?? root.payment_status ?? "").toLowerCase();
   const orderStatus = String(root.status ?? "").toLowerCase();
@@ -219,7 +236,24 @@ function normalizePayload(body: any): {
     const d = (body.data ?? {}) as Record<string, any>;
     const pm = String(d.method?.value ?? "").toLowerCase();
     const statusValue = String(d.status?.value ?? "").toLowerCase();
-    const tipoEvento = resolveNexopaytTipoEvento({ status: statusValue, payment_status: statusValue }, {}, pm);
+    // Sufixo de body.event, ex.: "entity.transaction.paid" → "paid".
+    const eventSuffix = body.event.slice("entity.transaction.".length).toLowerCase();
+    const suffixTipoEvento = ENTITY_EVENT_SUFFIX_MAP[eventSuffix] ?? null;
+    let tipoEvento: string | null;
+    if (suffixTipoEvento) {
+      // event tem mapeamento próprio confirmado para este sufixo → PREVALECE sobre
+      // data.status.value (cobre entity.transaction.refunded/.chargeback/.canceled
+      // chegando com status.value ainda em "paid").
+      tipoEvento = suffixTipoEvento;
+    } else {
+      // Sufixo sem mapeamento próprio (ex.: "created") → deriva do status, igual ao
+      // adapter NexoPayt (waiting_payment+pix/boleto). Único par CONFIRMADO em produção
+      // para "created" é status=waiting_payment (ver isEntityShaped acima) — qualquer
+      // outra combinação é não prevista: devolve null (dead-letter) em vez de adivinhar.
+      tipoEvento = eventSuffix === "created" && statusValue === "waiting_payment"
+        ? resolveNexopaytTipoEvento({ status: statusValue, payment_status: statusValue }, {}, pm)
+        : null;
+    }
     if (!tipoEvento) return null;
     const c = (d.customer ?? {}) as Record<string, any>;
     if (!c.email) return null;
@@ -297,289 +331,343 @@ function extractRecoveryLink(payload: any): string | null {
   return best ? best.url : null;
 }
 
+// Extrai os campos-chave que tornam uma linha de dead-letter truncada ainda
+// diagnosticável/reprocessável (fora do `head`, que pode cortar no meio do JSON).
+function extractDeadLetterKeys(parsed: any): Record<string, unknown> {
+  const keys: Record<string, unknown> = {};
+  if (parsed && typeof parsed === "object") {
+    if (typeof parsed.event === "string") keys.event = parsed.event;
+    if (typeof parsed.kind === "string") keys.kind = parsed.kind;
+    const email = parsed?.data?.customer?.email;
+    if (typeof email === "string") keys.email = email;
+    const id = parsed?.data?.id;
+    if (id !== undefined) keys.id = id;
+  }
+  return keys;
+}
+
 // Achados dos revisores (Tarefa 3d): dead-letter sem limite gravava o payload cru
-// inteiro, sem teto. Se o corpo bruto passar de ~16 KB, guarda só um objeto
-// {_truncated:true, head:<primeiros ~8 KB do texto cru>} em vez do JSON completo —
-// evita linhas gigantes de payloads mal-comportados/abusivos.
+// inteiro, sem teto. Se o corpo bruto passar de ~16 KB, guarda um objeto truncado —
+// mas preserva os campos-chave (event, kind, data.customer.email, data.id) FORA do
+// `head`, já que reprocessar dead-letter foi o que salvou o incidente de hoje e um
+// `head` cortado no meio do JSON pode não ser mais parseável sozinho. Corte por
+// BYTES (não por caracteres) já que o limiar é medido em bytes.
 function deadLetterPayload(raw: string, parsed: any): any {
-  const bytes = new TextEncoder().encode(raw).length;
-  if (bytes <= DEAD_LETTER_MAX_BYTES) return parsed;
-  return { _truncated: true, head: raw.slice(0, DEAD_LETTER_HEAD_BYTES) };
+  const encoded = new TextEncoder().encode(raw);
+  if (encoded.length <= DEAD_LETTER_MAX_BYTES) return parsed;
+  const head = new TextDecoder().decode(encoded.slice(0, DEAD_LETTER_HEAD_BYTES));
+  return { _truncated: true, ...extractDeadLetterKeys(parsed), head };
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  // ── Token ──
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token");
-  if (!token) return json({ error: "missing_token", detail: "Adicione ?token=pbk_xxx na URL" }, 401);
+  // Achados dos revisores (RISCO NOVO introduzido hoje): o caminho de "evento não
+  // reconhecido" deixou de ser zero-I/O — agora faz 2 counts (rate limit) + 1 insert em
+  // webhook_dead_letter ANTES de responder. Sem um try/catch de topo, qualquer rejeição
+  // nesses awaits (rede, PostgREST fora do ar, etc.) vira exceção não tratada e o Deno
+  // devolve 500 ao provedor — e o cabeçalho deste arquivo já explica que responder
+  // não-2xx faz plataformas DESATIVAREM o webhook. Por isso TUDO abaixo roda dentro de
+  // um try/catch que SEMPRE devolve 200, mesmo em falha interna.
+  try {
+    // ── Token ──
+    const url = new URL(req.url);
+    const token = url.searchParams.get("token");
+    if (!token) return json({ error: "missing_token", detail: "Adicione ?token=pbk_xxx na URL" }, 401);
 
-  // ── Body ──
-  const rawBody = await req.text();
-  let body: any;
-  try { body = JSON.parse(rawBody || "{}"); } catch { return json({ error: "invalid_json" }, 400); }
+    // ── Body ──
+    const rawBody = await req.text();
+    let body: any;
+    try { body = JSON.parse(rawBody || "{}"); } catch { return json({ error: "invalid_json" }, 400); }
 
-  // ── Supabase client ──
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    // ── Supabase client ──
+    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-  // ── Validar token → organization_id + token id (WEB-1) ──
-  // Precisamos do id do token para filtrar campanhas vinculadas a um webhook nomeado.
-  // IMPORTANTE: isto roda ANTES do normalizePayload/dead-letter de propósito — assim
-  // só remetente autenticado (token válido) consegue gravar em webhook_dead_letter,
-  // e a tabela não vira alvo de flood anônimo (?token=qualquercoisa + payload lixo).
-  const { data: tokRow, error: tokErr } = await sb.from("postback_tokens")
-    .select("id, organization_id")
-    .eq("token", token)
-    .eq("ativo", true)
-    .maybeSingle();
-  if (tokErr || !tokRow) return json({ error: "invalid_token", detail: "Token inválido ou inativo" }, 401);
-  const org = tokRow.organization_id as string;
-  const tokenId = tokRow.id as string;
+    // ── Validar token → organization_id + token id (WEB-1) ──
+    // Precisamos do id do token para filtrar campanhas vinculadas a um webhook nomeado.
+    // IMPORTANTE: isto roda ANTES do normalizePayload/dead-letter de propósito — assim
+    // só remetente autenticado (token válido) consegue gravar em webhook_dead_letter,
+    // e a tabela não vira alvo de flood anônimo (?token=qualquercoisa + payload lixo).
+    const { data: tokRow, error: tokErr } = await sb.from("postback_tokens")
+      .select("id, organization_id")
+      .eq("token", token)
+      .eq("ativo", true)
+      .maybeSingle();
+    if (tokErr || !tokRow) return json({ error: "invalid_token", detail: "Token inválido ou inativo" }, 401);
+    const org = tokRow.organization_id as string;
+    const tokenId = tokRow.id as string;
 
-  // ── Rate limit ──
-  // Achados dos revisores (Tarefa 3d): antes só contava webhook_events — o caminho de
-  // dead-letter nunca gravava lá, então um token válido com tráfego de eventos não
-  // mapeados nunca disparava o limite (gravando dead-letter ilimitadamente). Agora soma
-  // as duas tabelas na mesma janela de 60s, por org.
-  const since = new Date(Date.now() - 60_000).toISOString();
-  const [{ count: recentEvents }, { count: recentDeadLetters }] = await Promise.all([
-    sb.from("webhook_events").select("id", { count: "exact", head: true })
-      .eq("organization_id", org).gte("created_at", since),
-    sb.from("webhook_dead_letter").select("id", { count: "exact", head: true })
-      .eq("organization_id", org).gte("created_at", since),
-  ]);
-  const recent = (recentEvents ?? 0) + (recentDeadLetters ?? 0);
-  if (recent > RATE_LIMIT_PER_MIN) return json({ error: "rate_limited" }, 429);
-
-  // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
-  // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
-  // Hotmart desativam automaticamente um Webhook que fica respondendo erro, o que
-  // derrubaria TODOS os eventos futuros por causa de um único tipo não mapeado ainda.
-  // Grava dead-letter ANTES de responder — sem isso o evento desaparecia sem rastro
-  // (era o bug provado pela auditoria E2E: 18 POSTs 200 em ~25min, 0 linhas gravadas).
-  const norm = normalizePayload(body);
-  if (!norm) {
-    const receivedEvent = body?.event ?? body?.transaction?.payment_status ?? body?.status ?? null;
-    const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
-      organization_id: org,
-      postback_token_id: tokenId,
-      provider: "postback",
-      reason: "unknown_event_or_missing_email",
-      detail: receivedEvent != null ? `received_event=${String(receivedEvent)}` : null,
-      raw_payload: deadLetterPayload(rawBody, body),
-    });
-    if (dlErr) console.error("webhook_dead_letter insert failed (unknown_event)", dlErr.message);
-    return json({
-      ok: true, ignored: true, reason: "unknown_event_or_missing_email",
-      // NexoPayt não tem `event` no raiz — devolve o status recebido p/ facilitar o debug.
-      received_event: receivedEvent,
-    });
-  }
-  const tipoEvento = norm.tipoEvento;
-
-  // ── Idempotência: dedup por external_id (se fornecido), composto com a ORG ──
-  // A unique de webhook_events é global (webhook_id NULL colide entre orgs) — a mesma
-  // transação entregue a duas orgs diferentes NÃO pode dedupar entre elas.
-  const idWebhook = norm.externalId ? `${org}:${norm.externalId}` : `pbk:${crypto.randomUUID()}`;
-  // Pix: o branch nexopayt já resolve (norm.isPix); genérico distingue via sourceEvent;
-  // Hotmart não tem evento dedicado de Pix (ver comentário do HOTMART_EVENT_MAP).
-  const isPix = norm.isPix ?? norm.sourceEvent === "pix_generated";
-  // Link de recuperação/checkout que a plataforma mandou (se houver) → destino do botão do e-mail.
-  const recoveryLink = extractRecoveryLink(body);
-
-  // ── 1) webhook_events (idempotente) ──
-  const evt = {
-    organization_id: org,
-    tipo_evento: tipoEvento,
-    provider: "postback",
-    id_webhook: idWebhook,
-    email: norm.email,
-    nome_comprador: norm.name,
-    produto: norm.product,
-    valor_produto: norm.value,
-    metodo_pagamento: norm.paymentMethod,
-    pix_gerado: isPix,
-    checkout_url: recoveryLink,
-    payload: body,
-  };
-  const ins = await sb.from("webhook_events").insert(evt).select("id").single();
-  if (ins.error) {
-    // Achados dos revisores (Tarefa 3c): unique (webhook_id, id_webhook) NULLS NOT
-    // DISTINCT faz de 'insert_failed' o caminho NORMAL de dedupe — toda reentrega
-    // idempotente do provedor cai aqui via violação de unicidade (código '23505' no
-    // Postgres/PostgREST). Isso não é falha: não grava dead-letter (evita ruído com o
-    // payload cru inteiro para tráfego legítimo), só responde 200 'deduped' como antes.
-    // Só grava dead-letter para erros que são de fato falha de insert.
-    const isDuplicate = (ins.error as { code?: string }).code === "23505";
-    if (!isDuplicate) {
+    // ── Rate limit ──
+    // Achados dos revisores (Tarefa 3d): antes só contava webhook_events — o caminho de
+    // dead-letter nunca gravava lá, então um token válido com tráfego de eventos não
+    // mapeados nunca disparava o limite (gravando dead-letter ilimitadamente). Agora soma
+    // as duas tabelas na mesma janela de 60s, por org. Promise.allSettled (não Promise.all):
+    // se UM dos dois counts rejeitar, não derruba o outro nem o request inteiro — trata
+    // como 0 (fail-open: não bloqueia tráfego legítimo por causa de uma falha no próprio
+    // check de rate limit) e segue.
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const [evtRes, dlRes] = await Promise.allSettled([
+      sb.from("webhook_events").select("id", { count: "exact", head: true })
+        .eq("organization_id", org).gte("created_at", since),
+      sb.from("webhook_dead_letter").select("id", { count: "exact", head: true })
+        .eq("organization_id", org).gte("created_at", since),
+    ]);
+    if (evtRes.status === "rejected") console.error("rate limit: count webhook_events rejeitado", evtRes.reason);
+    if (dlRes.status === "rejected") console.error("rate limit: count webhook_dead_letter rejeitado", dlRes.reason);
+    const recentEvents = evtRes.status === "fulfilled" ? (evtRes.value.count ?? 0) : 0;
+    const recentDeadLetters = dlRes.status === "fulfilled" ? (dlRes.value.count ?? 0) : 0;
+    const recent = recentEvents + recentDeadLetters;
+    if (recent > RATE_LIMIT_PER_MIN) {
+      // Achados dos revisores: antes respondia 429 e descartava o evento SEM gravar
+      // dead-letter — reintroduzia exatamente a perda silenciosa que a tabela foi criada
+      // para eliminar. Agora sempre 200 "ignored" (nunca 4xx pro provedor) + uma linha de
+      // dead-letter (reason='rate_limited') pra o evento continuar visível/reprocessável.
       const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
         organization_id: org,
         postback_token_id: tokenId,
         provider: "postback",
-        reason: "insert_failed",
-        detail: ins.error.message,
+        reason: "rate_limited",
+        detail: `recent=${recent} limit=${RATE_LIMIT_PER_MIN}`,
         raw_payload: deadLetterPayload(rawBody, body),
       });
-      if (dlErr) console.error("webhook_dead_letter insert failed (insert_failed)", dlErr.message);
+      if (dlErr) console.error("webhook_dead_letter insert failed (rate_limited)", dlErr.message);
+      return json({ ok: true, ignored: true, reason: "rate_limited" });
     }
-    return json({ ok: true, deduped: true, detail: ins.error.message });
-  }
-  const webhookEventId = ins.data.id;
 
-  // ── 2) Lead por (org, email) ──
-  let leadId: string | null = null;
-  const { data: ex } = await sb.from("leads")
-    .select("id")
-    .eq("organization_id", org)
-    .eq("email", norm.email)
-    .maybeSingle();
+    // ── Normaliza (contrato genérico Kobly, payload nativo Hotmart OU nativo NexoPayt) ──
+    // Evento não reconhecido/sem e-mail → 200 "ignored", NUNCA 4xx: plataformas como a
+    // Hotmart desativam automaticamente um Webhook que fica respondendo erro, o que
+    // derrubaria TODOS os eventos futuros por causa de um único tipo não mapeado ainda.
+    // Grava dead-letter ANTES de responder — sem isso o evento desaparecia sem rastro
+    // (era o bug provado pela auditoria E2E: 18 POSTs 200 em ~25min, 0 linhas gravadas).
+    const norm = normalizePayload(body);
+    if (!norm) {
+      const receivedEvent = body?.event ?? body?.transaction?.payment_status ?? body?.status ?? null;
+      const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
+        organization_id: org,
+        postback_token_id: tokenId,
+        provider: "postback",
+        reason: "unknown_event_or_missing_email",
+        detail: receivedEvent != null ? `received_event=${String(receivedEvent)}` : null,
+        raw_payload: deadLetterPayload(rawBody, body),
+      });
+      if (dlErr) console.error("webhook_dead_letter insert failed (unknown_event)", dlErr.message);
+      return json({
+        ok: true, ignored: true, reason: "unknown_event_or_missing_email",
+        // NexoPayt não tem `event` no raiz — devolve o status recebido p/ facilitar o debug.
+        received_event: receivedEvent,
+      });
+    }
+    const tipoEvento = norm.tipoEvento;
 
-  if (ex) {
-    leadId = ex.id;
-    await sb.from("leads").update({
-      ultimo_evento: tipoEvento,
-      produto: norm.product,
-      valor_compra: norm.value,
-      metodo_pagamento: norm.paymentMethod,
-      pix_gerado: isPix,
-      // Só sobrescreve telefone/link se este evento trouxe um (não apaga valor válido anterior).
-      ...(norm.phone ? { telefone: norm.phone } : {}),
-      ...(recoveryLink ? { link_recuperacao: recoveryLink } : {}),
-    }).eq("id", leadId);
-  } else {
-    const { data: nl } = await sb.from("leads").insert({
+    // ── Idempotência: dedup por external_id (se fornecido), composto com a ORG ──
+    // A unique de webhook_events é global (webhook_id NULL colide entre orgs) — a mesma
+    // transação entregue a duas orgs diferentes NÃO pode dedupar entre elas.
+    const idWebhook = norm.externalId ? `${org}:${norm.externalId}` : `pbk:${crypto.randomUUID()}`;
+    // Pix: o branch nexopayt já resolve (norm.isPix); genérico distingue via sourceEvent;
+    // Hotmart não tem evento dedicado de Pix (ver comentário do HOTMART_EVENT_MAP).
+    const isPix = norm.isPix ?? norm.sourceEvent === "pix_generated";
+    // Link de recuperação/checkout que a plataforma mandou (se houver) → destino do botão do e-mail.
+    const recoveryLink = extractRecoveryLink(body);
+
+    // ── 1) webhook_events (idempotente) ──
+    const evt = {
       organization_id: org,
+      tipo_evento: tipoEvento,
+      provider: "postback",
+      id_webhook: idWebhook,
       email: norm.email,
-      nome: norm.name,
-      telefone: norm.phone,
+      nome_comprador: norm.name,
       produto: norm.product,
-      valor_compra: norm.value,
+      valor_produto: norm.value,
       metodo_pagamento: norm.paymentMethod,
       pix_gerado: isPix,
-      ultimo_evento: tipoEvento,
-      link_recuperacao: recoveryLink,
-    }).select("id").single();
-    leadId = nl?.id ?? null;
-  }
+      checkout_url: recoveryLink,
+      payload: body,
+    };
+    const ins = await sb.from("webhook_events").insert(evt).select("id").single();
+    if (ins.error) {
+      // Achados dos revisores (Tarefa 3c): unique (webhook_id, id_webhook) NULLS NOT
+      // DISTINCT faz de 'insert_failed' o caminho NORMAL de dedupe — toda reentrega
+      // idempotente do provedor cai aqui via violação de unicidade (código '23505' no
+      // Postgres/PostgREST). Isso não é falha: não grava dead-letter (evita ruído com o
+      // payload cru inteiro para tráfego legítimo), só responde 200 'deduped' como antes.
+      // Só grava dead-letter para erros que são de fato falha de insert.
+      const isDuplicate = (ins.error as { code?: string }).code === "23505";
+      if (!isDuplicate) {
+        const { error: dlErr } = await sb.from("webhook_dead_letter").insert({
+          organization_id: org,
+          postback_token_id: tokenId,
+          provider: "postback",
+          reason: "insert_failed",
+          detail: ins.error.message,
+          raw_payload: deadLetterPayload(rawBody, body),
+        });
+        if (dlErr) console.error("webhook_dead_letter insert failed (insert_failed)", dlErr.message);
+      }
+      return json({ ok: true, deduped: true, detail: ins.error.message });
+    }
+    const webhookEventId = ins.data.id;
 
-  if (leadId) {
-    await sb.from("webhook_events").update({ lead_id: leadId }).eq("id", webhookEventId);
-  }
+    // ── 2) Lead por (org, email) ──
+    let leadId: string | null = null;
+    const { data: ex } = await sb.from("leads")
+      .select("id")
+      .eq("organization_id", org)
+      .eq("email", norm.email)
+      .maybeSingle();
 
-  // ── 2b) Atribuição de VENDA RECUPERADA (dado real) ──
-  // Regra: só conta como recuperado se o lead RECEBEU e-mail de automação
-  // (email_events.status='enviado', canal e-mail) ANTES desta compra.
-  // 1ª "Compra Aprovada" do lead; credita cada campanha que já enviou pra ele.
-  if (tipoEvento === "Compra Aprovada" && leadId) {
-    const { count: convCount } = await sb.from("webhook_events")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", org).eq("lead_id", leadId).eq("tipo_evento", "Compra Aprovada");
-    // convCount já inclui o evento recém-inserido → == 1 significa primeira conversão
-    if ((convCount ?? 0) <= 1) {
-      const purchaseAt = new Date().toISOString();
-      // Só e-mail de automação (channel null/email) enviado ANTES da compra.
-      const { data: sentEmail } = await sb.from("email_events")
-        .select("campaign_id")
-        .eq("organization_id", org).eq("email", norm.email).eq("status", "enviado")
-        .not("campaign_id", "is", null)
-        .lt("timestamp", purchaseAt)
-        .or("channel.is.null,channel.eq.email");
-      const campIds = Array.from(new Set((sentEmail || []).map((e: any) => e.campaign_id).filter(Boolean)));
-      for (const cid of campIds) {
-        // Incremento atômico via RPC (evita race read-modify-write).
-        const { error: bumpErr } = await sb.rpc("increment_vendas_recuperadas", { p_campaign_id: cid });
-        if (bumpErr) {
-          // Fallback se a RPC ainda não estiver deployada: select + update + create se faltar row.
-          const { data: cs } = await sb.from("campaign_stats").select("id, vendas_recuperadas").eq("campaign_id", cid).maybeSingle();
-          if (cs) {
-            await sb.from("campaign_stats")
-              .update({ vendas_recuperadas: (Number(cs.vendas_recuperadas) || 0) + 1, ultimo_calculo: new Date().toISOString() })
-              .eq("id", cs.id);
-          } else {
-            const { data: camp } = await sb.from("campaigns").select("organization_id").eq("id", cid).maybeSingle();
-            if (camp) {
-              await sb.from("campaign_stats").insert({
-                campaign_id: cid, organization_id: camp.organization_id, vendas_recuperadas: 1, ultimo_calculo: new Date().toISOString(),
-              });
+    if (ex) {
+      leadId = ex.id;
+      await sb.from("leads").update({
+        ultimo_evento: tipoEvento,
+        produto: norm.product,
+        valor_compra: norm.value,
+        metodo_pagamento: norm.paymentMethod,
+        pix_gerado: isPix,
+        // Só sobrescreve telefone/link se este evento trouxe um (não apaga valor válido anterior).
+        ...(norm.phone ? { telefone: norm.phone } : {}),
+        ...(recoveryLink ? { link_recuperacao: recoveryLink } : {}),
+      }).eq("id", leadId);
+    } else {
+      const { data: nl } = await sb.from("leads").insert({
+        organization_id: org,
+        email: norm.email,
+        nome: norm.name,
+        telefone: norm.phone,
+        produto: norm.product,
+        valor_compra: norm.value,
+        metodo_pagamento: norm.paymentMethod,
+        pix_gerado: isPix,
+        ultimo_evento: tipoEvento,
+        link_recuperacao: recoveryLink,
+      }).select("id").single();
+      leadId = nl?.id ?? null;
+    }
+
+    if (leadId) {
+      await sb.from("webhook_events").update({ lead_id: leadId }).eq("id", webhookEventId);
+    }
+
+    // ── 2b) Atribuição de VENDA RECUPERADA (dado real) ──
+    // Regra: só conta como recuperado se o lead RECEBEU e-mail de automação
+    // (email_events.status='enviado', canal e-mail) ANTES desta compra.
+    // 1ª "Compra Aprovada" do lead; credita cada campanha que já enviou pra ele.
+    if (tipoEvento === "Compra Aprovada" && leadId) {
+      const { count: convCount } = await sb.from("webhook_events")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", org).eq("lead_id", leadId).eq("tipo_evento", "Compra Aprovada");
+      // convCount já inclui o evento recém-inserido → == 1 significa primeira conversão
+      if ((convCount ?? 0) <= 1) {
+        const purchaseAt = new Date().toISOString();
+        // Só e-mail de automação (channel null/email) enviado ANTES da compra.
+        const { data: sentEmail } = await sb.from("email_events")
+          .select("campaign_id")
+          .eq("organization_id", org).eq("email", norm.email).eq("status", "enviado")
+          .not("campaign_id", "is", null)
+          .lt("timestamp", purchaseAt)
+          .or("channel.is.null,channel.eq.email");
+        const campIds = Array.from(new Set((sentEmail || []).map((e: any) => e.campaign_id).filter(Boolean)));
+        for (const cid of campIds) {
+          // Incremento atômico via RPC (evita race read-modify-write).
+          const { error: bumpErr } = await sb.rpc("increment_vendas_recuperadas", { p_campaign_id: cid });
+          if (bumpErr) {
+            // Fallback se a RPC ainda não estiver deployada: select + update + create se faltar row.
+            const { data: cs } = await sb.from("campaign_stats").select("id, vendas_recuperadas").eq("campaign_id", cid).maybeSingle();
+            if (cs) {
+              await sb.from("campaign_stats")
+                .update({ vendas_recuperadas: (Number(cs.vendas_recuperadas) || 0) + 1, ultimo_calculo: new Date().toISOString() })
+                .eq("id", cs.id);
+            } else {
+              const { data: camp } = await sb.from("campaigns").select("organization_id").eq("id", cid).maybeSingle();
+              if (camp) {
+                await sb.from("campaign_stats").insert({
+                  campaign_id: cid, organization_id: camp.organization_id, vendas_recuperadas: 1, ultimo_calculo: new Date().toISOString(),
+                });
+              }
             }
           }
         }
       }
     }
-  }
 
-  // ── 3) Enfileira etapas das campanhas ATIVAS cujo Gatilho casa o tipo_evento ──
-  // WEB-1: uma campanha dispara se (a) não tem vínculo (NULL — qualquer token,
-  // comportamento padrão/retrocompatível) OU (b) está vinculada ao token que
-  // originou este evento. Assim um token "Hotmart - Produto A" só aciona as
-  // campanhas dele (e as sem vínculo), nunca as de outro produto.
-  const { data: camps, error: campErr } = await sb.from("campaigns")
-    .select("id, campaign_flows(id, flow_steps!flow_id(id, tipo_card, tipo_evento, atraso, posicao))")
-    .eq("organization_id", org)
-    .eq("status_campanha", "Ativa")
-    .or(`postback_token_id.is.null,postback_token_id.eq.${tokenId}`);
+    // ── 3) Enfileira etapas das campanhas ATIVAS cujo Gatilho casa o tipo_evento ──
+    // WEB-1: uma campanha dispara se (a) não tem vínculo (NULL — qualquer token,
+    // comportamento padrão/retrocompatível) OU (b) está vinculada ao token que
+    // originou este evento. Assim um token "Hotmart - Produto A" só aciona as
+    // campanhas dele (e as sem vínculo), nunca as de outro produto.
+    const { data: camps, error: campErr } = await sb.from("campaigns")
+      .select("id, campaign_flows(id, flow_steps!flow_id(id, tipo_card, tipo_evento, atraso, posicao))")
+      .eq("organization_id", org)
+      .eq("status_campanha", "Ativa")
+      .or(`postback_token_id.is.null,postback_token_id.eq.${tokenId}`);
 
-  if (campErr) {
-    return json({
-      ok: true, lead_id: leadId, webhook_event_id: webhookEventId,
-      enqueued: 0, warn: "match_failed", detail: campErr.message,
-    });
-  }
+    if (campErr) {
+      return json({
+        ok: true, lead_id: leadId, webhook_event_id: webhookEventId,
+        enqueued: 0, warn: "match_failed", detail: campErr.message,
+      });
+    }
 
-  let enqueued = 0;
-  const campanhasAcionadas: string[] = [];
+    let enqueued = 0;
+    const campanhasAcionadas: string[] = [];
 
-  for (const c of camps || []) {
-    const flow = Array.isArray((c as any).campaign_flows)
-      ? (c as any).campaign_flows[0]
-      : (c as any).campaign_flows;
-    const steps = (flow && flow.flow_steps) || [];
+    for (const c of camps || []) {
+      const flow = Array.isArray((c as any).campaign_flows)
+        ? (c as any).campaign_flows[0]
+        : (c as any).campaign_flows;
+      const steps = (flow && flow.flow_steps) || [];
 
-    // Verifica se algum step Gatilho casa com o tipo_evento
-    const casa = steps.some((s: any) => s.tipo_card === "Gatilho" && s.tipo_evento === tipoEvento);
-    if (!casa || !leadId) continue;
+      // Verifica se algum step Gatilho casa com o tipo_evento
+      const casa = steps.some((s: any) => s.tipo_card === "Gatilho" && s.tipo_evento === tipoEvento);
+      if (!casa || !leadId) continue;
 
-    // Coleta as ações (exclui o Gatilho e o card Condição — este é só o marcador
-    // visual do redirecionador; a condição é compilada em flow_steps.condicao dos
-    // filhos e avaliada pelo process-steps na hora do envio), ordena por posição
-    const acoes = steps
-      .filter((s: any) => s.tipo_card !== "Gatilho" && s.tipo_card !== "Condição")
-      .sort((a: any, b: any) => a.posicao - b.posicao);
+      // Coleta as ações (exclui o Gatilho e o card Condição — este é só o marcador
+      // visual do redirecionador; a condição é compilada em flow_steps.condicao dos
+      // filhos e avaliada pelo process-steps na hora do envio), ordena por posição
+      const acoes = steps
+        .filter((s: any) => s.tipo_card !== "Gatilho" && s.tipo_card !== "Condição")
+        .sort((a: any, b: any) => a.posicao - b.posicao);
 
-    // Auditoria E2E (Flow engine ALTO): o atraso é CUMULATIVO — cada etapa aguarda
-    // "X após a etapa anterior" (como a UI promete), não X após o gatilho. Sem isto,
-    // três etapas com atraso 30/30/30 disparavam TODAS juntas em +30min.
-    let accMin = 0;
-    const rows = acoes.map((s: any) => {
-      accMin += Number(s.atraso) || 0;
-      return {
-        organization_id: org,
-        step_id: s.id,
-        lead_id: leadId,
-        webhook_event_id: webhookEventId,
-        status_agendamento: "Iniciado",
-        run_at: new Date(Date.now() + accMin * 60000).toISOString(),
-      };
-    });
+      // Auditoria E2E (Flow engine ALTO): o atraso é CUMULATIVO — cada etapa aguarda
+      // "X após a etapa anterior" (como a UI promete), não X após o gatilho. Sem isto,
+      // três etapas com atraso 30/30/30 disparavam TODAS juntas em +30min.
+      let accMin = 0;
+      const rows = acoes.map((s: any) => {
+        accMin += Number(s.atraso) || 0;
+        return {
+          organization_id: org,
+          step_id: s.id,
+          lead_id: leadId,
+          webhook_event_id: webhookEventId,
+          status_agendamento: "Iniciado",
+          run_at: new Date(Date.now() + accMin * 60000).toISOString(),
+        };
+      });
 
-    if (rows.length) {
-      const r = await sb.from("scheduled_steps").insert(rows);
-      if (!r.error) {
-        enqueued += rows.length;
-        campanhasAcionadas.push((c as any).id);
+      if (rows.length) {
+        const r = await sb.from("scheduled_steps").insert(rows);
+        if (!r.error) {
+          enqueued += rows.length;
+          campanhasAcionadas.push((c as any).id);
+        }
       }
     }
-  }
 
-  return json({
-    ok: true,
-    event: norm.sourceEvent,
-    tipo_evento: tipoEvento,
-    lead_id: leadId,
-    webhook_event_id: webhookEventId,
-    enqueued,
-    campanhas_acionadas: campanhasAcionadas,
-  });
+    return json({
+      ok: true,
+      event: norm.sourceEvent,
+      tipo_evento: tipoEvento,
+      lead_id: leadId,
+      webhook_event_id: webhookEventId,
+      enqueued,
+      campanhas_acionadas: campanhasAcionadas,
+    });
+  } catch (err) {
+    // Nunca deixa uma exceção não tratada virar 500 pro provedor de checkout (ver
+    // comentário no topo do handler) — loga pra investigar e responde 200 sempre.
+    console.error("postback-receiver: erro não tratado", err instanceof Error ? err.message : err);
+    return json({ ok: true, ignored: true, reason: "internal_error" });
+  }
 });
