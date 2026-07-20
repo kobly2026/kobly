@@ -48,6 +48,23 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const MAX_ATTEMPTS = 4;        // tentativas totais antes de desistir
 const RETRY_BACKOFF_MIN = 5;   // backoff linear: 5min, 10min, 15min...
 
+// Teto de ADIAMENTOS consecutivos por indisponibilidade da CONSULTA de supressão
+// (não do resultado — ver isEmailSuppressed). Sem teto, uma consulta cronicamente
+// fora do ar faz o step voltar pro topo da fila pra sempre: o claim otimista do
+// topo do loop já reagenda +5min por tick sem chamar finalize/failStep, então o
+// step nunca vira falha e o contador `deferred` só existe no corpo da resposta
+// HTTP (que o pg_cron descarta) — invisível na jornada. Contagem guardada no
+// próprio last_error (prefixo abaixo), NÃO em `attempts`: `attempts` alimenta o
+// backoff/teto do failStep para tentativas REAIS de envio (MAX_ATTEMPTS=4); usar
+// o mesmo contador faria adiamentos por indisponibilidade da supressão consumir
+// o orçamento de retry de uma falha real de envio. A contagem se autolimpa: assim
+// que qualquer outro caminho do step roda (envio ok, skip, falha real), ele
+// sobrescreve last_error via finalize()/failStep() — só o caminho de adiamento
+// escreve este marcador. Claim reagenda +5min por tick → 12 ≈ 1h.
+const MAX_SUPPRESSION_DEFERRALS = 12;
+const SUPPRESSION_DEFER_PREFIX = "supressao_indisponivel:";
+const SUPPRESSION_DEFER_RE = /^supressao_indisponivel:(\d+)/;
+
 // Extrai só o endereço de "Nome <email>" ou de um e-mail puro.
 function extractEmail(s: string | null): string | null {
   if (!s) return null;
@@ -153,7 +170,7 @@ Deno.serve(async (req: Request) => {
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
+    .select("id, organization_id, lead_id, attempts, last_error, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
@@ -312,7 +329,20 @@ Deno.serve(async (req: Request) => {
         try {
           suppressed = await isEmailSuppressed(lead.email, s.organization_id);
         } catch (e) {
-          console.error("process-steps: falha ao consultar supressão, adiando step sem consumir attempts", s.id, String(e).slice(0, 200));
+          // Teto de adiamentos consecutivos (ver MAX_SUPPRESSION_DEFERRALS acima):
+          // lê a contagem gravada no último adiamento (se o last_error atual não bate
+          // com o prefixo, é a primeira falha nesta sequência — conta 1). Continua
+          // "Em andamento" (não finaliza, não falha) em QUALQUER contagem — só muda o
+          // texto do last_error ao estourar o teto, pra ficar visível na jornada em
+          // vez de girar eternamente sem rastro.
+          const prevMatch = SUPPRESSION_DEFER_RE.exec(String((s as any).last_error || ""));
+          const deferCount = (prevMatch ? Number(prevMatch[1]) : 0) + 1;
+          const overCap = deferCount >= MAX_SUPPRESSION_DEFERRALS;
+          const note = overCap
+            ? `${SUPPRESSION_DEFER_PREFIX}${deferCount} — consulta de supressão indisponível há ~1h (${deferCount} tentativas consecutivas); step segue ativo, retomará sozinho quando a consulta normalizar`
+            : `${SUPPRESSION_DEFER_PREFIX}${deferCount}`;
+          console.error("process-steps: falha ao consultar supressão, adiando step sem consumir attempts", s.id, `deferCount=${deferCount}`, String(e).slice(0, 200));
+          await sb.from("scheduled_steps").update({ last_error: note }).eq("id", s.id);
           deferred++;
           continue;
         }
@@ -391,8 +421,11 @@ Deno.serve(async (req: Request) => {
           sent++; processed++;
         } else if (emailFatal) {
           // 4xx definitivo → finaliza SEM retry (não queima as 4 tentativas à toa) e
-          // estorna a unidade de cota já reservada (este envio nunca vai sair).
-          await releaseOne(s.organization_id);
+          // estorna a unidade de cota já reservada (este envio nunca vai sair). Só
+          // estorna se ESTA tentativa de fato reservou (reserveOne 'reserved'); se foi
+          // fail-open ('error', nada foi somado), estornar decrementaria o contador
+          // abaixo do uso real — mesma regra dos ramos de retry/gaveup abaixo.
+          if (reservedThisAttempt) await releaseOne(s.organization_id);
           await finalize(s.id, curAttempts + 1, errDetail);
           failed++; processed++;
         } else {
@@ -625,8 +658,10 @@ Deno.serve(async (req: Request) => {
           sent++; processed++;
         } else if (smsFatal) {
           // Número/param inválido → falha DEFINITIVA: finaliza sem retry e estorna a
-          // unidade de cota já reservada.
-          await releaseOne(s.organization_id);
+          // unidade de cota já reservada. Só estorna se ESTA tentativa de fato reservou
+          // (reserveOne 'reserved'); fail-open ('error') não somou nada — mesma regra
+          // dos ramos de retry/gaveup abaixo.
+          if (reservedThisAttempt) await releaseOne(s.organization_id);
           await finalize(s.id, curAttempts + 1, errDetail);
           failed++; processed++;
         } else {
