@@ -24,10 +24,14 @@ const cors = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
-// Resend event type → nosso mapeamento interno
-const MAP: Record<string, { event: string; col: "aberturas" | "cliques"; status: string }> = {
-  "email.opened": { event: "open", col: "aberturas", status: "aberto" },
-  "email.clicked": { event: "click", col: "cliques", status: "clicado" },
+// Resend event type → mapeamento interno. `kind` decide o tratamento.
+const MAP: Record<string, { event: string; status: string; kind: "engage" | "info" | "bounce" | "complaint"; col?: "aberturas" | "cliques" }> = {
+  "email.opened":           { event: "open",      status: "aberto",    kind: "engage", col: "aberturas" },
+  "email.clicked":          { event: "click",     status: "clicado",   kind: "engage", col: "cliques" },
+  "email.delivered":        { event: "delivered", status: "entregue",  kind: "info" },
+  "email.delivery_delayed": { event: "deferred",  status: "adiado",    kind: "info" },
+  "email.bounced":          { event: "bounce",    status: "bounce",    kind: "bounce" },
+  "email.complained":       { event: "complaint", status: "reclamado", kind: "complaint" },
 };
 
 // Verificação de assinatura svix (Resend). signedContent = "<id>.<ts>.<body>";
@@ -108,11 +112,28 @@ Deno.serve(async (req: Request) => {
   }
   if (!org) return json({ ok: true, ignored: true, reason: "unmatched" });
 
-  // 1) Registra o evento de abertura/clique
+  // Registra o evento (todos os tipos mapeados) — único insert por evento.
   await sb.from("email_events").insert({
     organization_id: org, campaign_id: campaignId, event: m.event, status: m.status,
-    email, sg_message_id: messageId, url: data.click?.link ?? null, "timestamp": new Date().toISOString(),
+    email, sg_message_id: messageId, url: (body.data?.click?.link ?? null), "timestamp": new Date().toISOString(),
   });
+
+  // Supressão automática: hard bounce → global; reclamação de spam → por org.
+  if (m.kind === "bounce" && email) {
+    await sb.from("email_suppressions").upsert(
+      { email: String(email).toLowerCase(), organization_id: null, reason: "bounce", source: "webhook" },
+      { onConflict: "email,organization_id", ignoreDuplicates: true },
+    );
+  }
+  if (m.kind === "complaint" && email) {
+    await sb.from("email_suppressions").upsert(
+      { email: String(email).toLowerCase(), organization_id: org, reason: "complaint", source: "webhook" },
+      { onConflict: "email,organization_id", ignoreDuplicates: true },
+    );
+  }
+
+  // Só engajamento (open/click) alimenta lead_metrics e stats de campanha.
+  if (m.kind !== "engage") return json({ ok: true, type: body.type, event: m.event });
 
   // 2) Incrementa a métrica do lead
   if (email) {
