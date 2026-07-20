@@ -220,7 +220,7 @@ export function renderEmail({ brand = {}, preheader = '', blocks = [] } = {}) {
                   ${koblyMark(18, P)}<span style="display:inline-block;vertical-align:middle;padding-left:7px;">Enviado com <span style="color:${P.body};font-weight:700;">Koblay</span></span>
                 </td>
                 <td valign="middle" align="right" style="font-family:${FONT};font-size:12px;color:${P.muted};">
-                  <a href="#" style="color:${P.muted};text-decoration:underline;">Descadastrar</a>
+                  <a href="{{unsubscribe_url}}" style="color:${P.muted};text-decoration:underline;">Descadastrar</a>
                 </td>
               </tr></table>
               <p style="margin:14px 0 0;font-family:${FONT};font-size:11px;line-height:1.5;color:${P.footer};">© ${esc(year)} ${esc(storeName)}. Você recebeu este e-mail porque interagiu com a loja.</p>
