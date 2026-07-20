@@ -340,15 +340,17 @@ export const KoblyApi = {
     const rows = clone(db.leads);
     // Contagens REAIS do pipeline de e-mail, escopadas por RLS às orgs acessíveis.
     const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    // event='send' exclui os cliques em "Enviar teste" (event='send_test') — sem este
+    // filtro cada teste manual infla enviados/rejeitados/processados do cliente.
     const [enviados, rejeitados, fila] = await Promise.all([
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'falhou')),
       countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
     ]);
     const status = {
       processados: enviados + rejeitados, // total de tentativas processadas (enviadas + rejeitadas)
-      enviados,                           // email_events.status = 'enviado'
-      rejeitados,                         // email_events.status = 'falhou'
+      enviados,                           // email_events.event = 'send' e status = 'enviado'
+      rejeitados,                         // email_events.event = 'send' e status = 'falhou'
       adiados: fila,                      // scheduled_steps ainda pendentes (na fila)
     };
     return { rows, status, tags: clone(db.tags) };
@@ -368,7 +370,8 @@ export const KoblyApi = {
     };
     const [eventos, enviados] = await Promise.all([
       countOf(scope(supabase.from('webhook_events').select('id', { count: 'exact', head: true }))),
-      countOf(scope(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado'))),
+      // event='send' exclui 'send_test' (botão "Enviar teste") do funil de campanha.
+      countOf(scope(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado'))),
     ]);
     const [abertos, clicados] = await Promise.all([uniqueEmails('open'), uniqueEmails('click')]);
     let rq = supabase.from('campaign_stats').select('vendas_recuperadas');
@@ -514,9 +517,10 @@ export const KoblyApi = {
   // Cards de status de e-mail da tela de Leads (contagens reais, sem carregar leads).
   async getLeadStatus() {
     const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    // event='send' exclui os cliques em "Enviar teste" (event='send_test').
     const [enviados, rejeitados, fila] = await Promise.all([
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'falhou')),
       countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
     ]);
     return { processados: enviados + rejeitados, enviados, rejeitados, adiados: fila };
@@ -882,6 +886,13 @@ export const KoblyApi = {
         return { error: msg || body.error };
       }
       return { error: error.message };
+    }
+    // A function responde 200 {"ok":false,"skipped":"suppressed"} (sem campo 'error')
+    // quando o destinatário está na lista de supressão — sem este ramo o código caía
+    // direto no "sucesso" abaixo e a tela mostrava "e-mail de teste enviado" quando,
+    // na verdade, nada foi enviado.
+    if (data && data.skipped === 'suppressed') {
+      return { error: 'Destinatário está na lista de supressão (descadastrado ou bounce permanente).' };
     }
     if (data && data.error) {
       if (data.error === 'secret_unavailable') return { error: 'Resend não configurado (falta a API key).' };
@@ -1380,7 +1391,9 @@ export const KoblyApi = {
       evCount({ event: 'send', status: 'enviado' }),
       evCount({ event: 'open' }),
       evCount({ event: 'click' }),
-      evCount({ status: 'falhou' }),
+      // event='send' exclui falhas de "Enviar teste" (event='send_test') da taxa de
+      // bounce do relatório — senão cada teste que falha infla o bounce do cliente.
+      evCount({ event: 'send', status: 'falhou' }),
     ]);
     const entrega = {
       abertura: nEnv ? nOpen / nEnv : 0,

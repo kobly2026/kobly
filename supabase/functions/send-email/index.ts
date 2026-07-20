@@ -11,9 +11,15 @@
 // FECHADO com 401 antes de tocar no Resend. Sem isto, qualquer portador da anon key vira um
 // open relay usando a chave Resend compartilhada e o remetente de domínio verificado da org.
 // Persiste o resultado em public.email_events (event='send_test', não 'send') para
-// diagnosticar testes sem poluir os KPIs de campanha (contagem enviados/rejeitados, funil,
-// métricas de entrega — todos filtram por event='send') e sem consumir cota do plano —
-// nenhuma RPC de reserva/consumo é chamada aqui.
+// diagnosticar testes sem poluir os KPIs de campanha. As agregações client-side
+// (listLeads/getLeadStatus/getFunnel/getReports em src/api/mockApi.js) filtram por
+// event='send' para excluir estes testes das contagens enviados/rejeitados, do funil e
+// das métricas de entrega. EXCEÇÃO CONHECIDA: as funções SQL leads_page/pipeline_counts
+// (migration 0029) fazem uma checagem de status='enviado' em email_events para detectar
+// o estágio "recuperado" e NÃO filtram por event — um send_test para o mesmo e-mail de um
+// lead, antes da compra, pode falsamente marcar esse lead como recuperado. Isto não foi
+// corrigido aqui (função SQL de produção pede migration própria + revisão separada).
+// Sem consumir cota do plano — nenhuma RPC de reserva/consumo é chamada aqui.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -56,6 +62,13 @@ Deno.serve(async (req: Request) => {
     // Só aceita fromName (display); o endereço vem da resolução por org abaixo.
     const { to, subject, html, text, fromName } = await req.json();
     if (!to || !subject || (!html && !text)) return json({ error: "missing_fields", detail: "to, subject e html/text são obrigatórios" }, 400);
+    // "Enviar teste" é por definição um único destinatário. A checagem de supressão
+    // abaixo só consulta o PRIMEIRO endereço de `to`, mas o envio ao Resend manda o
+    // array inteiro — um array com >1 item burlaria a supressão para os destinos 2..N.
+    // Em vez de consultar supressão para todos (.in(...)), rejeitamos o array aqui: é a
+    // opção mais simples e mais segura para um endpoint que só existe para testar UM
+    // destinatário por vez.
+    if (Array.isArray(to) && to.length > 1) return json({ error: "single_recipient_only", detail: "Este endpoint envia teste para um único destinatário." }, 400);
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
