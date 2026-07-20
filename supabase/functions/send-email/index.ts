@@ -5,6 +5,21 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inlinado de _shared/unsub.ts (parte de assinatura; per-function deploy não empacota ../_shared/).
+// Manter semanticamente idêntico a signUnsubToken em _shared/unsub.ts.
+function b64url(bytes: Uint8Array): string {
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function _hmac(secret: string, msg: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
+}
+async function signUnsubToken(secret: string, orgId: string, email: string, nowMs: number): Promise<string> {
+  const payload = `${orgId}:${String(email).toLowerCase()}:${nowMs}`;
+  return `${b64url(new TextEncoder().encode(payload))}.${b64url(await _hmac(secret, payload))}`;
+}
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -40,10 +55,43 @@ Deno.serve(async (req: Request) => {
     else if (fromCfg && fromCfg.includes("<")) sender = fromCfg;
     else sender = `Koblay <${addr}>`;
 
+    // org do chamador (para token de descadastro + Reply-To)
+    let callerOrg: string | null = null, replyTo: string | null = null;
+    try {
+      const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: u } = await admin.auth.getUser(jwt);
+      if (u?.user) {
+        const { data: prof } = await admin.from("profiles").select("organization_id").eq("auth_id", u.user.id).maybeSingle();
+        callerOrg = prof?.organization_id ?? null;
+        if (callerOrg) {
+          const { data: org } = await admin.from("organizations").select("reply_to_email").eq("id", callerOrg).maybeSingle();
+          replyTo = (org?.reply_to_email && String(org.reply_to_email).trim()) || null;
+        }
+      }
+    } catch { /* teste sem org resolvível → segue sem token/reply */ }
+
+    const primeiroTo = Array.isArray(to) ? to[0] : to;
+    const { data: unsubSecret } = await admin.rpc("get_secret", { p_name: "unsubscribe_secret" });
+    let unsubUrl: string | null = null;
+    let htmlOut = html;
+    if (unsubSecret && callerOrg && primeiroTo) {
+      const token = await signUnsubToken(String(unsubSecret), callerOrg, String(primeiroTo), Date.now());
+      unsubUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/unsubscribe?token=${token}`;
+      if (htmlOut) htmlOut = String(htmlOut).split("{{unsubscribe_url}}").join(unsubUrl)
+                     .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="${unsubUrl}"$1`);
+    }
+    const listUnsub = unsubUrl ? `<${unsubUrl}>, <mailto:unsubscribe@koblay.io>` : `<mailto:unsubscribe@koblay.io>`;
+
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: sender, to: Array.isArray(to) ? to : [to], subject, html, text }),
+      body: JSON.stringify({
+        from: sender,
+        to: Array.isArray(to) ? to : [to],
+        subject, html: htmlOut, text,
+        headers: { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
     });
     const out = await resp.json().catch(() => ({}));
     if (!resp.ok) return json({ error: "resend_error", status: resp.status, detail: out }, 502);
