@@ -19,6 +19,21 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inlinado de _shared/unsub.ts (parte de assinatura; per-function deploy não empacota ../_shared/).
+// Manter semanticamente idêntico a signUnsubToken em _shared/unsub.ts.
+function b64url(bytes: Uint8Array): string {
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function _hmac(secret: string, msg: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
+}
+async function signUnsubToken(secret: string, orgId: string, email: string, nowMs: number): Promise<string> {
+  const payload = `${orgId}:${String(email).toLowerCase()}:${nowMs}`;
+  return `${b64url(new TextEncoder().encode(payload))}.${b64url(await _hmac(secret, payload))}`;
+}
+
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -47,6 +62,21 @@ Deno.serve(async (req: Request) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   const { data: apiKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
+  const { data: unsubSecret } = await sb.rpc("get_secret", { p_name: "unsubscribe_secret" });
+  const baseUrl = Deno.env.get("SUPABASE_URL")!;
+  const replyCache = new Map<string, string | null>();
+  const resolveReplyTo = async (org: string): Promise<string | null> => {
+    if (replyCache.has(org)) return replyCache.get(org)!;
+    const { data } = await sb.from("organizations").select("reply_to_email").eq("id", org).maybeSingle();
+    const v = (data?.reply_to_email && String(data.reply_to_email).trim()) || null;
+    replyCache.set(org, v); return v;
+  };
+  async function isEmailSuppressed(email: string, org: string): Promise<boolean> {
+    const e = String(email).toLowerCase();
+    const { data } = await sb.from("email_suppressions").select("id, organization_id")
+      .eq("email", e).or(`organization_id.eq.${org},organization_id.is.null`).limit(1);
+    return !!(data && data.length);
+  }
   const { data: fromCfg } = await sb.rpc("get_secret", { p_name: "resend_from" });
   const { data: sendingDomainRaw } = await sb.rpc("get_secret", { p_name: "resend_sending_domain" });
   // Só o endereço do remetente vem da config (domínio verificado da plataforma);
@@ -222,6 +252,12 @@ Deno.serve(async (req: Request) => {
         // Remetente: NOME (campo/marca) + e-mail do domínio verificado da org (ou plataforma).
         const senderEmail = await resolveSenderEmail(s.organization_id);
         const from = `${fromNameSafe(em.remetente || brand.nome)} <${senderEmail}>`;
+        // Supressão: destinatário descadastrado (global ou da org) — não conta cota nem envia.
+        if (await isEmailSuppressed(lead.email, s.organization_id)) {
+          await finalize(s.id, curAttempts + 1, "pulado: destinatário descadastrado");
+          skipped++; processed++;
+          continue;
+        }
         // Cota do plano: reserva antes de enviar (não conta condição-pulada/órfão).
         if (!(await reserveOne(s.organization_id))) {
           await finalize(s.id, curAttempts + 1, "pulado: limite do plano atingido");
@@ -230,9 +266,24 @@ Deno.serve(async (req: Request) => {
         }
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         if (apiKey) {
+          let htmlBody = html;
+          let unsubUrl: string | null = null;
+          if (unsubSecret) {
+            const token = await signUnsubToken(String(unsubSecret), s.organization_id, lead.email, Date.now());
+            unsubUrl = `${baseUrl}/functions/v1/unsubscribe?token=${token}`;
+            htmlBody = htmlBody.split("{{unsubscribe_url}}").join(unsubUrl)
+                               .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="${unsubUrl}"$1`);
+          }
+          const listUnsub = unsubUrl ? `<${unsubUrl}>, <mailto:unsubscribe@koblay.io>` : `<mailto:unsubscribe@koblay.io>`;
+          const replyTo = await resolveReplyTo(s.organization_id);
+          const payload: Record<string, unknown> = {
+            from, to: [lead.email], subject: em.assunto || "Koblay", html: htmlBody,
+            headers: { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+          };
+          if (replyTo) payload.reply_to = replyTo;
           const resp = await fetch("https://api.resend.com/emails", {
             method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from, to: [lead.email], subject: em.assunto || "Koblay", html }),
+            body: JSON.stringify(payload),
           });
           const out = await resp.json().catch(() => ({}));
           ok = resp.ok; msgId = out?.id ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
