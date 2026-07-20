@@ -15,6 +15,10 @@
 // RETRY: se o envio FALHA (erro do Resend, exceção), NÃO finaliza — reagenda com backoff e
 // attempts++, até MAX_ATTEMPTS; só então desiste (Finalizado + last_error). Isso evita perder
 // e-mail de recuperação por soluço transitório do Resend (ex.: 500 application_error).
+// 4xx (exceto 429) é FATAL — não é "transitório", não retenta (mesmo critério do
+// process-bulk). COTA: cada tentativa reserva 1 unidade antes de disparar; se a tentativa
+// termina em definitivo sem entregar (4xx fatal ou gaveup ao esgotar MAX_ATTEMPTS), a
+// unidade é ESTORNADA (scheduled_step_release_usage, nunca abaixo de zero).
 // Em produção é chamada por pg_cron a cada minuto.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -143,7 +147,7 @@ Deno.serve(async (req: Request) => {
     .limit(100);
   if (error) return json({ error: "query_failed", detail: error.message }, 500);
 
-  let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0, skipped = 0;
+  let processed = 0, sent = 0, tagged = 0, failed = 0, retried = 0, gaveup = 0, skipped = 0, deferred = 0, refunded = 0;
 
   // Avalia a condição do card no MOMENTO do envio: o lead teve "Compra Aprovada"
   // desde que esta execução do fluxo começou (created_at do agendamento)?
@@ -205,11 +209,27 @@ Deno.serve(async (req: Request) => {
   // Reserva 1 unidade da cota do plano ANTES do envio (auditoria E2E — Billing C4:
   // fluxos/automações também consomem cota, não só o disparo em massa). Atômico
   // via bulk_reserve_usage. false = plano estourado → não envia. Fail-open só em
-  // erro de infra (não trava a fila por hiccup do banco).
+  // erro de infra (não trava a fila por hiccup do banco) — mas o erro agora fica
+  // visível no log da edge function (antes era engolido em silêncio).
   const reserveOne = async (orgId: string): Promise<boolean> => {
     const { data, error } = await sb.rpc("bulk_reserve_usage", { p_org: orgId, p_n: 1 });
-    if (error) return true;
+    if (error) {
+      console.error("process-steps: reserveOne RPC (bulk_reserve_usage) falhou, fail-open (deixando enviar)", orgId, error);
+      return true;
+    }
     return data === true;
+  };
+
+  // Estorna 1 unidade da cota reservada por reserveOne quando a tentativa termina em
+  // falha DEFINITIVA (4xx fatal, ou gaveup ao esgotar MAX_ATTEMPTS) — NUNCA em falha
+  // transitória que ainda vai ser retentada: a reserva desta tentativa fica de pé, e a
+  // PRÓXIMA tentativa (próximo tick) reserva de novo antes de tentar enviar de novo. Sem
+  // estorno aqui, um envio que nunca sai queima cota do plano sem entregar nada.
+  // scheduled_step_release_usage nunca deixa numero_execucoes ir abaixo de zero.
+  const releaseOne = async (orgId: string): Promise<void> => {
+    const { error } = await sb.rpc("scheduled_step_release_usage", { p_org: orgId, p_n: 1 });
+    if (error) console.error("process-steps: releaseOne RPC (scheduled_step_release_usage) falhou — cota pode ficar presa", orgId, error);
+    else refunded++;
   };
 
   for (const s of due || []) {
@@ -228,6 +248,10 @@ Deno.serve(async (req: Request) => {
 
     const step = (s as any).flow_steps; const lead = (s as any).leads;
     const curAttempts = Number((s as any).attempts) || 0;
+    // true assim que reserveOne() reservar com sucesso NESTA tentativa — usado para
+    // decidir se uma desistência definitiva (gaveup, em qualquer ramo — inclusive o
+    // catch genérico abaixo) precisa estornar a cota.
+    let reservedThisAttempt = false;
     try {
       if (step?.tipo_card === "Envio de e-mail" && (!step.email_id || !lead?.email)) {
         // Sem template ou lead sem e-mail → finaliza com erro (não fica preso na fila).
@@ -262,7 +286,21 @@ Deno.serve(async (req: Request) => {
         const senderEmail = await resolveSenderEmail(s.organization_id);
         const from = `${fromNameSafe(em.remetente || brand.nome)} <${senderEmail}>`;
         // Supressão: destinatário descadastrado (global ou da org) — não conta cota nem envia.
-        if (await isEmailSuppressed(lead.email, s.organization_id)) {
+        // Falha na CONSULTA (não no resultado): ADIA sem queimar attempts. O claim
+        // otimista do topo do loop já empurrou run_at +5min para este step (Em
+        // andamento) — um `continue` aqui (sem finalize/failStep) já basta para
+        // reagendá-lo de graça, sem consumir tentativa. Preserva o fail-closed original
+        // (nunca envia sem confirmar); só não deixa mais um soluço transitório de
+        // consulta desistir do envio em definitivo.
+        let suppressed: boolean;
+        try {
+          suppressed = await isEmailSuppressed(lead.email, s.organization_id);
+        } catch (e) {
+          console.error("process-steps: falha ao consultar supressão, adiando step sem consumir attempts", s.id, String(e).slice(0, 200));
+          deferred++;
+          continue;
+        }
+        if (suppressed) {
           await finalize(s.id, curAttempts + 1, "pulado: destinatário descadastrado");
           skipped++; processed++;
           continue;
@@ -273,7 +311,9 @@ Deno.serve(async (req: Request) => {
           skipped++; processed++;
           continue;
         }
+        reservedThisAttempt = true;
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
+        let emailFatal = false; // 4xx definitivo do Resend (ex.: 403 domain is not verified) → sem retry
         if (apiKey) {
           let htmlBody = html;
           let unsubUrl: string | null = null;
@@ -304,7 +344,13 @@ Deno.serve(async (req: Request) => {
             body: JSON.stringify(payload),
           });
           const out = await resp.json().catch(() => ({}));
-          ok = resp.ok; msgId = out?.id ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
+          ok = resp.ok; msgId = out?.id ?? null;
+          if (!ok) {
+            errDetail = JSON.stringify(out).slice(0, 200);
+            // 4xx = definitivo (ex.: 403 domain is not verified) — EXCETO 429 (rate
+            // limit), que é transitório e deve reagendar. Espelha o process-bulk.
+            if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) emailFatal = true;
+          }
         } else { errDetail = "resend_api_key ausente"; }
 
         // Registra o evento SEMPRE (auditoria de tentativas).
@@ -324,10 +370,18 @@ Deno.serve(async (req: Request) => {
           }
           await finalize(s.id, curAttempts + 1);
           sent++; processed++;
+        } else if (emailFatal) {
+          // 4xx definitivo → finaliza SEM retry (não queima as 4 tentativas à toa) e
+          // estorna a unidade de cota já reservada (este envio nunca vai sair).
+          await releaseOne(s.organization_id);
+          await finalize(s.id, curAttempts + 1, errDetail);
+          failed++; processed++;
         } else {
-          // Falha de envio → reagenda (não descarta) até o teto.
+          // Falha transitória → reagenda (não descarta) até o teto. Só estorna se
+          // esgotou as tentativas (gaveup); um retry em andamento mantém a reserva
+          // desta tentativa (a próxima tentativa reserva de novo antes de tentar).
           const r = await failStep(s.id, curAttempts, errDetail);
-          if (r === "gaveup") gaveup++; else retried++;
+          if (r === "gaveup") { gaveup++; if (reservedThisAttempt) await releaseOne(s.organization_id); } else retried++;
           failed++;
         }
       } else if (step?.tipo_card === "Envio de WhatsApp" && (!step.whatsapp_message_id || !lead?.telefone)) {
@@ -416,6 +470,7 @@ Deno.serve(async (req: Request) => {
             continue;
           }
           if (!semWhatsapp) {
+            reservedThisAttempt = true;
             const endpoint = buttons.length > 0 ? "send-button-actions" : "send-text";
             const payload: Record<string, unknown> = { phone: target, message };
             if (buttons.length > 0) payload.buttonActions = buttons;
@@ -458,8 +513,9 @@ Deno.serve(async (req: Request) => {
           failed++; processed++;
         } else {
           // Falha de envio → reagenda (não descarta) até o teto (mesmo backoff do e-mail).
+          // Só estorna se esgotou as tentativas (gaveup); retry mantém a reserva desta tentativa.
           const r = await failStep(s.id, curAttempts, errDetail);
-          if (r === "gaveup") gaveup++; else retried++;
+          if (r === "gaveup") { gaveup++; if (reservedThisAttempt) await releaseOne(s.organization_id); } else retried++;
           failed++;
         }
       } else if (step?.tipo_card === "Envio de SMS" && (!step.sms_message_id || !lead?.telefone)) {
@@ -503,6 +559,7 @@ Deno.serve(async (req: Request) => {
           skipped++; processed++;
           continue;
         }
+        reservedThisAttempt = true;
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let smsFatal = false; // 4xx do Twilio (nº inválido) → falha DEFINITIVA (sem retry)
         if (twilioSid && twilioAuth && twilioFrom) {
@@ -543,13 +600,16 @@ Deno.serve(async (req: Request) => {
           await finalize(s.id, curAttempts + 1);
           sent++; processed++;
         } else if (smsFatal) {
-          // Número/param inválido → falha DEFINITIVA: finaliza sem retry.
+          // Número/param inválido → falha DEFINITIVA: finaliza sem retry e estorna a
+          // unidade de cota já reservada.
+          await releaseOne(s.organization_id);
           await finalize(s.id, curAttempts + 1, errDetail);
           failed++; processed++;
         } else {
-          // Falha transitória (5xx/rede/secret) → reagenda com backoff.
+          // Falha transitória (5xx/rede/secret) → reagenda com backoff. Só estorna se
+          // esgotou as tentativas (gaveup); retry mantém a reserva desta tentativa.
           const r = await failStep(s.id, curAttempts, errDetail);
-          if (r === "gaveup") gaveup++; else retried++;
+          if (r === "gaveup") { gaveup++; if (reservedThisAttempt) await releaseOne(s.organization_id); } else retried++;
           failed++;
         }
       } else if (step?.tipo_card === "Adicionar Tag" && lead?.id) {
@@ -569,12 +629,14 @@ Deno.serve(async (req: Request) => {
         processed++;
       }
     } catch (e) {
-      // Exceção inesperada → trata como falha com retry (não descarta).
+      // Exceção inesperada → trata como falha com retry (não descarta). Se esta
+      // tentativa já tinha reservado cota (reservedThisAttempt) e aqui é desistência
+      // definitiva (gaveup), estorna — mesma regra dos ramos de envio acima.
       const r = await failStep(s.id, curAttempts, String(e).slice(0, 200));
-      if (r === "gaveup") gaveup++; else retried++;
+      if (r === "gaveup") { gaveup++; if (reservedThisAttempt) await releaseOne(s.organization_id); } else retried++;
       failed++;
     }
   }
 
-  return json({ ok: true, devidas: (due || []).length, processed, sent, tagged, failed, retried, gaveup, skipped });
+  return json({ ok: true, devidas: (due || []).length, processed, sent, tagged, failed, retried, gaveup, skipped, deferred, refunded });
 });
