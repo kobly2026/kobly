@@ -404,10 +404,10 @@ export const KoblyApi = {
     return { kpis, funnel, recent, topCampaigns };
   },
 
-  // Jornada cronológica de UM lead: eventos de checkout + e-mails (agendados/enviados,
-  // com assunto e abertura/clique) + tags aplicadas — mesclados e ordenados no tempo.
-  // Fontes: webhook_events, scheduled_steps(→flow_steps→emails + campaigns), lead_tags(→tags),
-  // enriquecido com lead_metrics (aberturas/cliques por etapa). Tudo escopado por RLS.
+  // Jornada cronológica de UM lead: eventos de checkout + envios (e-mail/WhatsApp/SMS,
+  // agendados/enviados/pulados/falhos) + tags aplicadas — mesclados e ordenados no tempo.
+  // Fontes: webhook_events, scheduled_steps(→flow_steps→emails + campaigns), lead_tags(→tags).
+  // Tudo escopado por RLS.
   async getLeadTimeline(leadId) {
     if (!leadId) return [];
     const items = [];
@@ -424,16 +424,14 @@ export const KoblyApi = {
       meta: e.provider || 'postback', tipoEvento: e.tipo_evento,
     }));
 
-    // 2) Métricas por etapa (aberturas/cliques) p/ enriquecer os e-mails
-    const { data: mets } = await supabase.from('lead_metrics')
-      .select('etapa_email_origem_id, enviados, aberturas, cliques')
-      .eq('lead_id', leadId);
-    const metByStep = {};
-    (mets || []).forEach((m) => { if (m.etapa_email_origem_id) metByStep[m.etapa_email_origem_id] = m; });
-
-    // 3) Envios do fluxo (e-mail/WhatsApp) — resolve assunto via flow_steps→emails.
-    // VERDADE do envio: 'Finalizado' também cobre DESISTÊNCIA após retries e pulo por
-    // condição — só é "Enviado" se lead_metrics registrou envio REAL naquela etapa.
+    // 2) Envios do fluxo (e-mail/WhatsApp/SMS) — resolve assunto via flow_steps→emails.
+    // VERDADE do envio: o worker (process-steps) grava last_error=NULL quando o envio deu
+    // certo e preenche last_error (inclusive p/ "pulado: ...") quando não envia — essa é a
+    // única fonte confiável de estado por etapa. NÃO usar lead_metrics aqui: o worker nunca
+    // preenche lead_metrics.etapa_email_origem_id, então indexar métricas por etapa sempre
+    // resulta em "sem match" e classifica todo envio bem-sucedido como falha.
+    // Atribuição de abertura/clique POR ETAPA não existe hoje (email_events não tem step_id
+    // e lead_metrics não é gravado por etapa) — não é exibida aqui pra não inventar dado.
     const { data: steps } = await supabase.from('scheduled_steps')
       .select('id, status_agendamento, attempts, last_error, run_at, updated_at, created_at, step_id, flow_steps!step_id(nome, tipo_card, emails(assunto, titulo), campaign_flows!flow_id(campaigns(nome)))')
       .eq('lead_id', leadId)
@@ -441,32 +439,47 @@ export const KoblyApi = {
     (steps || []).forEach((s) => {
       const fs = s.flow_steps || {};
       // Cards sem envio (Gatilho/Acionar Fluxo/Condição/Tags) não são itens de jornada.
-      if (fs.tipo_card && fs.tipo_card !== 'Envio de e-mail' && fs.tipo_card !== 'Envio de WhatsApp') return;
+      if (fs.tipo_card && fs.tipo_card !== 'Envio de e-mail' && fs.tipo_card !== 'Envio de WhatsApp' && fs.tipo_card !== 'Envio de SMS') return;
       const email = fs.emails || {};
       const camp = fs.campaign_flows && fs.campaign_flows.campaigns ? fs.campaign_flows.campaigns.nome : null;
-      const canal = fs.tipo_card === 'Envio de WhatsApp' ? 'whatsapp' : 'email';
-      const m = metByStep[s.step_id];
+      const canal = fs.tipo_card === 'Envio de WhatsApp' ? 'whatsapp' : fs.tipo_card === 'Envio de SMS' ? 'sms' : 'email';
       const finalizado = s.status_agendamento === 'Finalizado';
       const pulado = finalizado && typeof s.last_error === 'string' && s.last_error.startsWith('pulado');
-      const enviado = finalizado && !pulado && !!(m && Number(m.enviados) > 0);
-      const falhou = finalizado && !pulado && !enviado;
-      const flags = [];
-      if (m && m.aberturas > 0) flags.push('aberto');
-      if (m && m.cliques > 0) flags.push('clicado');
+      const enviado = finalizado && !pulado && !s.last_error;
+      const falhou = finalizado && !pulado && !!s.last_error;
+      // Motivo real do pulo (ex.: "condição '...' não atendida", "limite do plano atingido",
+      // "destinatário descadastrado") — nunca hardcoded, senão um descadastro vira "condição
+      // não atendida" na tela.
+      const motivoPulado = pulado ? String(s.last_error).replace(/^pulado:\s*/, '') : null;
+      // Motivo legível da falha (sem JSON bruto gigante) — ex.: domain not verified.
+      let motivoFalha = null;
+      if (falhou && s.last_error) {
+        try {
+          const j = JSON.parse(s.last_error);
+          motivoFalha = j?.message || j?.detail || null;
+        } catch {
+          motivoFalha = String(s.last_error);
+        }
+        if (motivoFalha && motivoFalha.length > 80) motivoFalha = motivoFalha.slice(0, 77) + '…';
+      }
       const estado = enviado ? 'Enviado'
-        : pulado ? 'Pulado (condição não atendida)'
-        : falhou ? `Falha no envio${s.attempts ? ` · ${s.attempts} tentativa${s.attempts === 1 ? '' : 's'}` : ''}`
+        : pulado ? `Pulado (${motivoPulado})`
+        : falhou ? [
+            'Falha no envio',
+            s.attempts ? `${s.attempts} tentativa${s.attempts === 1 ? '' : 's'}` : null,
+            motivoFalha,
+          ].filter(Boolean).join(' · ')
         : `Agendado (${s.status_agendamento})`;
       items.push({
         id: 'st_' + s.id, kind: 'email', canal,
         at: finalizado ? (s.updated_at || s.run_at) : s.run_at,
-        titulo: email.assunto || fs.nome || (canal === 'whatsapp' ? 'WhatsApp' : 'E-mail'),
-        sub: [camp, estado, ...flags].filter(Boolean).join(' · '),
-        status: s.status_agendamento, enviado, falhou, pulado, flags,
+        titulo: email.assunto || fs.nome || (canal === 'whatsapp' ? 'WhatsApp' : canal === 'sms' ? 'SMS' : 'E-mail'),
+        sub: [camp, estado].filter(Boolean).join(' · '),
+        status: s.status_agendamento, enviado, falhou, pulado,
       });
     });
 
-    // 4) Tags aplicadas (timestamp real)
+    // 3) Tags aplicadas (timestamp real)
     const { data: lts } = await supabase.from('lead_tags')
       .select('tag_id, created_at, tags(nome)')
       .eq('lead_id', leadId)
