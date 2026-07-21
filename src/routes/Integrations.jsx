@@ -492,10 +492,13 @@ function PostbackTab({ data, empresaId }) {
   );
 }
 
-// ── Aba 2: Templates de Email ──
-// Editor completo (HTML + remetente + preview) — o modal simples não persistia o corpo.
+// ── Aba: Modelos reutilizáveis de e-mail ──
+// Biblioteca opcional — o caminho principal de criar e-mail é no card da campanha.
+// Editor completo (HTML + remetente + preview).
 function EmailTemplatesTab({ data, reload, empresaId }) {
   const [editor, setEditor] = useState(null); // email em edição ou {} para novo
+  const brandsA = useAsync(() => KoblyApi.listBrands(empresaId), [empresaId]);
+  const defaultBrand = (brandsA.data && brandsA.data[0]) || null;
 
   function openNew() {
     setEditor({ titulo: '', assunto: '', remetente: '', corpoHtml: '' });
@@ -525,6 +528,17 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card
+        icon="mail"
+        title="Modelos reutilizáveis"
+        subtitle="Biblioteca opcional. O caminho principal é criar o e-mail no card da campanha (fluxo) — a marca da campanha entra no envio e no gerador de HTML."
+      >
+        <Banner tone="info">
+          <b>Conteúdo</b> da mensagem (assunto/HTML) fica aqui ou no fluxo.
+          <b> Identidade</b> (logo, cor, tema) é em <b>Identidade dos e-mails</b>.
+          <b> De onde sai</b> o e-mail é em <b>Remetente e domínio</b>.
+        </Banner>
+      </Card>
       {(data.emails || []).map((e) => (
         <Card key={e.id} icon="mail" title={e.titulo} subtitle={e.assunto}
           action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(e)}>Editar</Button>}>
@@ -532,16 +546,18 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
             <Icon name="at-sign" size={16} style={{ color: 'var(--text-subtle)' }} />
             <div>
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>{e.assunto}</div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Remetente: {e.remetente || '—'}</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Nome do remetente: {e.remetente || '—'}</div>
             </div>
           </div>
         </Card>
       ))}
-      <Button variant="secondary" iconLeft="plus" onClick={openNew}>Novo template de e-mail</Button>
+      <Button variant="secondary" iconLeft="plus" onClick={openNew}>Novo modelo de e-mail</Button>
 
       {editor !== null && (
         <KoblyEmailEditor
           email={editor}
+          brand={defaultBrand}
+          brandContext="biblioteca"
           onClose={() => setEditor(null)}
           onSave={saveEmail}
         />
@@ -889,19 +905,19 @@ function DomainTab({ empresaId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card icon="send" title="Seu remetente atual" subtitle="É daqui que seus e-mails saem — já funciona sem você configurar nada.">
+      <Card icon="send" title="Remetente e domínio" subtitle="De onde o e-mail SAI (endereço From) — não é logo nem HTML. Identidade visual fica em Identidade dos e-mails.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span className="kbly-num" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-md)', color: 'var(--text-strong)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}>{effectiveLabel}</span>
             <Badge tone={verifiedDomain || effectiveFrom ? 'success' : 'neutral'} dot>{effectiveTipo}</Badge>
           </div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Usar o <b>seu próprio domínio</b> no remetente é <b>opcional</b> — só adicione abaixo se quiser. Caso contrário, seus envios já saem com a sua marca automaticamente.
+            Usar o <b>seu próprio domínio</b> no From é <b>opcional</b>. Logo e cores da loja se configuram em <b>Identidade dos e-mails</b>.
           </div>
         </div>
       </Card>
 
-      <Card icon="globe" title="Domínio próprio (opcional)" subtitle="Só se quiser o remetente no SEU domínio (ex.: contato@sualoja.com.br). Requer publicar os registros DNS abaixo.">
+      <Card icon="globe" title="Domínio próprio (opcional)" subtitle="Só se quiser o From no SEU domínio (ex.: contato@sualoja.com.br). Requer DNS.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Banner tone="info">
             Após criar o domínio, adicione os registros DNS no seu provedor (Registro.br, Cloudflare, etc.). Depois clique em Verificar.
@@ -1007,14 +1023,22 @@ function TagsTab({ data, reload }) {
 }
 
 // ── Componente principal ──
-// ── Aba: Marca (white-label) ──
-// MARCA-1: fonte única de marcas da conta (1:N). O card legado "Marca da conta"
-// (org_branding 1:1) foi removido — ele sobrescrevia a 1ª marca e confundia quem
-// queria adicionar uma marca nova. Tudo agora passa pela lista abaixo.
+// ── Aba: Identidade dos e-mails (white-label) ──
+// MARCA-1: fonte única de marcas da conta (1:N). Aqui é só "quem sou" (logo/cor/tema),
+// não o HTML da mensagem nem o From técnico.
 function BrandTab({ empresaId }) {
   return (
-    <Card icon="layers" title="Marcas e produtos" subtitle="Crie uma marca para cada produto ou loja — logo, cor e tema aparecem nos e-mails. Vincule cada campanha à marca certa ao criar a campanha ou no construtor de fluxo.">
-      <BrandsList empresaId={empresaId} />
+    <Card
+      icon="layers"
+      title="Identidade dos e-mails"
+      subtitle="Logo, cor e tema da loja/produto. Isso é a cara da marca — não o texto do e-mail. Em cada campanha você escolhe qual marca usar; o conteúdo (assunto/HTML) fica no editor do fluxo."
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Banner tone="info">
+          <b>3 camadas</b> — (1) <b>Identidade</b> (esta aba) · (2) <b>Remetente e domínio</b> (de onde sai) · (3) <b>Conteúdo</b> no card da campanha ou em Modelos reutilizáveis.
+        </Banner>
+        <BrandsList empresaId={empresaId} />
+      </div>
     </Card>
   );
 }
@@ -1163,9 +1187,9 @@ function KoblyIntegrations() {
 
   const tabs = [
     { value: 'postback', label: 'Postback URL', icon: 'webhook' },
-    { value: 'marca', label: 'Marca', icon: 'palette' },
-    { value: 'emails', label: 'Templates de e-mail', icon: 'mail' },
-    { value: 'dominio', label: 'Domínio / Remetente', icon: 'globe' },
+    { value: 'marca', label: 'Identidade dos e-mails', icon: 'palette' },
+    { value: 'dominio', label: 'Remetente e domínio', icon: 'globe' },
+    { value: 'emails', label: 'Modelos reutilizáveis', icon: 'mail' },
     { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
     { value: 'sms', label: 'SMS', icon: 'smartphone' },
     { value: 'tags', label: 'Tags', icon: 'tag' },
@@ -1173,7 +1197,7 @@ function KoblyIntegrations() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageHeader tabs={<Tabs value={tab} onChange={setTab} options={tabs} />}>
-        Configure postback, domínio de envio, templates, WhatsApp e tags.
+        Identidade e envio (logo/cor + From), modelos de e-mail, postback e canais (WhatsApp/SMS).
       </PageHeader>
       {isGestor && (
         <Select
