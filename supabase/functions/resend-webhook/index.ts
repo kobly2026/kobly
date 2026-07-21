@@ -8,11 +8,20 @@
 //
 // Config no Resend: aponte o webhook para
 //   ${SUPABASE_URL}/functions/v1/resend-webhook
-// e assine os eventos email.opened / email.clicked.
+// e assine os eventos do MAP abaixo (opened, clicked, delivered, delivery_delayed,
+// bounced, complained).
 //
-// ⚠️ Rastreamento de abertura/clique do Resend só dispara com DOMÍNIO VERIFICADO
-// (o sender de sandbox onboarding@resend.dev não rastreia). Sem isso, o pipeline
-// funciona mas não recebe eventos reais.
+// ⚠️ ABERTURA/CLIQUE NÃO CHEGAM SÓ POR TER DOMÍNIO VERIFICADO. O Resend desliga o
+// rastreamento por padrão em todo domínio ("Open and click tracking is disabled by
+// default for all domains") e ele só fica ATIVO com DUAS condições simultâneas:
+//   1) a flag open_tracking/click_tracking ligada no domínio, e
+//   2) um subdomínio de tracking (ex.: links.koblay.io) publicado por CNAME e verificado.
+// Sem as duas, o pixel nunca é inserido e NENHUM evento open/click existe — mesmo com
+// 100% de entrega em caixa de entrada. Este arquivo já afirmou que bastava "domínio
+// verificado"; era falso, e essa crença fez ler "0 aberturas em 67 entregas" como prova
+// de que os e-mails caíam em Spam (auditoria de 21/07). Zero abertura com tracking
+// desligado não é sinal de entrega — é ausência de instrumento. Antes de tirar qualquer
+// conclusão de taxa de abertura, confirme que as duas condições acima estão de pé.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -121,10 +130,25 @@ Deno.serve(async (req: Request) => {
   }
   if (!org) return json({ ok: true, ignored: true, reason: "unmatched" });
 
+  // Motivo do bounce. O Resend manda data.bounce = { type, subType, message } — e SÓ em
+  // email.bounced: o payload de email.delivery_delayed não carrega campo de motivo algum
+  // (ver docs/webhooks/emails/delivery-delayed), então `deferred` fica com reason null por
+  // limite do provedor, não por esquecimento — não "conserte" isso inventando um texto.
+  // Antes disto o insert gravava reason null em TODO bounce, e a única forma de saber por
+  // que um endereço quicou era abrir o painel do Resend. Foi exatamente esse buraco que
+  // cegou o diagnóstico de entregabilidade de 21/07: 12 eventos bounce/deferred na base,
+  // nenhum com motivo, forçando inferência por padrão temporal em vez de ler a resposta do MTA.
+  const bounce = body?.data?.bounce ?? null;
+  const bounceReason: string | null = bounce
+    ? ([[bounce.type, bounce.subType].filter(Boolean).join("/"), bounce.message]
+        .filter(Boolean).join(" — ").slice(0, 500) || null)
+    : null;
+
   // Registra o evento (todos os tipos mapeados) — único insert por evento.
   await sb.from("email_events").insert({
     organization_id: org, campaign_id: campaignId, event: m.event, status: m.status,
-    email, sg_message_id: messageId, url: (body.data?.click?.link ?? null), "timestamp": new Date().toISOString(),
+    email, sg_message_id: messageId, reason: bounceReason,
+    url: (body.data?.click?.link ?? null), "timestamp": new Date().toISOString(),
   });
 
   // Supressão automática: SÓ bounce PERMANENTE vira supressão global; reclamação de
@@ -134,7 +158,7 @@ Deno.serve(async (req: Request) => {
   // (organization_id=null): a policy de leitura esconde linhas globais até de admins
   // e não existe policy de escrita nem UI pra reverter — vira definitivo. Transient/
   // Undetermined/ausente: já gravamos o email_events acima (telemetria), mas NÃO suprime.
-  const bounceType: string | null = body?.data?.bounce?.type ?? null;
+  const bounceType: string | null = bounce?.type ?? null;
   if (m.kind === "bounce" && email && bounceType === "Permanent") {
     await sb.from("email_suppressions").upsert(
       { email: String(email).toLowerCase(), organization_id: null, reason: "bounce", source: "webhook" },

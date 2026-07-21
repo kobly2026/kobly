@@ -2,7 +2,49 @@
 
 **Data:** 2026-07-20
 **Autor:** Giuseppe + Claude
-**Status:** proposto (aguardando revisão)
+**Status:** implementado (Frentes 2 e 3) — **premissa central corrigida em 2026-07-21**
+
+> ## ⚠️ Correção de 2026-07-21 — leia antes de usar este documento
+>
+> **A premissa que motivou este design estava errada.** O documento infere, do dado
+> "zero aberturas em 32 envios", que os e-mails estavam caindo em Spam. Essa inferência
+> não se sustenta: o **rastreamento de abertura do Resend está desligado** neste domínio.
+>
+> O Resend desliga tracking por padrão em todo domínio e só o ativa com **duas** condições
+> simultâneas: a flag `open_tracking` ligada **e** um subdomínio de tracking publicado por
+> CNAME e verificado. Varredura de DNS em `koblay.io` (`links`, `track`, `click`, `em`,
+> `go` e mais 11 nomes) não devolve **nenhum** CNAME. O pixel de abertura nunca foi
+> inserido em e-mail algum — logo zero abertura é o resultado **esperado**, mesmo com 100%
+> de entrega em caixa de entrada, e não é evidência de Spam.
+>
+> As duas "aberturas" registradas em 2026-07-01 reforçam isso: são seed de teste do webhook
+> (clique para `https://loja.exemplo.com/checkout`, domínio fictício, destino
+> `kobly@dizeops.com`), removidas na migration `0058`.
+>
+> **Auditoria adversarial (2026-07-21):** seis auditores levantaram 53 hipóteses de defeito
+> técnico; cada uma passou por três refutadores independentes. **Nenhuma sobreviveu como
+> causa de colocação em Spam.** Caíram, com evidência: "falta SPF na raiz" (SPF é avaliado
+> sobre o envelope `send.koblay.io`, que tem SPF válido e alinha em modo relaxado com o
+> From — publicar TXT na raiz não muda uma linha de avaliação); "e-mails saem HTML-only"
+> (o Resend gera a parte `text/plain` quando o campo `text` é omitido); "rajada queimou a
+> reputação" (53 de 60 entregues dentro do mesmo minuto, zero deferrals na janela);
+> "bounce de 4%" (o Gmail só enxerga 1 em 61; e o limiar que o Google publica é de
+> *reclamação* <0,3%, e há **zero** reclamações na história da base); "link `supabase.co`
+> não alinhado" (não existe regra de alinhamento de link em doc de nenhum provedor);
+> "`mailto:` de unsubscribe morto" (o Gmail usa o ramo https one-click, que funciona).
+>
+> **O que de fato explica o sintoma:** `koblay.io` foi registrado em **2026-07-01** — tinha
+> 20 dias na data da auditoria — com ~106 envios de vida inteira, nenhum histórico de
+> engajamento, disparando para lista fria às 22:17 BRT. É filtragem por ausência de
+> reputação, não por defeito. Isso não se resolve com registro DNS nem com deploy: leva de
+> 4 a 8 semanas de envio consistente.
+>
+> **Consequência prática:** as Frentes 2 e 3 abaixo continuam válidas e foram implementadas
+> — são conformidade e visibilidade legítimas, e pré-requisito para escalar a 300+ tenants.
+> Mas **não** devem ser vendidas como a cura do Spam, porque não há Spam comprovado. O
+> primeiro passo real é **medir**: teste de seed em caixas reais (Gmail, Outlook, Yahoo,
+> iCloud, corporativa), anotando a pasta de destino e o bloco `Authentication-Results` do
+> "Mostrar original". Aba Promoções não é Spam.
 
 ## Contexto
 
@@ -13,8 +55,10 @@ funcionando" — especificamente, **não chegam na caixa**. Investigação no ba
 - Os envios **são aceitos** pelo Resend (13 `enviado` com `message-id` real no
   disparo de 19/07; 32 `enviado` no histórico).
 - O `resend-webhook` está *Enabled* mas só assina `opened`/`clicked` e tem "No
-  webhook events yet" em 19 dias — **zero aberturas em 32 envios**, coerente com
-  e-mail caindo em Spam (onde abertura/imagem não dispara).
+  webhook events yet" em 19 dias — **zero aberturas em 32 envios**. ~~coerente com
+  e-mail caindo em Spam~~ **[CORRIGIDO em 21/07 — ver banner no topo: o tracking de
+  abertura está DESLIGADO, então zero abertura é o esperado e não indica nada sobre
+  colocação. Esta linha é a origem do erro de diagnóstico.]**
 - 68 das 82 falhas históricas eram `403 – lojadojoao.com.br domain is not
   verified` (envio pelo domínio do cliente antes do deploy de 18/07).
 
