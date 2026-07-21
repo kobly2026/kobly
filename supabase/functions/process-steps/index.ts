@@ -94,6 +94,7 @@ Deno.serve(async (req: Request) => {
   const { data: twilioSid } = await sb.rpc("get_secret", { p_name: "twilio_account_sid" });
   const { data: twilioAuth } = await sb.rpc("get_secret", { p_name: "twilio_auth_token" });
   const { data: twilioFrom } = await sb.rpc("get_secret", { p_name: "twilio_from" });
+  const { data: twilioApiKey } = await sb.rpc("get_secret", { p_name: "twilio_api_key_sid" });
 
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
@@ -440,10 +441,11 @@ Deno.serve(async (req: Request) => {
           // Twilio exige E.164 COM '+', form-urlencoded e Basic auth (sid:auth_token).
           const to = `+${normalizePhone(lead.telefone)}`;
           const form = new URLSearchParams({ From: String(twilioFrom), To: to, Body: message });
+          const basicUser = twilioApiKey ? String(twilioApiKey) : String(twilioSid);
           const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
             method: "POST",
             headers: {
-              Authorization: `Basic ${btoa(`${twilioSid}:${twilioAuth}`)}`,
+              Authorization: `Basic ${btoa(`${basicUser}:${twilioAuth}`)}`,
               "Content-Type": "application/x-www-form-urlencoded",
             },
             body: form.toString(),

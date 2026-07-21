@@ -116,9 +116,10 @@ supabase functions deploy process-steps
 ### 5.1 Secrets (Vault)
 | Vault key | Exemplo |
 |-----------|---------|
-| `twilio_account_sid` | `AC...` |
-| `twilio_auth_token` | `...` |
+| `twilio_account_sid` | `AC...` (Account SID — path da API) |
+| `twilio_auth_token` | Auth Token **ou** Secret da API Key |
 | `twilio_from` | número E.164 (`+15005550006`) **ou** Messaging Service SID (`MG...`) |
+| `twilio_api_key_sid` | opcional `SK...` — se presente, Basic auth = `SK:secret`; senão `AC:auth_token` |
 
 ### 5.2 O que o app faz
 - Edge function `send-sms`: envio de teste (form-urlencoded + Basic auth Twilio).

@@ -68,6 +68,7 @@ Deno.serve(async (req: Request) => {
   const { data: twilioSid } = await sb.rpc("get_secret", { p_name: "twilio_account_sid" });
   const { data: twilioAuth } = await sb.rpc("get_secret", { p_name: "twilio_auth_token" });
   const { data: twilioFrom } = await sb.rpc("get_secret", { p_name: "twilio_from" });
+  const { data: twilioApiKey } = await sb.rpc("get_secret", { p_name: "twilio_api_key_sid" });
 
   // 0) Recicla linhas 'processando' presas (crash de tick anterior): ao reivindicar,
   //    empurramos run_at p/ +3min; se ainda estão 'processando' com run_at vencido, o
@@ -175,9 +176,10 @@ Deno.serve(async (req: Request) => {
       else {
         const message = subst(tpl.corpo_texto || tpl.titulo || "", lead);
         const form = new URLSearchParams({ From: String(twilioFrom), To: `+${normalizePhone(destino)}`, Body: message });
+        const basicUser = twilioApiKey ? String(twilioApiKey) : String(twilioSid);
         const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
           method: "POST",
-          headers: { Authorization: `Basic ${btoa(`${twilioSid}:${twilioAuth}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
+          headers: { Authorization: `Basic ${btoa(`${basicUser}:${twilioAuth}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
           body: form.toString(),
         });
         const out = await resp.json().catch(() => ({}));
