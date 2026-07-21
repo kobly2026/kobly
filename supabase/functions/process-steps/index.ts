@@ -734,7 +734,17 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
-        const ctaLink = lead.link_recuperacao || brand.link || "";
+        // Mesma prioridade dos outros canais. Fallback "" (não "#"): num SMS um
+        // "#" apareceria como lixo no texto; vazio ao menos não polui. O gate
+        // abaixo é o que impede a frase truncada de sair.
+        const eventoGatilho = s.webhook_events ?? null;
+        const tipoEventoGatilho: string | null = eventoGatilho?.tipo_evento ?? null;
+        const ctaLink = resolveCtaLink({
+          eventoCheckoutUrl: eventoGatilho?.checkout_url ?? null,
+          leadLinkRecuperacao: lead.link_recuperacao,
+          brandLink: brand.link,
+          fallback: "",
+        });
         // Substitui {{cta_link}} e {{nome}} no corpo do SMS (já existia) + {{produto}} e
         // {{valor}} (novos, mesmos fallbacks do e-mail/WhatsApp).
         const message = String(sm.corpo_texto || sm.titulo || "")
@@ -742,6 +752,17 @@ Deno.serve(async (req: Request) => {
           .split("{{nome}}").join(lead.nome || "")
           .split("{{produto}}").join(lead.produto || "seu pedido")
           .split("{{valor}}").join(formatBRL(lead.valor_compra));
+
+        // CTA sem destino: não enviar (mesma regra dos outros canais).
+        if (gateLigado && devePularPorFaltaDeLink({
+          usaCta: corpoUsaCta(sm.corpo_texto),
+          tipoEventoGatilho,
+          linkResolvido: ctaLink,
+        })) {
+          await finalize(s.id, curAttempts + 1, PULADO_SEM_LINK);
+          skipped++; processed++;
+          continue;
+        }
 
         // Cota do plano: reserva antes de enviar (mesmo trilho de e-mail/WhatsApp).
         const reserveResultSms = await reserveOne(s.organization_id);
