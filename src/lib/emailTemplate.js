@@ -77,7 +77,11 @@ function note({ text }, P) {
   return `<p style="margin:18px 0 0;font-family:${FONT};font-size:12px;line-height:1.6;color:${P.muted};">${esc(text)}</p>`;
 }
 
-function button({ label, href = '#' }, P) {
+// Default é o placeholder, não '#': um botão sem link explícito deve apontar para
+// o checkout da transação (resolvido no envio pelo process-steps), não para lugar
+// nenhum. Em 21/07 havia 3 passos ATIVOS com href="#" — botão morto na caixa do
+// comprador — e 7 apontando todos para o MESMO hash de checkout.
+function button({ label, href = '{{cta_link}}' }, P) {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 4px;"><tr><td align="left">
     <!--[if mso]>
