@@ -374,6 +374,8 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
   const brandsA = useAsync(() => KoblyApi.listBrands(campaign.empresaId), [campaign.empresaId]);
   const brands = brandsA.data || [];
   const [brandId, setBrandId] = useState(campaign.brandId || '');
+  // Marca efetiva: a vinculada, senão a 1ª da org (padrão do worker).
+  const activeBrand = brands.find((b) => b.id === brandId) || brands[0] || null;
   async function saveBrand(id) {
     const ok = await KoblyApi.setCampaignBrand(campaign.id, id || null);
     setBrandId(id || '');
@@ -590,39 +592,66 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
             <Button variant="primary" size="sm" iconLeft="check" onClick={save} loading={saving} disabled={!dirty || saving}>{saving ? 'Salvando…' : 'Salvar fluxo'}</Button>
           </div>
         </div>
-        {/* Linha 2: vínculos da campanha — só aparece quando há webhook e/ou marca. */}
-        {(tokens.length > 0 || brands.length > 0) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            {/* WEB-1: webhook vinculado — define qual token dispara esta campanha */}
-            {tokens.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 'var(--fw-medium)', whiteSpace: 'nowrap' }}>Webhook</span>
-                <div style={{ minWidth: 180 }}>
-                  <Select
-                    value={webhookId}
-                    onChange={(e) => saveWebhook(e.target.value)}
-                    options={[{ value: '', label: 'Todos os webhooks' }, ...tokens.map((t) => ({ value: t.id, label: t.nome }))]}
-                    aria-label="Webhook vinculado à campanha"
-                  />
-                </div>
+        {/* Linha 2: vínculos da campanha (webhook + identidade). */}
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, flexWrap: 'wrap' }}>
+          {/* WEB-1: webhook vinculado — define qual token dispara esta campanha */}
+          {tokens.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 'var(--fw-medium)', whiteSpace: 'nowrap' }}>Webhook</span>
+              <div style={{ minWidth: 180 }}>
+                <Select
+                  value={webhookId}
+                  onChange={(e) => saveWebhook(e.target.value)}
+                  options={[{ value: '', label: 'Todos os webhooks' }, ...tokens.map((t) => ({ value: t.id, label: t.nome }))]}
+                  aria-label="Webhook vinculado à campanha"
+                />
               </div>
-            )}
-            {/* MARCA-1: marca/produto vinculado — define a identidade (logo/cor/link) dos e-mails */}
-            {brands.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 'var(--fw-medium)', whiteSpace: 'nowrap' }}>Marca</span>
-                <div style={{ minWidth: 180 }}>
+            </div>
+          )}
+          {/* Identidade desta campanha — sempre visível (mesmo sem marcas cadastradas). */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 280px', minWidth: 0,
+            background: 'var(--surface-card)', border: '1px solid var(--border-subtle)',
+            borderInlineStart: `3px solid ${activeBrand?.cor || 'var(--accent)'}`,
+            borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+          }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 'var(--radius-sm)', flex: 'none', overflow: 'hidden',
+              background: activeBrand?.cor || 'var(--accent-soft)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid var(--border-subtle)',
+            }}>
+              {activeBrand?.logo_url
+                ? <img src={activeBrand.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{(activeBrand?.nome || 'L').charAt(0).toUpperCase()}</span>}
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 'var(--ls-eyebrow)', fontWeight: 'var(--fw-semibold)' }}>
+                Esta campanha usa a marca
+              </div>
+              {brands.length > 0 ? (
+                <div style={{ minWidth: 160, maxWidth: 240 }}>
                   <Select
                     value={brandId}
                     onChange={(e) => saveBrand(e.target.value)}
-                    options={[{ value: '', label: 'Marca padrão' }, ...brands.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
+                    options={[{ value: '', label: brands[0] ? `Padrão (${brands[0].nome || '1ª marca'})` : 'Marca padrão' }, ...brands.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
                     aria-label="Marca vinculada à campanha"
                   />
                 </div>
+              ) : (
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                  Nenhuma marca ainda — crie em Integrações → Identidade dos e-mails
+                </div>
+              )}
+            </div>
+            {activeBrand && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flex: 'none' }}>
+                <span style={{ width: 18, height: 18, borderRadius: 4, background: activeBrand.cor || '#ff6800', border: '1px solid var(--border-subtle)' }} title={activeBrand.cor || ''} />
+                <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-subtle)' }}>{activeBrand.modo === 'light' ? 'Tema claro' : 'Tema escuro'}</span>
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       <div className="kbly-builder-grid" style={{ gap: 16, alignItems: 'start' }}>
@@ -679,6 +708,8 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
 
       {emailModal !== null && React.createElement(KoblyEmailEditor, {
         email: emailModal,
+        brand: activeBrand,
+        brandContext: 'campanha',
         onClose: () => setEmailModal(null),
         onSave: async (p) => {
           if (!p) return { error: 'Dados inválidos' };

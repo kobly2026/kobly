@@ -33,7 +33,22 @@ function attachPreviewGuards(iframe) {
   } catch (_) { /* cross-origin — não deve acontecer com srcDoc */ }
 }
 
-function KoblyEmailEditor({ email, onClose, onSave }) {
+// Normaliza brand vindo do DB (snake_case) ou do store.
+function brandLabel(brand) {
+  if (!brand) return null;
+  return brand.nome || brand.name || null;
+}
+function brandColor(brand) {
+  return (brand && (brand.cor || brand.color)) || '#ff6800';
+}
+function brandLogo(brand) {
+  return (brand && (brand.logo_url || brand.logoUrl || brand.logo)) || '';
+}
+function brandMode(brand) {
+  return brand && brand.modo === 'light' ? 'light' : 'dark';
+}
+
+function KoblyEmailEditor({ email, brand = null, brandContext = 'campanha', onClose, onSave }) {
   const store = useKobly();
   const [titulo, setTitulo] = useState(email ? email.titulo : 'Novo e-mail');
   const [assunto, setAssunto] = useState(email ? email.assunto : '');
@@ -45,6 +60,8 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  // HTML importado (Canva/zip) não aplica logo/cor da marca automaticamente.
+  const [imported, setImported] = useState(false);
   const [testTo, setTestTo] = useState(store.session.email || '');
   // CTA: botão com link no corpo do e-mail
   const [ctaLabel, setCtaLabel] = useState('Concluir compra');
@@ -53,6 +70,14 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
   const stacked = useBreakpoint().isNarrow;
   const iframeRef = useRef(null);
   const fileRef = useRef(null);
+
+  const bName = brandLabel(brand);
+  const bColor = brandColor(brand);
+  const bLogo = brandLogo(brand);
+  const bMode = brandMode(brand);
+  const contextLabel = brandContext === 'biblioteca'
+    ? 'Modelo da biblioteca (marca padrão da conta)'
+    : 'Marca desta campanha';
 
   // Importa um template de arquivo (.html ou .zip do Canva). O parser+sanitizador
   // (jszip/dompurify) é carregado sob demanda para não pesar o bundle principal.
@@ -63,10 +88,12 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
     setImporting(true);
     try {
       const { importEmailFile } = await import('@/lib/emailImport.js');
-      const { html: imported, warnings } = await importEmailFile(file);
-      setHtml(imported);
+      const { html: importedHtml, warnings } = await importEmailFile(file);
+      setHtml(importedHtml);
+      setImported(true);
       setTab('preview');
       store.notify('success', 'Template importado');
+      store.notify('info', 'HTML importado: logo e cor da marca NÃO são aplicados automaticamente — já vêm no arquivo.');
       (warnings || []).forEach((w) => store.notify('warning', w));
     } catch (err) {
       store.notify('danger', err?.message || 'Não foi possível importar o arquivo.');
@@ -111,11 +138,22 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
   async function generate() {
     setAiBusy(true);
     try {
-      const out = await KoblyAI.generateEmailHtml({ brief: brief || assunto || titulo, cta: 'Concluir compra', brand: { name: remetente || 'Sua Loja' } });
+      // IA usa a marca da campanha/conta (logo/cor/tema) quando disponível.
+      const out = await KoblyAI.generateEmailHtml({
+        brief: brief || assunto || titulo,
+        cta: 'Concluir compra',
+        brand: {
+          name: bName || remetente || 'Sua Loja',
+          color: bColor,
+          logoUrl: bLogo,
+          mode: bMode,
+        },
+      });
       setHtml(out.html);
+      setImported(false);
       if (out.assunto) setAssunto(out.assunto);
       setTab('preview');
-      store.notify('success', 'E-mail gerado pela IA (DeepSeek)');
+      store.notify('success', 'E-mail gerado pela IA (com a identidade da marca)');
     } catch (e) {
       store.notify('danger', 'Não consegui gerar o e-mail agora. Tente de novo.');
     } finally {
@@ -162,9 +200,12 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
       <div onClick={tryClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
       <div style={{ position: 'relative', width: 940, maxWidth: '96vw', height: '86vh', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-pop)', display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'kbly-toast-in var(--dur-med) var(--ease-out) both' }}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ display: 'inline-flex', width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="mail" size={17} /></span>
-            <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Editor de e-mail</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ display: 'inline-flex', width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="mail" size={17} /></span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Editor de e-mail</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Conteúdo da mensagem (assunto + HTML) — identidade visual vem da marca</div>
+            </div>
           </div>
           <IconButton icon="x" aria-label="Fechar" onClick={tryClose} />
         </header>
@@ -172,9 +213,42 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: stacked ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)', gridTemplateRows: stacked ? 'auto minmax(220px, 1fr)' : undefined }}>
           {/* Form + IA */}
           <div style={{ [stacked ? 'borderBottom' : 'borderInlineEnd']: '1px solid var(--border-subtle)', padding: 20, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
+            {/* Identidade (marca) — só leitura aqui; edita em Integrações → Identidade */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: 10,
+              background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)',
+              borderInlineStart: `3px solid ${bColor}`, borderRadius: 'var(--radius-sm)',
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 6, flex: 'none', overflow: 'hidden',
+                background: bColor, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {bLogo
+                  ? <img src={bLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{(bName || 'L').charAt(0).toUpperCase()}</span>}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{contextLabel}</div>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {bName || 'Sem marca cadastrada'}
+                </div>
+                <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-subtle)' }}>
+                  {bName ? `${bMode === 'light' ? 'Tema claro' : 'Tema escuro'} · cor ${bColor}` : 'Crie em Integrações → Identidade dos e-mails'}
+                </div>
+              </div>
+            </div>
+            {imported && (
+              <div style={{
+                fontSize: 'var(--text-xs)', color: 'var(--status-warning-fg)', background: 'var(--status-warning-bg)',
+                border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', lineHeight: 1.45,
+              }}>
+                <b>HTML importado</b> — logo e cor da marca <b>não</b> são aplicados automaticamente; o visual já vem no arquivo (Canva etc.). Use <b>Gerar HTML</b> se quiser o template Kobly com a marca.
+              </div>
+            )}
+
             <Input label="Título interno" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
             <Input label="Assunto" placeholder="Ex.: Você esqueceu algo no carrinho" value={assunto} onChange={(e) => setAssunto(e.target.value)} />
-            <Input label="Remetente" placeholder="Ex.: Loja do João" value={remetente} onChange={(e) => setRemetente(e.target.value)} hint="Nome que aparece na caixa de entrada do destinatário" />
+            <Input label="Nome do remetente" placeholder="Ex.: Loja do João" value={remetente} onChange={(e) => setRemetente(e.target.value)} hint="Nome amigável na caixa de entrada (não é o e-mail From — isso fica em Remetente e domínio)" />
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="mouse-pointer-click" size={16} style={{ color: 'var(--accent)' }} />
@@ -189,7 +263,9 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
                 <Icon name="upload" size={16} style={{ color: 'var(--accent)' }} />
                 <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Importar template</span>
               </div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Envie um <b>.html</b> ou um <b>.zip</b> (ex.: export do Canva). Imagens do ZIP são embutidas e o HTML é sanitizado.</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                Envie um <b>.html</b> ou <b>.zip</b> (Canva). O visual importado <b>não</b> usa logo/cor da marca Kobly — já vem no arquivo.
+              </div>
               <input ref={fileRef} type="file" accept=".zip,.html,.htm,text/html,application/zip" onChange={handleImportFile} style={{ display: 'none' }} />
               <Button variant="secondary" iconLeft="upload" fullWidth disabled={importing} onClick={() => fileRef.current && fileRef.current.click()}>{importing ? 'Importando…' : 'Importar .zip / .html'}</Button>
             </div>
@@ -197,6 +273,9 @@ function KoblyEmailEditor({ email, onClose, onSave }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="sparkles" size={16} style={{ color: 'var(--accent)' }} />
                 <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>Gerar com IA</span>
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                Gera HTML no template Kobly com a <b>identidade da marca</b> {bName ? `(${bName})` : '(padrão)'}.
               </div>
               <textarea value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="Descreva o e-mail (ex.: lembrete de carrinho com cupom de 10%)…" rows={3}
                 className="kbly-input"

@@ -230,14 +230,29 @@ export const KoblyAI = {
   // Fallback: template estático se a IA falhar.
   async generateEmailHtml(brief) {
     const cta = (brief && brief.cta) || 'Concluir compra';
+    // Preferência: brand passado pelo editor (marca da campanha) > brands da org > legado org_branding.
     let brand = (brief && brief.brand) || { name: 'Sua Loja' };
-    // Aplica a marca white-label da org (logo + cor) por cima do brand recebido.
-    try {
-      let q = supabase.from('org_branding').select('nome, logo_url, cor, modo');
-      if (brief && brief.empresaId) q = q.eq('organization_id', brief.empresaId);
-      const { data: b } = await q.limit(1).maybeSingle();
-      if (b) brand = { name: brand.name || b.nome || 'Sua Loja', logoUrl: b.logo_url || brand.logoUrl, color: b.cor || brand.color, mode: b.modo || brand.mode || 'dark' };
-    } catch (e) { /* segue com o brand recebido */ }
+    if (!brand.name && !brand.logoUrl && !brand.color) {
+      try {
+        let bq = supabase.from('brands').select('nome, logo_url, cor, modo').order('ordem').limit(1);
+        if (brief && brief.empresaId) bq = bq.eq('organization_id', brief.empresaId);
+        const { data: b } = await bq.maybeSingle();
+        if (b) brand = { name: b.nome || 'Sua Loja', logoUrl: b.logo_url, color: b.cor, mode: b.modo || 'dark' };
+        else {
+          let q = supabase.from('org_branding').select('nome, logo_url, cor, modo');
+          if (brief && brief.empresaId) q = q.eq('organization_id', brief.empresaId);
+          const { data: ob } = await q.limit(1).maybeSingle();
+          if (ob) brand = { name: ob.nome || 'Sua Loja', logoUrl: ob.logo_url, color: ob.cor, mode: ob.modo || 'dark' };
+        }
+      } catch (e) { /* segue com o brand recebido */ }
+    } else {
+      brand = {
+        name: brand.name || brand.nome || 'Sua Loja',
+        logoUrl: brand.logoUrl || brand.logo_url || brand.logo || '',
+        color: brand.color || brand.cor || '#ff6800',
+        mode: brand.mode || brand.modo || 'dark',
+      };
+    }
     const briefText = (brief && (brief.brief || brief.titulo)) || 'E-mail de recuperação de carrinho abandonado.';
     const note = 'Se você já finalizou, pode ignorar este e-mail. Para não receber mais, descadastre-se.';
     try {
