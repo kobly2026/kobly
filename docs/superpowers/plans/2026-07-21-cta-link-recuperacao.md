@@ -195,7 +195,7 @@ Deno.test("devePularPorFaltaDeLink: sem evento gatilho, nao pula (fail-open)", (
 
 - [ ] **Step 2: Rodar e confirmar que falha**
 
-Run: `deno test supabase/functions/_shared/cta_test.ts`
+Run: `deno test --allow-read supabase/functions/_shared/cta_test.ts`
 Expected: FAIL — `Module not found "file:///.../_shared/cta.ts"`.
 
 - [ ] **Step 3: Implementar o módulo**
@@ -294,7 +294,7 @@ export function devePularPorFaltaDeLink(a: {
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
-Run: `deno test supabase/functions/_shared/cta_test.ts`
+Run: `deno test --allow-read supabase/functions/_shared/cta_test.ts`
 Expected: PASS — `ok | 12 passed | 0 failed`.
 
 - [ ] **Step 5: Commit**
@@ -1051,7 +1051,12 @@ group by 1 order by 1 desc;
 
 ## Verificação final (end-to-end)
 
-- [ ] `deno test supabase/functions/_shared/cta_test.ts` → 12 passed.
+- [ ] `deno test --allow-read supabase/functions/_shared/cta_test.ts` → 13 passed.
+      **O `--allow-read` é obrigatório**: o 13º teste (anti-drift) lê
+      `process-steps/index.ts` para conferir que a cópia inline não divergiu de
+      `_shared/cta.ts`. Sem a flag o Deno nega a leitura e o teste falha — falha
+      barulhenta de propósito, para ninguém concluir que a suíte está verde quando
+      a checagem de drift nem rodou.
 - [ ] Um postback de teste com link → `webhook_events.checkout_url` preenchido → passo agendado → e-mail recebido com o botão apontando para o checkout **daquela** transação (conferir a URL no "Mostrar original").
 - [ ] Um postback de teste sem link, evento "Pix Gerado" → passo aparece na jornada como **pulado** (não como falha vermelha), com o texto `pulado: sem link de recuperação`.
 - [ ] Um passo de evento terminal ("Compra Aprovada") sem link → **envia** normalmente.
