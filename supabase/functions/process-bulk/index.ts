@@ -43,7 +43,12 @@ function normalizePhone(raw: string): string {
 function subst(text: string, lead: any): string {
   return String(text || "")
     .split("{{nome}}").join(lead?.nome || "")
-    .split("{{cta_link}}").join(""); // bulk não tem link de recuperação por lead
+    // "#" e nao "": o disparo em massa nao tem link de recuperacao por lead, e um
+    // href="" faz varios clientes recarregarem a URL do proprio webmail ao clicar —
+    // pior que um botao inerte. Os dois sao becos sem saida; "#" e o beco silencioso.
+    // Virou relevante quando emailTemplate.js passou a gerar botao com {{cta_link}}
+    // por padrao: antes nenhum template de massa trazia o placeholder.
+    .split("{{cta_link}}").join("#");
 }
 
 Deno.serve(async (req: Request) => {

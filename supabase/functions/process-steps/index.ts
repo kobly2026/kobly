@@ -386,7 +386,8 @@ Deno.serve(async (req: Request) => {
         }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
         // Destino do botão: link do EVENTO gatilho (imutável, daquela transação) >
-        // link do lead (só para passo sem webhook_event_id) > URL da loja > '#'.
+        // link do lead (quando o passo nao tem webhook_event_id, OU quando o link do
+        // evento existe mas nao e uma URL utilizavel) > URL da loja > '#'.
         // A ordem antiga começava pelo lead, que é pegajoso: comprador recorrente
         // recebia o checkout da compra anterior — parece funcionar e leva a um Pix
         // já pago ou expirado.
@@ -622,7 +623,12 @@ Deno.serve(async (req: Request) => {
         // `botoesUsamCta`: o botão de URL sem url própria usa {{cta_link}} por
         // default, então o corpo pode não ter o placeholder e ainda assim depender dele.
         if (gateLigado && devePularPorFaltaDeLink({
-          usaCta: corpoUsaCta(wm?.corpo_texto) || botoesUsamCta(wm?.botoes),
+          // `|| titulo` NAO e redundante: a mensagem enviada e
+          // String(wm?.corpo_texto || wm?.titulo || ""), entao um template com
+          // corpo_texto vazio e {{cta_link}} no titulo depende do CTA sem que o gate
+          // enxergasse — e sairia com o link vazio no meio da frase, que e exatamente
+          // o que este gate existe para impedir.
+          usaCta: corpoUsaCta(wm?.corpo_texto || wm?.titulo) || botoesUsamCta(wm?.botoes),
           tipoEventoGatilho,
           linkResolvido: ctaLink,
         })) {
@@ -755,7 +761,10 @@ Deno.serve(async (req: Request) => {
 
         // CTA sem destino: não enviar (mesma regra dos outros canais).
         if (gateLigado && devePularPorFaltaDeLink({
-          usaCta: corpoUsaCta(sm.corpo_texto),
+          // `|| titulo` pelo mesmo motivo do WhatsApp: a mensagem e
+          // String(sm.corpo_texto || sm.titulo || ""), logo o gate tem que olhar os dois
+          // — senao um SMS sai como "Pague seu Pix: " com a frase cortada.
+          usaCta: corpoUsaCta(sm.corpo_texto || sm.titulo),
           tipoEventoGatilho,
           linkResolvido: ctaLink,
         })) {
