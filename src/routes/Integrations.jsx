@@ -12,8 +12,9 @@ import { KoblyEmailEditor } from '@/routes/EmailEditor.jsx';
 import { KoblyWhatsAppEditor } from '@/routes/WhatsAppEditor.jsx';
 import { KoblySmsEditor } from '@/routes/SmsEditor.jsx';
 
-// Kobly — Integrações simplificada. Postback URL + Templates de email + WhatsApp + Tags.
-// KoblyIntegrations
+// Kobly — Integrações. Fase 3: seções (Configuração da loja | Postback | Tags | Modelos)
+// com sub-abas na loja (Identidade · Remetente · WhatsApp · SMS). Conteúdo de e-mail
+// de campanha vive no FlowBuilder, não aqui. KoblyIntegrations
 
 function CopyField({ value, label }) {
   const store = useKobly();
@@ -1065,14 +1066,9 @@ function BrandTab({ empresaId }) {
     <Card
       icon="layers"
       title="Identidade dos e-mails"
-      subtitle="Logo, cor e tema da loja/produto. Isso é a cara da marca — não o texto do e-mail. Em cada campanha você escolhe qual marca usar; o conteúdo (assunto/HTML) fica no editor do fluxo."
+      subtitle="Logo, cor e tema da loja/produto. Em cada campanha você escolhe qual marca usar; o assunto e o HTML ficam no card do fluxo."
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Banner tone="info">
-          <b>3 camadas</b> — (1) <b>Identidade</b> (esta aba) · (2) <b>Remetente e domínio</b> (de onde sai) · (3) <b>Conteúdo</b> no card da campanha ou em Modelos reutilizáveis.
-        </Banner>
-        <BrandsList empresaId={empresaId} />
-      </div>
+      <BrandsList empresaId={empresaId} />
     </Card>
   );
 }
@@ -1208,32 +1204,48 @@ function BrandsList({ empresaId, onSaved }) {
   );
 }
 
+// Fase 3 — IA em 2 níveis:
+//   Seção  →  Configuração da loja | Postback | Tags | Modelos
+//   Sub    →  (só em Config) Identidade | Remetente | WhatsApp | SMS
+// Conteúdo de e-mail de campanha NÃO mora aqui — fica no FlowBuilder.
+const SECTIONS = [
+  { value: 'loja', label: 'Configuração da loja', icon: 'store', help: 'Identidade, remetente e canais' },
+  { value: 'postback', label: 'Postback', icon: 'webhook', help: 'Webhooks de checkout' },
+  { value: 'tags', label: 'Tags', icon: 'tag', help: 'Marcadores de lead' },
+  { value: 'emails', label: 'Modelos', icon: 'library', help: 'Biblioteca avançada' },
+];
+const LOJA_SUBS = [
+  { value: 'marca', label: 'Identidade', icon: 'palette' },
+  { value: 'dominio', label: 'Remetente', icon: 'globe' },
+  { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
+  { value: 'sms', label: 'SMS', icon: 'smartphone' },
+];
+
 function KoblyIntegrations() {
   const store = useKobly();
   const isGestor = store.role === 'Gestor';
   const a = useAsync(() => KoblyApi.getIntegrations(), [store.role]);
   const clients = useAsync(() => (isGestor ? KoblyApi.listClients() : Promise.resolve([])), [store.role]);
-  const [tab, setTab] = useState('postback');
-  const [contaId, setContaId] = useState(null); // conta em foco (Gestor)
+  const [section, setSection] = useState('loja');
+  const [lojaSub, setLojaSub] = useState('marca');
+  const [contaId, setContaId] = useState(null);
   const empresaId = isGestor ? contaId : store.session.empresaId;
+
   if (a.status === 'loading') return <SkeletonTable rows={4} />;
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
-  // Ordem: setup de envio/identidade primeiro; modelos por último (secundário).
-  const tabs = [
-    { value: 'postback', label: 'Postback URL', icon: 'webhook' },
-    { value: 'marca', label: 'Identidade dos e-mails', icon: 'palette' },
-    { value: 'dominio', label: 'Remetente e domínio', icon: 'globe' },
-    { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
-    { value: 'sms', label: 'SMS', icon: 'smartphone' },
-    { value: 'tags', label: 'Tags', icon: 'tag' },
-    { value: 'emails', label: 'Modelos (avançado)', icon: 'library' },
-  ];
+  const sectionHelp = (SECTIONS.find((s) => s.value === section) || {}).help || '';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageHeader tabs={<Tabs value={tab} onChange={setTab} options={tabs} />}>
-        Setup da conta: identidade, remetente, postback e canais. Conteúdo de e-mail vive na campanha.
+      <PageHeader tabs={<Tabs value={section} onChange={setSection} options={SECTIONS.map(({ value, label, icon }) => ({ value, label, icon }))} />}>
+        {section === 'loja'
+          ? 'Tudo que define a cara e o envio da loja: identidade visual, From e canais. O texto do e-mail de recuperação fica na campanha.'
+          : section === 'emails'
+            ? 'Biblioteca opcional de HTML. Preferência: criar o e-mail no card da campanha.'
+            : sectionHelp || 'Integrações da conta.'}
       </PageHeader>
+
       {isGestor && (
         <Select
           label="Conta"
@@ -1243,17 +1255,68 @@ function KoblyIntegrations() {
           style={{ maxWidth: 320 }}
         />
       )}
-      {isGestor && !contaId
-        ? <div style={{ color: 'var(--text-muted)', padding: 28 }}>Selecione uma conta de cliente para ver as integrações.</div>
-        : (<>
-            {tab === 'postback' && <PostbackTab data={a.data} empresaId={empresaId} />}
-            {tab === 'marca' && <BrandTab empresaId={empresaId} />}
-            {tab === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} empresaId={empresaId} />}
-            {tab === 'dominio' && <DomainTab empresaId={empresaId} />}
-            {tab === 'whatsapp' && <WhatsappTab empresaId={empresaId} />}
-            {tab === 'sms' && <SmsTab empresaId={empresaId} />}
-            {tab === 'tags' && <TagsTab data={a.data} reload={a.reload} />}
-          </>)}
+
+      {isGestor && !contaId ? (
+        <div style={{ color: 'var(--text-muted)', padding: 28 }}>Selecione uma conta de cliente para ver as integrações.</div>
+      ) : (
+        <>
+          {section === 'loja' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Mapa mental das 3 camadas — sempre visível no setup da loja */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10,
+              }}>
+                {[
+                  { n: '1', title: 'Identidade', desc: 'Logo, cor, tema', sub: 'marca', icon: 'palette' },
+                  { n: '2', title: 'Remetente', desc: 'De onde o e-mail sai', sub: 'dominio', icon: 'globe' },
+                  { n: '3', title: 'Conteúdo', desc: 'Assunto e HTML', sub: null, icon: 'mail', cta: true },
+                ].map((item) => (
+                  <button
+                    key={item.n}
+                    type="button"
+                    onClick={() => {
+                      if (item.cta) store.navigate('campanhas');
+                      else if (item.sub) setLojaSub(item.sub);
+                    }}
+                    style={{
+                      textAlign: 'start', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      background: lojaSub === item.sub ? 'var(--accent-soft)' : 'var(--surface-card)',
+                      border: `1px solid ${lojaSub === item.sub ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                      borderRadius: 'var(--radius-md)', padding: '12px 14px',
+                      display: 'flex', gap: 10, alignItems: 'flex-start',
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-flex', width: 28, height: 28, flex: 'none', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: 'var(--radius-sm)', background: item.cta ? 'var(--accent-soft)' : 'var(--surface-sunken)',
+                      color: item.cta ? 'var(--accent)' : 'var(--text-muted)', fontSize: 'var(--text-xs)', fontWeight: 700,
+                    }}>
+                      {item.cta ? <Icon name={item.icon} size={14} /> : item.n}
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{item.title}</span>
+                      <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {item.desc}{item.cta ? ' → campanhas' : ''}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <Tabs value={lojaSub} onChange={setLojaSub} options={LOJA_SUBS} />
+
+              {lojaSub === 'marca' && <BrandTab empresaId={empresaId} />}
+              {lojaSub === 'dominio' && <DomainTab empresaId={empresaId} />}
+              {lojaSub === 'whatsapp' && <WhatsappTab empresaId={empresaId} />}
+              {lojaSub === 'sms' && <SmsTab empresaId={empresaId} />}
+            </div>
+          )}
+
+          {section === 'postback' && <PostbackTab data={a.data} empresaId={empresaId} />}
+          {section === 'tags' && <TagsTab data={a.data} reload={a.reload} />}
+          {section === 'emails' && <EmailTemplatesTab data={a.data} reload={a.reload} empresaId={empresaId} />}
+        </>
+      )}
     </div>
   );
 }
