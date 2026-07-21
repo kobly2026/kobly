@@ -612,8 +612,19 @@ Deno.serve(async (req: Request) => {
 
     let enqueued = 0;
     const campanhasAcionadas: string[] = [];
+    // Diagnóstico de "por que nada foi agendado". Sem isto, um postback que casa o evento
+    // mas não encontra campanha nenhuma respondia {ok:true, enqueued:0} com status 200 — do
+    // ponto de vista do provedor, do log e do painel, sucesso. Foi assim que a org
+    // d47ca6d3 ficou de 20 a 21/07 recebendo 496 eventos (314 "Pix Gerado", 218 leads) e
+    // agendando ZERO passos: a plataforma posta no token "Nexopayt - GERAL", que não tinha
+    // nenhuma campanha ATIVA amarrada (a única estava em Rascunho), então o filtro de
+    // campanhas voltava vazio e o laço abaixo nem rodava. Contamos os estágios para poder
+    // dizer em qual deles o fluxo morreu.
+    let gatilhosCasados = 0;
+    let insertsFalhos = 0;
 
     for (const c of camps || []) {
+      const campId = (c as any).id as string;
       const flow = Array.isArray((c as any).campaign_flows)
         ? (c as any).campaign_flows[0]
         : (c as any).campaign_flows;
@@ -622,6 +633,7 @@ Deno.serve(async (req: Request) => {
       // Verifica se algum step Gatilho casa com o tipo_evento
       const casa = steps.some((s: any) => s.tipo_card === "Gatilho" && s.tipo_evento === tipoEvento);
       if (!casa || !leadId) continue;
+      gatilhosCasados++;
 
       // Coleta as ações (exclui o Gatilho e o card Condição — este é só o marcador
       // visual do redirecionador; a condição é compilada em flow_steps.condicao dos
@@ -650,9 +662,36 @@ Deno.serve(async (req: Request) => {
         const r = await sb.from("scheduled_steps").insert(rows);
         if (!r.error) {
           enqueued += rows.length;
-          campanhasAcionadas.push((c as any).id);
+          campanhasAcionadas.push(campId);
+        } else {
+          // ANTES: o erro era descartado em silêncio — o gatilho casava, o insert falhava,
+          // e a resposta seguia {ok:true, enqueued:0}. Uma falha de constraint/RLS aqui
+          // derrubaria a automação inteira sem deixar UM rastro em lugar nenhum.
+          insertsFalhos++;
+          console.error(
+            "postback-receiver: insert de scheduled_steps falhou",
+            JSON.stringify({ campanha: campId, lead_id: leadId, passos: rows.length, erro: r.error.message }),
+          );
         }
       }
+    }
+
+    // Nada agendado é sempre anômalo quando o evento foi reconhecido e tem lead: alguém
+    // configurou um postback esperando automação. Distinguimos os três motivos possíveis
+    // para que o diagnóstico seja de um olhar, em vez de uma investigação no banco.
+    let motivoSemAgendamento: string | null = null;
+    if (enqueued === 0 && leadId) {
+      if (insertsFalhos > 0) motivoSemAgendamento = "insert_falhou";
+      else if ((camps || []).length === 0) motivoSemAgendamento = "nenhuma_campanha_ativa_para_este_token";
+      else if (gatilhosCasados === 0) motivoSemAgendamento = "nenhum_gatilho_casa_com_o_evento";
+      else motivoSemAgendamento = "campanha_sem_acoes";
+      console.warn(
+        "postback-receiver: evento reconhecido mas NADA agendado",
+        JSON.stringify({
+          motivo: motivoSemAgendamento, org, token_id: tokenId, tipo_evento: tipoEvento,
+          campanhas_ativas_no_token: (camps || []).length, gatilhos_casados: gatilhosCasados,
+        }),
+      );
     }
 
     return json({
@@ -663,6 +702,10 @@ Deno.serve(async (req: Request) => {
       webhook_event_id: webhookEventId,
       enqueued,
       campanhas_acionadas: campanhasAcionadas,
+      // Só aparece quando nada foi agendado — é o campo que responde "por que não chegou
+      // e-mail?" sem precisar abrir o banco. Segue 200/ok de propósito: o provedor de
+      // checkout não deve reprocessar por causa de configuração nossa (ver topo do arquivo).
+      ...(motivoSemAgendamento ? { motivo_sem_agendamento: motivoSemAgendamento } : {}),
     });
   } catch (err) {
     // Nunca deixa uma exceção não tratada virar 500 pro provedor de checkout (ver
