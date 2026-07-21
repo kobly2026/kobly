@@ -507,20 +507,38 @@ export const KoblyApi = {
     };
   },
   // Página de leads com filtros server-side. Retorna { rows, total }.
-  async getLeadsPage({ empresaId = null, stage = null, search = null, evento = null, limit = 25, offset = 0 } = {}) {
+  // Filtros: stage (pipeline), search, evento (último), tagId, since (ISO/timestamptz).
+  async getLeadsPage({
+    empresaId = null, stage = null, search = null, evento = null,
+    tagId = null, since = null, limit = 25, offset = 0,
+  } = {}) {
     const { data, error } = await supabase.rpc('leads_page', {
       p_org: empresaId || null, p_stage: stage || null,
       p_search: (search || '').trim() || null, p_evento: evento || null,
       p_limit: limit, p_offset: offset,
+      p_tag_id: tagId || null,
+      p_since: since || null,
     });
     if (error) throw new Error(error.message);
     const rows = (data || []).map((r) => this._leadRow(r));
     const total = data && data.length ? Number(data[0].total_count) : 0;
     return { rows, total };
   },
-  // Contagem + valor por estágio (headers do kanban). Retorna { [stage]: {total, valor} }.
-  async getPipelineCounts(empresaId = null) {
-    const { data, error } = await supabase.rpc('pipeline_counts', { p_org: empresaId || null });
+  // Contagem + valor por estágio (headers do kanban). Mesmos filtros de getLeadsPage
+  // (exceto stage/paginação) para o resumo refletir a busca/filtros ativos.
+  // Aceita objeto de filtros OU string/null legado: getPipelineCounts(empresaId).
+  async getPipelineCounts(opts = null) {
+    const params = (opts && typeof opts === 'object' && !Array.isArray(opts))
+      ? opts
+      : { empresaId: opts };
+    const { empresaId = null, search = null, evento = null, tagId = null, since = null } = params;
+    const { data, error } = await supabase.rpc('pipeline_counts', {
+      p_org: empresaId || null,
+      p_search: (search || '').trim() || null,
+      p_evento: evento || null,
+      p_tag_id: tagId || null,
+      p_since: since || null,
+    });
     if (error) throw new Error(error.message);
     const out = {};
     (data || []).forEach((r) => { out[r.stage] = { total: Number(r.total) || 0, valor: Number(r.valor) || 0 }; });
