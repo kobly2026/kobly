@@ -211,8 +211,13 @@ function ForkConnector() {
 }
 
 // ----- Inspetor da etapa -----
-function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, onEditSms, opts = {} }) {
+function Inspector({
+  step, onChange, onEditEmail, onEditWhatsApp, onEditSms, onCopyEmailFromModel, opts = {}, brand = null,
+}) {
   const DB = KoblyMockDB;
+  const store = useKobly();
+  const [copyFrom, setCopyFrom] = useState('');
+  const [copying, setCopying] = useState(false);
   if (!step) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 10, height: '100%', color: 'var(--text-muted)', padding: 24 }}>
@@ -228,6 +233,25 @@ function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, onEditSms, opt
     const has = (c.tags || []).includes(id);
     setCfg({ tags: has ? c.tags.filter((t) => t !== id) : [...(c.tags || []), id] });
   }
+  const linkedEmail = (opts.emails || []).find((em) => em.id === c.emailId);
+  // Modelos da biblioteca = e-mails da org que NÃO são o da etapa atual (podem reutilizar).
+  const libraryEmails = (opts.emails || []).filter((em) => em.id !== c.emailId);
+
+  async function handleCopyFromModel() {
+    if (!copyFrom || !onCopyEmailFromModel) return;
+    setCopying(true);
+    try {
+      const r = await onCopyEmailFromModel(copyFrom, step.id);
+      if (r && r.error) store.notify('danger', r.error);
+      else {
+        store.notify('success', 'Modelo copiado para esta etapa (cópia independente)');
+        setCopyFrom('');
+      }
+    } finally {
+      setCopying(false);
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -262,19 +286,42 @@ function Inspector({ step, onChange, onEditEmail, onEditWhatsApp, onEditSms, opt
       )}
       {step.tipo === 'Envio de e-mail' && (
         <React.Fragment>
-          {/* Sem dropdown de templates pré-prontos: o e-mail é do card (criar/editar). */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>Conteúdo do e-mail</div>
-            {c.emailId ? (
-              <div style={{ padding: '10px 12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>
-                {((opts.emails || []).find((em) => em.id === c.emailId) || {}).titulo || 'E-mail da etapa'}
+          {/* Caminho principal: criar/editar conteúdo nesta etapa (marca da campanha no editor). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>Conteúdo desta etapa</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              Aqui fica o <b>assunto e o HTML</b>. Identidade (logo/cor) vem da marca da campanha
+              {brand?.nome ? ` (${brand.nome})` : ''}.
+            </div>
+            {c.emailId && linkedEmail ? (
+              <div style={{ padding: '10px 12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{linkedEmail.titulo || 'E-mail da etapa'}</div>
+                {linkedEmail.assunto && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{linkedEmail.assunto}</div>}
               </div>
             ) : (
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Nenhum e-mail ainda — abra o editor para criar o conteúdo desta etapa.</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--status-warning-fg)', background: 'var(--status-warning-bg)', borderRadius: 'var(--radius-sm)', padding: '8px 10px' }}>
+                Nenhum e-mail nesta etapa — crie o conteúdo para o fluxo enviar.
+              </div>
             )}
-            <Button variant="secondary" size="sm" iconLeft="pencil" onClick={() => onEditEmail(c.emailId)}>
-              {c.emailId ? 'Editar e-mail' : 'Criar e-mail'}
+            <Button variant="primary" size="sm" iconLeft={c.emailId ? 'pencil' : 'plus'} onClick={() => onEditEmail(c.emailId)}>
+              {c.emailId ? 'Editar e-mail' : 'Criar e-mail desta etapa'}
             </Button>
+
+            {libraryEmails.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                  Opcional: copiar de um modelo da biblioteca (gera <b>cópia independente</b> nesta etapa).
+                </div>
+                <Select
+                  value={copyFrom}
+                  onChange={(e) => setCopyFrom(e.target.value)}
+                  options={[{ value: '', label: 'Escolher modelo…' }, ...libraryEmails.map((m) => ({ value: m.id, label: m.titulo || m.assunto || 'Modelo' }))]}
+                />
+                <Button variant="secondary" size="sm" iconLeft="copy" disabled={!copyFrom || copying} loading={copying} onClick={handleCopyFromModel}>
+                  {copying ? 'Copiando…' : 'Copiar modelo para esta etapa'}
+                </Button>
+              </div>
+            )}
           </div>
         </React.Fragment>
       )}
@@ -685,10 +732,32 @@ function KoblyFlowBuilder({ campaign, onBack, variant = 'vertical' }) {
               step={selStep}
               onChange={updateStep}
               opts={opts}
+              brand={activeBrand}
               onEditEmail={(id) => {
                 const found = id ? (opts.emails || []).find((e) => e.id === id) : null;
                 // Sem id ou sem template: abre editor vazio para criar e vincular à etapa.
                 setEmailModal(found || { titulo: '', assunto: '', remetente: '', corpoHtml: '' });
+              }}
+              onCopyEmailFromModel={async (sourceId, stepId) => {
+                const src = (opts.emails || []).find((e) => e.id === sourceId);
+                if (!src) return { error: 'Modelo não encontrado' };
+                const { error, id } = await KoblyApi.createEmail({
+                  titulo: src.titulo || 'E-mail da etapa',
+                  assunto: src.assunto || '',
+                  remetente: src.remetente || '',
+                  corpoHtml: src.corpoHtml || '',
+                }, campaign.empresaId);
+                if (error) return { error };
+                if (id && stepId) {
+                  setSteps((prev) => prev.map((s) => {
+                    if (s.id !== stepId) return s;
+                    return { ...s, config: { ...(s.config || {}), emailId: id } };
+                  }));
+                  setDirty(true);
+                  setSelId(stepId);
+                }
+                await optsA.reload();
+                return { error: null, id };
               }}
               onEditWhatsApp={(id) => setWhatsappModal((opts.whatsappMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })}
               onEditSms={(id) => setSmsModal((opts.smsMessages || []).find((m) => m.id === id) || { titulo: 'Nova mensagem', corpoTexto: '' })}

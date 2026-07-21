@@ -492,20 +492,33 @@ function PostbackTab({ data, empresaId }) {
   );
 }
 
-// ── Aba: Modelos reutilizáveis de e-mail ──
-// Biblioteca opcional — o caminho principal de criar e-mail é no card da campanha.
-// Editor completo (HTML + remetente + preview).
+// ── Aba: Modelos reutilizáveis (secundária) ──
+// Biblioteca avançada. Caminho principal = card "Envio de e-mail" na campanha.
+// Aqui o usuário guarda/copia conteúdo; o vínculo à etapa é no FlowBuilder.
 function EmailTemplatesTab({ data, reload, empresaId }) {
-  const [editor, setEditor] = useState(null); // email em edição ou {} para novo
+  const store = useKobly();
+  const [editor, setEditor] = useState(null);
   const brandsA = useAsync(() => KoblyApi.listBrands(empresaId), [empresaId]);
   const defaultBrand = (brandsA.data && brandsA.data[0]) || null;
+  const emails = data.emails || [];
 
   function openNew() {
     setEditor({ titulo: '', assunto: '', remetente: '', corpoHtml: '' });
   }
-
   function openEdit(email) {
     setEditor(email);
+  }
+  async function duplicate(src) {
+    const { error, id } = await KoblyApi.createEmail({
+      titulo: `${src.titulo || 'Modelo'} (cópia)`,
+      assunto: src.assunto || '',
+      remetente: src.remetente || '',
+      corpoHtml: src.corpoHtml || '',
+    }, empresaId);
+    if (error) { store.notify('danger', error); return; }
+    store.notify('success', 'Modelo duplicado — use-o no card da campanha (Copiar de um modelo)');
+    reload();
+    return id;
   }
 
   async function saveEmail(p) {
@@ -529,29 +542,50 @@ function EmailTemplatesTab({ data, reload, empresaId }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card
-        icon="mail"
-        title="Modelos reutilizáveis"
-        subtitle="Biblioteca opcional. O caminho principal é criar o e-mail no card da campanha (fluxo) — a marca da campanha entra no envio e no gerador de HTML."
+        icon="library"
+        title="Modelos reutilizáveis (avançado)"
+        subtitle="Biblioteca de conteúdo. O caminho principal é criar o e-mail no fluxo da campanha — lá a marca da campanha é aplicada no preview e na IA."
       >
-        <Banner tone="info">
-          <b>Conteúdo</b> da mensagem (assunto/HTML) fica aqui ou no fluxo.
-          <b> Identidade</b> (logo, cor, tema) é em <b>Identidade dos e-mails</b>.
-          <b> De onde sai</b> o e-mail é em <b>Remetente e domínio</b>.
-        </Banner>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Banner tone="info">
+            <b>Use esta aba só se</b> quiser guardar um HTML para copiar em várias campanhas.
+            No dia a dia: <b>Campanhas → abrir fluxo → card Envio de e-mail → Criar e-mail</b>.
+          </Banner>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <Button variant="primary" size="sm" iconLeft="git-branch" onClick={() => store.navigate('campanhas')}>
+              Ir para campanhas
+            </Button>
+            <Button variant="secondary" size="sm" iconLeft="plus" onClick={openNew}>
+              Novo modelo na biblioteca
+            </Button>
+          </div>
+        </div>
       </Card>
-      {(data.emails || []).map((e) => (
-        <Card key={e.id} icon="mail" title={e.titulo} subtitle={e.assunto}
-          action={<Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(e)}>Editar</Button>}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <Icon name="at-sign" size={16} style={{ color: 'var(--text-subtle)' }} />
-            <div>
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-strong)' }}>{e.assunto}</div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Nome do remetente: {e.remetente || '—'}</div>
+
+      {emails.length === 0 && (
+        <div style={{ padding: 28, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)', border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)' }}>
+          Nenhum modelo na biblioteca. Crie e-mails no fluxo da campanha — eles também aparecem aqui se quiser reutilizar.
+        </div>
+      )}
+
+      {emails.map((e) => (
+        <Card
+          key={e.id}
+          icon="mail"
+          title={e.titulo}
+          subtitle={e.assunto || 'Sem assunto'}
+          action={(
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Button size="sm" variant="ghost" iconLeft="copy" onClick={() => duplicate(e)}>Duplicar</Button>
+              <Button size="sm" variant="ghost" iconLeft="pencil" onClick={() => openEdit(e)}>Editar</Button>
             </div>
+          )}
+        >
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Nome do remetente: {e.remetente || '—'} · no fluxo: <b>Copiar de um modelo</b>
           </div>
         </Card>
       ))}
-      <Button variant="secondary" iconLeft="plus" onClick={openNew}>Novo modelo de e-mail</Button>
 
       {editor !== null && (
         <KoblyEmailEditor
@@ -1185,19 +1219,20 @@ function KoblyIntegrations() {
   if (a.status === 'loading') return <SkeletonTable rows={4} />;
   if (a.status === 'error') return <ErrorState message={a.error} onRetry={a.reload} />;
 
+  // Ordem: setup de envio/identidade primeiro; modelos por último (secundário).
   const tabs = [
     { value: 'postback', label: 'Postback URL', icon: 'webhook' },
     { value: 'marca', label: 'Identidade dos e-mails', icon: 'palette' },
     { value: 'dominio', label: 'Remetente e domínio', icon: 'globe' },
-    { value: 'emails', label: 'Modelos reutilizáveis', icon: 'mail' },
     { value: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
     { value: 'sms', label: 'SMS', icon: 'smartphone' },
     { value: 'tags', label: 'Tags', icon: 'tag' },
+    { value: 'emails', label: 'Modelos (avançado)', icon: 'library' },
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageHeader tabs={<Tabs value={tab} onChange={setTab} options={tabs} />}>
-        Identidade e envio (logo/cor + From), modelos de e-mail, postback e canais (WhatsApp/SMS).
+        Setup da conta: identidade, remetente, postback e canais. Conteúdo de e-mail vive na campanha.
       </PageHeader>
       {isGestor && (
         <Select
