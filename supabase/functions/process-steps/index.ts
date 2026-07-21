@@ -44,10 +44,9 @@ async function signUnsubToken(secret: string, orgId: string, email: string, nowM
 
 // Inlinado de _shared/cta.ts (per-function deploy não empacota ../_shared/).
 // Manter semanticamente idêntico ao módulo — os testes vivem em _shared/cta_test.ts.
-// Canal e-mail já usa este bloco (resolveCtaLink no destino do botão, o gate via
-// devePularPorFaltaDeLink/PULADO_SEM_LINK). botoesUsamCta ainda não tem call-site
-// — entra no canal WhatsApp (task seguinte) — por isso mantém o deno-lint-ignore
-// só nele; os demais foram removidos.
+// Canais e-mail e WhatsApp já usam este bloco (resolveCtaLink no destino do
+// botão, o gate via devePularPorFaltaDeLink/PULADO_SEM_LINK; WhatsApp também usa
+// botoesUsamCta, pois o botão de URL sem url própria cai em {{cta_link}}).
 const EVENTOS_RECUPERACAO: ReadonlySet<string> = new Set([
   "Abandono de carrinho", "Pix Gerado", "Boleto Gerado", "Depósito Solicitado", "Compra Recusada",
 ]);
@@ -61,7 +60,6 @@ function isUsableCtaLink(v: unknown): boolean {
 function corpoUsaCta(corpo: string | null | undefined): boolean {
   return typeof corpo === "string" && corpo.includes("{{cta_link}}");
 }
-// deno-lint-ignore no-unused-vars
 function botoesUsamCta(botoes: unknown): boolean {
   if (!Array.isArray(botoes)) return false;
   return botoes.slice(0, 3).some((b: Record<string, unknown> | null) => {
@@ -575,8 +573,15 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
-        // Mesmo destino do botão do e-mail: link do lead (postback) > URL da loja (org) > '#'.
-        const ctaLink = lead.link_recuperacao || brand.link || "#";
+        // Mesma prioridade do e-mail: evento gatilho > lead > loja > '#'.
+        const eventoGatilho = s.webhook_events ?? null;
+        const tipoEventoGatilho: string | null = eventoGatilho?.tipo_evento ?? null;
+        const ctaLink = resolveCtaLink({
+          eventoCheckoutUrl: eventoGatilho?.checkout_url ?? null,
+          leadLinkRecuperacao: lead.link_recuperacao,
+          brandLink: brand.link,
+          fallback: "#",
+        });
         // Mesmos 4 placeholders do e-mail (consistência entre canais do mesmo fluxo).
         const message = String(wm?.corpo_texto || wm?.titulo || "")
           .split("{{cta_link}}").join(ctaLink)
@@ -609,6 +614,22 @@ Deno.serve(async (req: Request) => {
         const buttons = hasReply && hasAction
           ? buttonActions.filter((x) => x.type !== "REPLY")
           : buttonActions;
+
+        // CTA sem destino: não enviar (mesma regra do e-mail). Fica ANTES do bloco
+        // Z-API porque o reserveOne deste canal (abaixo) está depois de uma chamada
+        // de rede (phone-exists) e dentro do if de credenciais — pular aqui evita
+        // gastar rede num passo que não vai sair, e funciona mesmo sem credencial.
+        // `botoesUsamCta`: o botão de URL sem url própria usa {{cta_link}} por
+        // default, então o corpo pode não ter o placeholder e ainda assim depender dele.
+        if (gateLigado && devePularPorFaltaDeLink({
+          usaCta: corpoUsaCta(wm?.corpo_texto) || botoesUsamCta(wm?.botoes),
+          tipoEventoGatilho,
+          linkResolvido: ctaLink,
+        })) {
+          await finalize(s.id, curAttempts + 1, PULADO_SEM_LINK);
+          skipped++; processed++;
+          continue;
+        }
 
         let ok = false, msgId: string | null = null, errDetail: string | null = null;
         let semWhatsapp = false; // número não existe no WhatsApp → falha DEFINITIVA (sem retry)
