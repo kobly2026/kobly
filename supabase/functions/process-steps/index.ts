@@ -44,13 +44,13 @@ async function signUnsubToken(secret: string, orgId: string, email: string, nowM
 
 // Inlinado de _shared/cta.ts (per-function deploy não empacota ../_shared/).
 // Manter semanticamente idêntico ao módulo — os testes vivem em _shared/cta_test.ts.
-// Nesta etapa nada aqui é chamado ainda (o gate só passa a decidir o destino do
-// botão e pular passos numa task seguinte) — os deno-lint-ignore pontuais abaixo
-// evitam call-sites fictícios só para calar o linter; remover quando plugados.
+// Canal e-mail já usa este bloco (resolveCtaLink no destino do botão, o gate via
+// devePularPorFaltaDeLink/PULADO_SEM_LINK). botoesUsamCta ainda não tem call-site
+// — entra no canal WhatsApp (task seguinte) — por isso mantém o deno-lint-ignore
+// só nele; os demais foram removidos.
 const EVENTOS_RECUPERACAO: ReadonlySet<string> = new Set([
   "Abandono de carrinho", "Pix Gerado", "Boleto Gerado", "Depósito Solicitado", "Compra Recusada",
 ]);
-// deno-lint-ignore no-unused-vars
 const PULADO_SEM_LINK = "pulado: sem link de recuperação";
 function isUsableCtaLink(v: unknown): boolean {
   if (typeof v !== "string") return false;
@@ -58,7 +58,6 @@ function isUsableCtaLink(v: unknown): boolean {
   if (!/^https?:\/\//i.test(s)) return false;
   try { return !!new URL(s).hostname; } catch { return false; }
 }
-// deno-lint-ignore no-unused-vars
 function corpoUsaCta(corpo: string | null | undefined): boolean {
   return typeof corpo === "string" && corpo.includes("{{cta_link}}");
 }
@@ -71,7 +70,6 @@ function botoesUsamCta(botoes: unknown): boolean {
     return String(b?.url || "{{cta_link}}").includes("{{cta_link}}");
   });
 }
-// deno-lint-ignore no-unused-vars
 function resolveCtaLink(a: {
   eventoCheckoutUrl?: string | null; leadLinkRecuperacao?: string | null;
   brandLink?: string | null; fallback: string;
@@ -81,7 +79,6 @@ function resolveCtaLink(a: {
   if (isUsableCtaLink(a.brandLink)) return String(a.brandLink).trim();
   return a.fallback;
 }
-// deno-lint-ignore no-unused-vars
 function devePularPorFaltaDeLink(a: {
   usaCta: boolean; tipoEventoGatilho: string | null; linkResolvido: string;
 }): boolean {
@@ -166,7 +163,6 @@ Deno.serve(async (req: Request) => {
   // `data` vem `null`, `gateLigado` fica `false`, e o comportamento é idêntico ao
   // de hoje (envia normalmente) — falha aqui nunca pode virar bloqueio de envio.
   const { data: gateFlag } = await sb.rpc("get_secret", { p_name: "cta_gate_enabled" });
-  // deno-lint-ignore no-unused-vars
   const gateLigado = String(gateFlag ?? "").trim().toLowerCase() === "true";
   const baseUrl = Deno.env.get("SUPABASE_URL")!;
   const replyCache = new Map<string, string | null>();
@@ -391,8 +387,19 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const brand = await resolveBrand(s.organization_id, brandIdOf(s));
-        // Resolve o destino do botão: link do lead (do postback) > URL da loja (org) > '#'.
-        const ctaLink = lead.link_recuperacao || brand.link || "#";
+        // Destino do botão: link do EVENTO gatilho (imutável, daquela transação) >
+        // link do lead (só para passo sem webhook_event_id) > URL da loja > '#'.
+        // A ordem antiga começava pelo lead, que é pegajoso: comprador recorrente
+        // recebia o checkout da compra anterior — parece funcionar e leva a um Pix
+        // já pago ou expirado.
+        const eventoGatilho = s.webhook_events ?? null;
+        const tipoEventoGatilho: string | null = eventoGatilho?.tipo_evento ?? null;
+        const ctaLink = resolveCtaLink({
+          eventoCheckoutUrl: eventoGatilho?.checkout_url ?? null,
+          leadLinkRecuperacao: lead.link_recuperacao,
+          brandLink: brand.link,
+          fallback: "#",
+        });
         // Placeholders do e-mail de fluxo: {{cta_link}} (link de recuperação/loja), {{nome}},
         // {{produto}} (fallback neutro p/ checkout multi-produto sob o mesmo token) e {{valor}}
         // (moeda BRL via formatBRL — nunca deixa o literal chegar cru na caixa do comprador).
@@ -434,6 +441,20 @@ Deno.serve(async (req: Request) => {
         }
         if (suppressed) {
           await finalize(s.id, curAttempts + 1, "pulado: destinatário descadastrado");
+          skipped++; processed++;
+          continue;
+        }
+        // CTA sem destino: não enviar. Um e-mail que promete "finalizar seu Pix" e
+        // leva para `#` ou para a home queima reputação e frustra o comprador —
+        // pior que não mandar. Antes do reserveOne de propósito: passo pulado não
+        // pode custar cota. Só vale para evento de recuperação transacional; e-mail
+        // não-transacional segue com o fallback de sempre.
+        if (gateLigado && devePularPorFaltaDeLink({
+          usaCta: corpoUsaCta(em.corpo_html),
+          tipoEventoGatilho,
+          linkResolvido: ctaLink,
+        })) {
+          await finalize(s.id, curAttempts + 1, PULADO_SEM_LINK);
           skipped++; processed++;
           continue;
         }
