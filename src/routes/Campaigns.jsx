@@ -75,17 +75,18 @@ function NewCampaign({ templates, brands, onPick, onGenerate, onCancel }) {
         Crie uma campanha de recuperação: descreva o objetivo e deixe a IA montar a cadência, ou comece por um modelo.
       </PageHeader>
 
-      {/* MARCA-1: marca/produto da campanha — define a identidade (logo/cor/link) dos
-          e-mails. Aparece só quando a conta tem marcas cadastradas. */}
+      {/* Identidade da campanha — logo/cor dos e-mails (não é o HTML da mensagem). */}
       {brandList.length > 0 && (
-        <div style={{ maxWidth: 460 }}>
+        <div style={{ maxWidth: 460, background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16 }}>
           <Select
-            label="Marca / produto"
+            label="Identidade desta campanha"
             value={brandId}
             onChange={(e) => setBrandId(e.target.value)}
-            options={[{ value: '', label: 'Marca padrão' }, ...brandList.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
+            options={[{ value: '', label: brandList[0] ? `Padrão (${brandList[0].nome || '1ª marca'})` : 'Marca padrão' }, ...brandList.map((b) => ({ value: b.id, label: b.nome || 'Sem nome' }))]}
           />
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>Aplica-se à campanha gerada pela IA e à criação manual. Você pode trocar depois no construtor de fluxo.</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.45 }}>
+            Logo e cor nos e-mails gerados. O <b>conteúdo</b> (assunto/HTML) você cria no fluxo, no card <b>Envio de e-mail</b>. Pode trocar a marca depois no construtor.
+          </div>
         </div>
       )}
 
