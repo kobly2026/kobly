@@ -328,7 +328,16 @@ function extractRecoveryLink(payload: any): string | null {
     }
   };
   walk(payload);
-  return best ? best.url : null;
+  // Valida antes de devolver: o `consider` acima só exige que a string comece com
+  // http, então uma chave com nome plausível e valor lixo ("https://") passaria e
+  // seria gravada como link de recuperação. Link inválido é PIOR que ausente —
+  // atravessa o gate do process-steps e vira botão quebrado na caixa do comprador.
+  if (!best) return null;
+  try {
+    return new URL(best.url).hostname ? best.url : null;
+  } catch {
+    return null;
+  }
 }
 
 // Extrai os campos-chave que tornam uma linha de dead-letter truncada ainda
