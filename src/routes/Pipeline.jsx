@@ -24,6 +24,21 @@ const STAGES = [
   { key: 'recuperado', label: 'Recuperado', icon: 'circle-check', tone: 'success' },
 ];
 
+// Períodos de entrada do lead (created_at) — server-side via p_since.
+const PERIODS = [
+  { value: '', label: 'Todo o período' },
+  { value: '7d', label: 'Últimos 7 dias' },
+  { value: '30d', label: 'Últimos 30 dias' },
+  { value: '90d', label: 'Últimos 90 dias' },
+];
+
+function sinceFromPeriod(period) {
+  if (!period) return null;
+  const days = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 0;
+  if (!days) return null;
+  return new Date(Date.now() - days * 864e5).toISOString();
+}
+
 const toneFg = (t) => (t === 'accent' ? 'var(--accent)' : `var(--status-${t}-fg)`);
 const toneBg = (t) => (t === 'accent' ? 'var(--accent-soft)' : `var(--status-${t}-bg)`);
 
@@ -132,12 +147,16 @@ const emptyCols = () => Object.fromEntries(STAGES.map((s) => [s.key, { rows: [],
 function KoblyPipeline() {
   const store = useKobly();
   const isGestor = store.role === 'Gestor';
+  const DB = KoblyMockDB;
   const clients = useAsync(() => (isGestor ? KoblyApi.listClients() : Promise.resolve([])), [store.role]);
   const tagsA = useAsync(() => KoblyApi.getTags(), []);
   const [view, setView] = useState('kanban');
   const [contaId, setContaId] = useState('');
   const [q, setQ] = useState('');
   const [qDeb, setQDeb] = useState('');
+  const [evt, setEvt] = useState('');         // último evento de checkout
+  const [tagId, setTagId] = useState('');     // tag aplicada
+  const [period, setPeriod] = useState('');   // 7d | 30d | 90d
   const [sel, setSel] = useState(null);
   const [counts, setCounts] = useState(null); // { stage: { total, valor } }
   const [cols, setCols] = useState(emptyCols);
@@ -151,11 +170,30 @@ function KoblyPipeline() {
 
   const orgScope = isGestor ? (contaId || null) : (store.session.empresaId || null);
   const tagNames = useMemo(() => Object.fromEntries((tagsA.data || []).map((t) => [t.id, t.nome])), [tagsA.data]);
+  const eventosPresentes = useMemo(() => Object.keys(DB.eventTone || {}), [DB]);
+  const since = useMemo(() => sinceFromPeriod(period), [period]);
+  const filterKey = useMemo(
+    () => JSON.stringify({ orgScope, qDeb, evt, tagId, since }),
+    [orgScope, qDeb, evt, tagId, since],
+  );
+  const hasFilters = !!(q.trim() || evt || tagId || period || (isGestor && contaId));
+
+  const filterArgs = useMemo(() => ({
+    empresaId: orgScope,
+    search: qDeb || null,
+    evento: evt || null,
+    tagId: tagId || null,
+    since: since || null,
+  }), [orgScope, qDeb, evt, tagId, since]);
+
+  const clearFilters = () => {
+    setQ(''); setQDeb(''); setEvt(''); setTagId(''); setPeriod(''); setContaId('');
+  };
 
   const loadStage = useCallback(async (stage, offset) => {
     setCols((c) => ({ ...c, [stage]: { ...c[stage], loading: true, error: null } }));
     try {
-      const { rows } = await KoblyApi.getLeadsPage({ empresaId: orgScope, stage, search: qDeb, limit: PAGE, offset });
+      const { rows } = await KoblyApi.getLeadsPage({ ...filterArgs, stage, limit: PAGE, offset });
       setCols((c) => ({
         ...c,
         [stage]: { rows: offset === 0 ? rows : [...c[stage].rows, ...rows], loading: false, error: null },
@@ -163,30 +201,24 @@ function KoblyPipeline() {
     } catch (e) {
       setCols((c) => ({ ...c, [stage]: { ...c[stage], loading: false, error: e.message } }));
     }
-  }, [orgScope, qDeb]);
+  }, [filterArgs]);
 
   const loadAll = useCallback(async () => {
     setFatal(null);
     setCols(emptyCols());
     try {
-      // Com busca ativa, as contagens do header passam a refletir o filtro
-      // (derivadas das páginas não dá — usamos o total_count do RPC por estágio).
+      // Contagens + valor por coluna já respeitam search/evento/tag/período no RPC.
       const [cts] = await Promise.all([
-        qDeb
-          ? Promise.all(STAGES.map(async (s) => {
-              const { total } = await KoblyApi.getLeadsPage({ empresaId: orgScope, stage: s.key, search: qDeb, limit: 1, offset: 0 });
-              return [s.key, { total, valor: 0 }];
-            })).then(Object.fromEntries)
-          : KoblyApi.getPipelineCounts(orgScope),
+        KoblyApi.getPipelineCounts(filterArgs),
         ...STAGES.map((s) => loadStage(s.key, 0)),
       ]);
       setCounts(cts);
     } catch (e) {
       setFatal(e.message);
     }
-  }, [orgScope, qDeb, loadStage]);
+  }, [filterArgs, loadStage]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { loadAll(); }, [loadAll, filterKey]);
 
   if (fatal) return <ErrorState message={fatal} onRetry={loadAll} />;
 
@@ -253,23 +285,53 @@ function KoblyPipeline() {
         Pipeline de recuperação — cada lead avança de coluna conforme a jornada real (evento → e-mail → abriu → clicou → recuperado).
       </PageIntro>
 
-      <div className="kbly-toolbar" style={{ gap: 10 }}>
-        <div style={{ flex: '1 1 260px', maxWidth: 380, minWidth: 0 }}>
-          <Input icon="search" placeholder="Buscar no pipeline (nome, e-mail, produto)…" value={q} onChange={(e) => setQ(e.target.value)} />
+      {/* Barra de filtros — espelha Leads (conta/evento) + tag + período (contexto de pipeline). */}
+      <div className="kbly-toolbar" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}>
+          <Input icon="search" placeholder="Buscar (nome, e-mail, produto)…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {isGestor && (
           <Select
             value={contaId}
             onChange={(e) => setContaId(e.target.value)}
             options={[{ value: '', label: 'Todas as contas' }, ...((clients.data || []).map((c) => ({ value: c.id, label: c.nome })))]}
-            style={{ minWidth: 200 }}
+            style={{ minWidth: 180 }}
           />
         )}
-        {q && (
-          <button onClick={() => setQ('')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-sm)', fontFamily: 'var(--font-sans)', padding: '8px 4px' }}>
-            Limpar busca
+        <Select
+          value={evt}
+          onChange={(e) => setEvt(e.target.value)}
+          options={[{ value: '', label: 'Todos os eventos' }, ...eventosPresentes.map((x) => ({ value: x, label: x }))]}
+          style={{ minWidth: 170 }}
+        />
+        <Select
+          value={tagId}
+          onChange={(e) => setTagId(e.target.value)}
+          options={[
+            { value: '', label: 'Todas as tags' },
+            ...((tagsA.data || []).map((t) => ({ value: t.id, label: t.nome }))),
+          ]}
+          style={{ minWidth: 150 }}
+        />
+        <Select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          options={PERIODS}
+          style={{ minWidth: 150 }}
+        />
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-sm)', fontFamily: 'var(--font-sans)', padding: '8px 4px', whiteSpace: 'nowrap' }}
+          >
+            Limpar filtros
           </button>
+        )}
+        {counts && (
+          <span className="kbly-num" style={{ marginInlineStart: 'auto', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {KoblyApi.br(totalLeads || 0)} {(totalLeads || 0) === 1 ? 'lead' : 'leads'}
+          </span>
         )}
       </div>
 
@@ -278,12 +340,12 @@ function KoblyPipeline() {
       ) : totalLeads === 0 ? (
         <EmptyState
           icon="kanban"
-          title={qDeb ? 'Nada encontrado no pipeline' : 'Nenhum lead no pipeline ainda'}
-          message={qDeb ? 'Ajuste a busca — nomes, e-mails e produtos contam.' : 'Eles entram aqui quando um evento de checkout chega.'}
+          title={hasFilters ? 'Nada encontrado no pipeline' : 'Nenhum lead no pipeline ainda'}
+          message={hasFilters ? 'Ajuste ou limpe os filtros — busca, evento, tag e período contam.' : 'Eles entram aqui quando um evento de checkout chega.'}
         />
       ) : (
         <>
-          {!qDeb && <SummaryStrip counts={counts} />}
+          <SummaryStrip counts={counts} />
 
           {view === 'kanban' ? (
             <div style={{ display: 'flex', gap: 14, overflowX: 'auto', scrollSnapType: isMobile ? 'x mandatory' : undefined, paddingBottom: 8, alignItems: 'stretch' }}>
