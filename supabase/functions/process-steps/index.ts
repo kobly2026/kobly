@@ -42,6 +42,54 @@ async function signUnsubToken(secret: string, orgId: string, email: string, nowM
   return `${b64url(new TextEncoder().encode(payload))}.${b64url(await _hmac(secret, payload))}`;
 }
 
+// Inlinado de _shared/cta.ts (per-function deploy não empacota ../_shared/).
+// Manter semanticamente idêntico ao módulo — os testes vivem em _shared/cta_test.ts.
+// Nesta etapa nada aqui é chamado ainda (o gate só passa a decidir o destino do
+// botão e pular passos numa task seguinte) — os deno-lint-ignore pontuais abaixo
+// evitam call-sites fictícios só para calar o linter; remover quando plugados.
+const EVENTOS_RECUPERACAO: ReadonlySet<string> = new Set([
+  "Abandono de carrinho", "Pix Gerado", "Boleto Gerado", "Depósito Solicitado", "Compra Recusada",
+]);
+// deno-lint-ignore no-unused-vars
+const PULADO_SEM_LINK = "pulado: sem link de recuperação";
+function isUsableCtaLink(v: unknown): boolean {
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (!/^https?:\/\//i.test(s)) return false;
+  try { return !!new URL(s).hostname; } catch { return false; }
+}
+// deno-lint-ignore no-unused-vars
+function corpoUsaCta(corpo: string | null | undefined): boolean {
+  return typeof corpo === "string" && corpo.includes("{{cta_link}}");
+}
+// deno-lint-ignore no-unused-vars
+function botoesUsamCta(botoes: unknown): boolean {
+  if (!Array.isArray(botoes)) return false;
+  return botoes.slice(0, 3).some((b: Record<string, unknown> | null) => {
+    const type = String(b?.type || "URL").toUpperCase();
+    if (type !== "URL") return false;
+    return String(b?.url || "{{cta_link}}").includes("{{cta_link}}");
+  });
+}
+// deno-lint-ignore no-unused-vars
+function resolveCtaLink(a: {
+  eventoCheckoutUrl?: string | null; leadLinkRecuperacao?: string | null;
+  brandLink?: string | null; fallback: string;
+}): string {
+  if (isUsableCtaLink(a.eventoCheckoutUrl)) return String(a.eventoCheckoutUrl).trim();
+  if (isUsableCtaLink(a.leadLinkRecuperacao)) return String(a.leadLinkRecuperacao).trim();
+  if (isUsableCtaLink(a.brandLink)) return String(a.brandLink).trim();
+  return a.fallback;
+}
+// deno-lint-ignore no-unused-vars
+function devePularPorFaltaDeLink(a: {
+  usaCta: boolean; tipoEventoGatilho: string | null; linkResolvido: string;
+}): boolean {
+  if (!a.usaCta) return false;
+  if (!a.tipoEventoGatilho || !EVENTOS_RECUPERACAO.has(a.tipoEventoGatilho)) return false;
+  return !isUsableCtaLink(a.linkResolvido);
+}
+
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -110,6 +158,16 @@ Deno.serve(async (req: Request) => {
 
   const { data: apiKey } = await sb.rpc("get_secret", { p_name: "resend_api_key" });
   const { data: unsubSecret } = await sb.rpc("get_secret", { p_name: "unsubscribe_secret" });
+  // Gate de CTA sem link: DESLIGADO por padrão (secret ausente ou != "true").
+  // Ligado só depois que o postback voltar a trazer o link de checkout — antes
+  // disso ele pularia em massa os passos de recuperação de Pix. Ler aqui (uma vez
+  // por tick) e não por step, para não multiplicar decrypt no Postgres.
+  // Erro na RPC (`error` descartado de propósito) também cai no gate DESLIGADO:
+  // `data` vem `null`, `gateLigado` fica `false`, e o comportamento é idêntico ao
+  // de hoje (envia normalmente) — falha aqui nunca pode virar bloqueio de envio.
+  const { data: gateFlag } = await sb.rpc("get_secret", { p_name: "cta_gate_enabled" });
+  // deno-lint-ignore no-unused-vars
+  const gateLigado = String(gateFlag ?? "").trim().toLowerCase() === "true";
   const baseUrl = Deno.env.get("SUPABASE_URL")!;
   const replyCache = new Map<string, string | null>();
   const resolveReplyTo = async (org: string): Promise<string | null> => {
