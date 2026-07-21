@@ -133,3 +133,126 @@ Deno.test("devePularPorFaltaDeLink: sem evento gatilho, nao pula (fail-open)", (
     false,
   );
 });
+
+// ── Teste anti-drift: bloco inline em process-steps/index.ts vs este módulo ──
+//
+// Por quê: nenhuma edge function deployada importa _shared/cta.ts — o deploy é
+// por função e não empacota ../_shared/, então process-steps/index.ts carrega uma
+// CÓPIA inline da lógica (bloco que começa no comentário "// Inlinado de
+// _shared/cta.ts"). Os 12 testes acima só exercitam ESTE módulo. Se alguém editar
+// só um dos dois lados, esses testes continuam verdes atestando um comportamento
+// que não é o que roda em produção.
+//
+// Abordagem escolhida: (a) comparação TEXTUAL — extrai o corpo de cada
+// função/constante de ambos os arquivos por nome (varredura de chaves
+// balanceadas, não regex ingênua, para lidar com os tipos de parâmetro
+// multilinha de resolveCtaLink/devePularPorFaltaDeLink) e compara após
+// normalizar espaço em branco. NÃO usei (b) (materializar o bloco inline como
+// módulo importável via Deno.makeTempFile + import dinâmico e rodar a mesma
+// matriz de entradas): validado que Deno.test não pode escalar permissão além
+// da concedida ao processo pai ("NotCapable: Can't escalate parent thread
+// permissions" — testado localmente), então (b) obrigaria rodar ESTE arquivo
+// inteiro com `--allow-read --allow-write`, além de executar como código texto
+// extraído de outro arquivo (superfície que um teste deveria evitar). (a) só
+// precisa de --allow-read (ler process-steps/index.ts como texto), não executa
+// nada extraído, e é determinística. Trade-off aceito conscientemente: duas
+// implementações textualmente idênticas após normalizar espaço em branco são
+// necessariamente idênticas em comportamento (mesmos operadores, identificadores,
+// literais, estrutura) — qualquer mudança de LÓGICA sobra no texto normalizado e
+// é pega; o que (a) NÃO pega é diferença de comentário DENTRO do corpo da função
+// (nenhuma das duas cópias tem, hoje) ou reordenação de código sem efeito
+// observável (nenhuma das cinco funções tem trechos comutativos hoje).
+function extractBalanced(src: string, openIdx: number, open: string, close: string): number {
+  let depth = 0;
+  for (let i = openIdx; i < src.length; i++) {
+    if (src[i] === open) depth++;
+    else if (src[i] === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  throw new Error(`'${open}' no offset ${openIdx} nunca fecha (arquivo truncado ou malformado?)`);
+}
+
+// Extrai "function NOME(...) { ... }" com chaves balanceadas — não usa regex
+// gulosa porque resolveCtaLink/devePularPorFaltaDeLink têm tipo de parâmetro
+// multilinha com "{" próprio (o `{` do TIPO do parâmetro não é o `{` do corpo).
+function extractFunctionSrc(src: string, name: string, label: string): string {
+  const sig = new RegExp(`function\\s+${name}\\s*\\(`).exec(src);
+  if (!sig) {
+    throw new Error(
+      `função '${name}' não encontrada em ${label} — ` +
+        `o bloco inline em process-steps divergiu de _shared/cta.ts — sincronize as duas cópias.`,
+    );
+  }
+  const parenOpen = src.indexOf("(", sig.index);
+  const parenClose = extractBalanced(src, parenOpen, "(", ")"); // pula o tipo do parâmetro inteiro, mesmo com "{" dentro
+  const bodyOpen = src.indexOf("{", parenClose);
+  if (bodyOpen === -1) throw new Error(`corpo de '${name}' não encontrado em ${label}.`);
+  const bodyClose = extractBalanced(src, bodyOpen, "{", "}");
+  return src.slice(sig.index, bodyClose + 1);
+}
+
+function extractConstSrc(src: string, name: string, label: string): string {
+  const m = new RegExp(`(?:export\\s+)?const\\s+${name}\\b[\\s\\S]*?;`).exec(src);
+  if (!m) {
+    throw new Error(
+      `constante '${name}' não encontrada em ${label} — ` +
+        `o bloco inline em process-steps divergiu de _shared/cta.ts — sincronize as duas cópias.`,
+    );
+  }
+  return m[0];
+}
+
+// Normaliza só espaço em branco (e o "export " que só o módulo tem — a cópia
+// inline nunca exporta, isso é esperado, não é drift). Não mexe em identificadores,
+// operadores nem literais: mudança de lógica sobrevive à normalização e quebra o teste.
+function normalizeSnippet(s: string): string {
+  return s.replace(/^export\s+/, "").replace(/\s+/g, " ").trim();
+}
+
+Deno.test("anti-drift: bloco inline em process-steps/index.ts bate com _shared/cta.ts", async () => {
+  const moduleSrc = await Deno.readTextFile(new URL("./cta.ts", import.meta.url));
+  const inlineFullSrc = await Deno.readTextFile(new URL("../process-steps/index.ts", import.meta.url));
+
+  const MARKER = "// Inlinado de _shared/cta.ts";
+  const markerIdx = inlineFullSrc.indexOf(MARKER);
+  if (markerIdx === -1) {
+    throw new Error(
+      `marcador '${MARKER}' não encontrado em process-steps/index.ts — o bloco inline de CTA ` +
+        `sumiu ou o comentário-âncora mudou. Se a lógica ainda está lá, restaure o comentário; ` +
+        `se foi removida de propósito (ex.: process-steps passou a importar _shared/cta.ts ` +
+        `direto), apague este teste anti-drift junto.`,
+    );
+  }
+  const inlineSrc = inlineFullSrc.slice(markerIdx);
+
+  const CONST_NAMES = ["EVENTOS_RECUPERACAO", "PULADO_SEM_LINK"];
+  const FN_NAMES = [
+    "isUsableCtaLink",
+    "corpoUsaCta",
+    "botoesUsamCta",
+    "resolveCtaLink",
+    "devePularPorFaltaDeLink",
+  ];
+
+  for (const name of CONST_NAMES) {
+    const fromModule = normalizeSnippet(extractConstSrc(moduleSrc, name, "_shared/cta.ts"));
+    const fromInline = normalizeSnippet(extractConstSrc(inlineSrc, name, "process-steps/index.ts (bloco inline)"));
+    assertEquals(
+      fromInline,
+      fromModule,
+      `constante '${name}': o bloco inline em process-steps divergiu de _shared/cta.ts — sincronize as duas cópias.`,
+    );
+  }
+
+  for (const name of FN_NAMES) {
+    const fromModule = normalizeSnippet(extractFunctionSrc(moduleSrc, name, "_shared/cta.ts"));
+    const fromInline = normalizeSnippet(extractFunctionSrc(inlineSrc, name, "process-steps/index.ts (bloco inline)"));
+    assertEquals(
+      fromInline,
+      fromModule,
+      `função '${name}': o bloco inline em process-steps divergiu de _shared/cta.ts — sincronize as duas cópias.`,
+    );
+  }
+});

@@ -329,9 +329,11 @@ function extractRecoveryLink(payload: any): string | null {
   };
   walk(payload);
   // Valida antes de devolver: o `consider` acima só exige que a string comece com
-  // http, então uma chave com nome plausível e valor lixo ("https://") passaria e
-  // seria gravada como link de recuperação. Link inválido é PIOR que ausente —
-  // atravessa o gate do process-steps e vira botão quebrado na caixa do comprador.
+  // http, então uma chave com nome plausível e valor lixo ("https://a b", por exemplo
+  // — passa no URL_RE porque \S+ casa com "a", mas o espaço no host faz o new URL()
+  // abaixo lançar) passaria e seria gravada como link de recuperação. Link inválido é
+  // PIOR que ausente — atravessa o gate do process-steps e vira botão quebrado na
+  // caixa do comprador.
   if (!best) return null;
   try {
     return new URL(best.url).hostname ? best.url : null;
