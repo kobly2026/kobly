@@ -184,8 +184,14 @@ Deno.serve(async (req: Request) => {
 
   // MARCA-1: inclui campaigns.brand_id na cadeia para resolver a marca da campanha
   // (flow_steps → campaign_flows → campaigns.brand_id). NULL = marca padrão da org.
+  // CTA-1: webhook_events é a fonte IMUTÁVEL do evento que originou este passo.
+  // `leads.ultimo_evento` NÃO serve: é sobrescrito por qualquer postback posterior
+  // do mesmo e-mail e divergia do gatilho em 17 de 42 passos (40%) em 21/07 —
+  // um passo de Pix cujo lead virou "Compra Aprovada" seria classificado como
+  // terminal e escaparia do gate. `checkout_url` idem: o do evento é o daquela
+  // transação, o do lead é pegajoso (nunca limpo).
   const { data: due, error } = await sb.from("scheduled_steps")
-    .select("id, organization_id, lead_id, attempts, last_error, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao, produto, valor_compra)")
+    .select("id, organization_id, lead_id, webhook_event_id, attempts, last_error, created_at, flow_steps(id, tipo_card, email_id, whatsapp_message_id, sms_message_id, flow_id, condicao, campaign_flows!flow_id(campaign_id, campaigns(brand_id))), leads(id, email, nome, telefone, link_recuperacao, produto, valor_compra), webhook_events(tipo_evento, checkout_url)")
     .in("status_agendamento", ["Iniciado", "Em andamento"])
     .lte("run_at", new Date().toISOString())
     .limit(100);
