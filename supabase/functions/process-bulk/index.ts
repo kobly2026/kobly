@@ -1,6 +1,6 @@
 // Kobly — Edge Function `process-bulk` (worker do disparo em massa).
 // Drena bulk_send_recipients 'pendente' (run_at<=now) de cabeçalhos 'enviando',
-// envia pelo canal (Resend / Z-API / Twilio) e concilia os contadores. Separado
+// envia pelo canal (Resend / Z-API / GTI SMS) e concilia os contadores. Separado
 // do process-steps (recuperação) para não disputar o mesmo orçamento por minuto.
 // verify_jwt=false (chamada por pg_cron, mesma rota da 0015).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";

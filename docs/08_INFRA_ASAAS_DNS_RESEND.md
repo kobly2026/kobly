@@ -16,7 +16,16 @@
 -- Nomes esperados pela edge function `asaas`:
 --   asaas_api_key  = chave da API
 --   asaas_env      = 'sandbox' | 'production'  (default: sandbox)
+--
+-- E pela function `asaas-webhook` (ver §1.4):
+--   asaas_webhook_token = shared secret do header `asaas-access-token`
 ```
+
+> **Vault, não "Edge Functions → Secrets".** São dois cofres diferentes no mesmo
+> dashboard. Todas as integrações deste projeto leem via a RPC `get_secret()`, que
+> consulta o **Vault** (`Integrations → Vault`). Valor colado em *Edge Functions →
+> Secrets* vira variável de ambiente, fica salvo e válido, e é **invisível** para as
+> functions — nenhuma delas usa `Deno.env.get()` para credencial.
 
 4. Deploy da function:
 ```bash
@@ -47,8 +56,25 @@ supabase functions deploy asaas
 
 ### 1.3 Produção
 1. Conta real em [https://www.asaas.com](https://www.asaas.com).
-2. Trocar Vault: `asaas_api_key` (prod) + `asaas_env=production`.
-3. Webhook de pagamento (opcional, futuro): URL da function + eventos `PAYMENT_RECEIVED`.
+2. Trocar Vault: `asaas_api_key` (prod, prefixo `aact_prod_`) **e** `asaas_env=production`.
+   As duas juntas: a chave de homologação (`aact_hmlg_`) só autentica contra
+   `sandbox.asaas.com`, então trocar só uma das pontas dá 401.
+3. Exigir o `asaas_webhook_token` (§1.4) antes de aceitar pagamento real.
+
+### 1.4 Webhook de pagamento — autenticação obrigatória
+- `asaas-webhook` roda com `verify_jwt = false` (é webhook, o Asaas não manda JWT), então
+  a autenticação é o header **`asaas-access-token`** comparado com a secret Vault
+  `asaas_webhook_token` via `safeEqual`.
+- **Atenção ao fail-open:** o teste é `if (expectedToken)`. Com a secret **ausente**, a
+  function segue sem exigir header nenhum — e aí qualquer POST na URL pública forja um
+  `PAYMENT_RECEIVED` e marca plano como pago. A secret existir não é detalhe de conforto:
+  é o que fecha a porta.
+- O **mesmo valor** vai nos dois lados: Vault + campo de token no painel do Asaas
+  (Integrações → Webhooks). Se divergirem, o Asaas toma 401 e o pagamento acontece sem
+  que o plano seja marcado — falha silenciosa do lado do cliente.
+- Gerar: `openssl rand -hex 32` (hex, não base64 — `+`, `/` e `=` atrapalham em header HTTP).
+- Verificar que está fechado: `POST` sem header na URL da function deve devolver
+  `401 {"error":"unauthorized"}`.
 
 ---
 
@@ -128,22 +154,30 @@ supabase functions deploy process-steps
 
 ---
 
-## 5. SMS (Twilio)
+## 5. SMS (GTI SMS)
+
+> Substituiu o Twilio em jul/2026. As secrets `twilio_*` foram **removidas do Vault** e
+> nenhuma function as lê — não recadastre. O par SID/Auth Token e o `twilio_from` não têm
+> equivalente aqui: a GTI autentica por um único Bearer e o remetente é da conta dela.
 
 ### 5.1 Secrets (Vault)
 | Vault key | Exemplo |
 |-----------|---------|
-| `twilio_account_sid` | `AC...` (Account SID — path da API) |
-| `twilio_auth_token` | Auth Token **ou** Secret da API Key |
-| `twilio_from` | número E.164 (`+15005550006`) **ou** Messaging Service SID (`MG...`) |
-| `twilio_api_key_sid` | opcional `SK...` — se presente, Basic auth = `SK:secret`; senão `AC:auth_token` |
+| `gti_sms_token` | token da API v3, formato `404\|xxxxx` — enviado como `Authorization: Bearer` |
 
 ### 5.2 O que o app faz
-- Edge function `send-sms`: envio de teste (form-urlencoded + Basic auth Twilio).
+- Edge function `send-sms`: envio de teste (JSON + Bearer, `POST https://sms.gtisms.com/api/v3/sms/send`).
 - `process-steps` ganhou o card **Envio de SMS** no fluxo (`flow_steps.sms_message_id`).
 - UI: **Integrações → SMS** (templates + teste) e card SMS no FlowBuilder.
 - Métrica separada: `campaign_stats.sms_enviados`; eventos em `email_events` com `channel='sms'`.
-- Atenção PT-BR: acentos usam UCS-2 (70/67 chars por segmento) — o editor mostra a contagem.
+- Número vai **sem `+`** (`5511988887777`); o Twilio exigia o prefixo, a GTI não aceita.
+- Atenção PT-BR: a GTI só aceita **GSM-7** e rejeita acento/emoji, então o corpo passa por
+  `toGsm7` antes de sair (inlinado em `send-sms`, `process-steps` e `process-bulk` — deploy
+  por função não empacota `../_shared/`). Por isso a contagem é sempre 160/153: não existe
+  mais o caso UCS-2 (70/67) do Twilio. O editor mostra o texto **como sai**, já transliterado.
+- Resultado é lido **fail-closed**: exige HTTP ok **e** `status === "success"`, porque a GTI
+  pode responder 200 com erro no corpo. O `500 "Unauthenticated."` (token inválido) não é 4xx,
+  então é tratado como retentável — se o SMS parar de sair sem erro fatal, suspeite do token.
 
 ### 5.3 Deploy
 ```bash
