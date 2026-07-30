@@ -34,7 +34,7 @@ function extractEmail(s: string | null): string | null {
   return (m ? m[1] : String(s)).trim() || null;
 }
 function fromNameSafe(n: string | null | undefined): string {
-  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "Koblay";
+  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "KOBLY";
 }
 function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
@@ -100,6 +100,23 @@ Deno.serve(async (req: Request) => {
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
   // GTI SMS (canal SMS). Sem parâmetro de remetente: o sender é da conta GTI.
   const { data: gtiToken } = await sb.rpc("get_secret", { p_name: "gti_sms_token" });
+
+  // Capacidade "SMS" do plano (0061), memoizada como senderCache: um blast toca uma
+  // org e centenas de linhas, então cachear evita uma RPC por destinatário.
+  // FAIL-CLOSED: erro na consulta nega — o risco aqui é entregar canal que o cliente
+  // não paga, e o bulk-send já barrou na criação (isto cobre downgrade no meio do
+  // blast e cabeçalhos anteriores à migration).
+  const smsGateCache = new Map<string, boolean>();
+  const orgPodeSms = async (orgId: string): Promise<boolean> => {
+    if (!orgId) return false;
+    const memo = smsGateCache.get(orgId);
+    if (memo !== undefined) return memo;
+    const { data, error } = await sb.rpc("org_pode", { p_org: orgId, p_recurso: "sms" });
+    if (error) console.error("process-bulk: org_pode(sms) falhou, fail-closed", orgId, error);
+    const pode = !error && data === true;
+    smsGateCache.set(orgId, pode);
+    return pode;
+  };
 
   // 0) Recicla linhas 'processando' presas (crash de tick anterior): ao reivindicar,
   //    empurramos run_at p/ +3min; se ainda estão 'processando' com run_at vencido, o
@@ -229,7 +246,7 @@ Deno.serve(async (req: Request) => {
       else if (!resendKey) { errDetail = "resend_api_key ausente"; }
       else {
         let html = subst(tpl.corpo_html || "<p></p>", lead);
-        const fromHeader = `${fromNameSafe(tpl.remetente || "Koblay")} <${await resolveSender(r.organization_id)}>`;
+        const fromHeader = `${fromNameSafe(tpl.remetente || "KOBLY")} <${await resolveSender(r.organization_id)}>`;
         const replyTo = await resolveReplyTo(r.organization_id);
         // List-Unsubscribe: URL com token quando há secret; sempre inclui o mailto.
         let unsubUrl: string | null = null;
@@ -251,7 +268,7 @@ Deno.serve(async (req: Request) => {
         // https clicável; anunciá-lo ao lado de um List-Unsubscribe só-mailto é
         // combinação sem sentido pra RFC 8058 — omitido quando não há unsubUrl.
         const payload: Record<string, unknown> = {
-          from: fromHeader, to: [destino], subject: tpl.assunto || "Koblay", html,
+          from: fromHeader, to: [destino], subject: tpl.assunto || "KOBLY", html,
           headers: unsubUrl
             ? { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
             : { "List-Unsubscribe": listUnsub },
@@ -276,7 +293,14 @@ Deno.serve(async (req: Request) => {
         ok = resp.ok; msgId = out?.messageId ?? out?.id ?? out?.zaapId ?? null; if (!ok) errDetail = JSON.stringify(out).slice(0, 200);
       }
     } else if (canal === "SMS") {
-      if (!destino) { fatal = true; errDetail = "sem telefone"; }
+      // Capacidade de plano (0061). O bulk-send já barra na CRIAÇÃO; este gate cobre o
+      // que passa por fora dela: downgrade de plano no meio de um blast e cabeçalhos
+      // criados antes da migration. `fatal` porque não é transitório — retentar nunca
+      // vai passar, e sem fatal a linha ficaria retentando até esgotar tentativas.
+      if (!(await orgPodeSms(r.organization_id))) {
+        fatal = true; errDetail = "plano nao inclui SMS";
+      }
+      else if (!destino) { fatal = true; errDetail = "sem telefone"; }
       else if (!gtiToken) { errDetail = "gti_sms_token ausente no Vault"; }
       else {
         // GTI SMS v3: JSON + Bearer, número SEM '+', corpo transliterado p/ GSM-7

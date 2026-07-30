@@ -116,7 +116,7 @@ function extractEmail(s: string | null): string | null {
 }
 // Sanitiza o nome de exibição do remetente (remove aspas/< >/vírgula que quebram o header From).
 function fromNameSafe(n: string | null | undefined): string {
-  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "Koblay";
+  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "KOBLY";
 }
 // Normaliza telefone p/ E.164 sem '+': só dígitos; 10-11 dígitos (BR sem DDI) → prefixa 55.
 // Mesma regra da edge function send-whatsapp.
@@ -349,6 +349,25 @@ Deno.serve(async (req: Request) => {
     else refunded++;
   };
 
+  // Capacidade "SMS" do plano da org (0061), memoizada por varredura: uma varredura
+  // toca poucas orgs e muitos passos, então cachear evita uma RPC por passo. O cache
+  // vive só neste tick — troca de plano no meio do minuto vale no tick seguinte.
+  // FAIL-CLOSED: erro na RPC devolve false. É o inverso do reserveOne (que é
+  // fail-open de propósito, para não travar envio por falha de infra), porque aqui o
+  // risco é entregar recurso que o cliente não paga — e o passo vira "pulado", não
+  // perdido: o próximo tick reavalia.
+  const smsGateCache = new Map<string, boolean>();
+  const orgPodeSms = async (orgId: string): Promise<boolean> => {
+    if (!orgId) return false;
+    const memo = smsGateCache.get(orgId);
+    if (memo !== undefined) return memo;
+    const { data, error } = await sb.rpc("org_pode", { p_org: orgId, p_recurso: "sms" });
+    if (error) console.error("process-steps: org_pode(sms) falhou, fail-closed (pulando SMS desta org neste tick)", orgId, error);
+    const pode = !error && data === true;
+    smsGateCache.set(orgId, pode);
+    return pode;
+  };
+
   for (const s of due || []) {
     // Claim OTIMISTA (evita envio DUPLICADO se dois ticks do cron se sobrepõem): empurra
     // run_at 5min p/ frente condicionalmente. Se 0 linhas voltarem, outro tick já pegou
@@ -499,7 +518,7 @@ Deno.serve(async (req: Request) => {
           // List-Unsubscribe-Post (RFC 8058 one-click) só faz sentido junto de uma URL
           // https clicável; omitido quando só temos o mailto (sem unsubUrl).
           const payload: Record<string, unknown> = {
-            from, to: [lead.email], subject: em.assunto || "Koblay", html: htmlBody,
+            from, to: [lead.email], subject: em.assunto || "KOBLY", html: htmlBody,
             headers: unsubUrl
               ? { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
               : { "List-Unsubscribe": listUnsub },
@@ -780,6 +799,16 @@ Deno.serve(async (req: Request) => {
           linkResolvido: ctaLink,
         })) {
           await finalize(s.id, curAttempts + 1, PULADO_SEM_LINK);
+          skipped++; processed++;
+          continue;
+        }
+
+        // Capacidade de plano: SMS só nos planos Pro/Scale (0061). ANTES do reserveOne
+        // de propósito — passo barrado por plano não pode custar cota. Vira "pulado:"
+        // (não falha) porque não é erro transitório: retentar nunca vai passar, e a
+        // jornada do lead já mostra o motivo real via motivoPulado.
+        if (!(await orgPodeSms(s.organization_id))) {
+          await finalize(s.id, curAttempts + 1, "pulado: plano nao inclui SMS");
           skipped++; processed++;
           continue;
         }

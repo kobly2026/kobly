@@ -106,6 +106,21 @@ Deno.serve(async (req: Request) => {
     // ── CREATE ────────────────────────────────────────────────────────────
     if (action === "create") {
       if (!orgId) return json({ error: "no_org" }, 400);
+
+      // Capacidade de plano (0061): "Domínio de e-mail próprio (sua marca, sua
+      // reputação)" é vendido a partir do Pro. Antes de qualquer chamada ao Resend,
+      // para não criar domínio lá e falhar aqui. Fail-closed em erro de consulta.
+      const { data: pode, error: gateErr } = await sb.rpc("org_pode", {
+        p_org: orgId, p_recurso: "dominio_proprio",
+      });
+      if (gateErr || pode !== true) {
+        return json({
+          error: "plan_gate",
+          recurso: "dominio_proprio",
+          detail: "Domínio de e-mail próprio está disponível nos planos Pro e Scale.",
+        }, 403);
+      }
+
       const name = String(body.name || "").trim().toLowerCase();
       if (!name || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(name)) {
         return json({ error: "invalid_name", detail: "Informe um domínio válido (ex.: envio.sualoja.com.br)" }, 400);

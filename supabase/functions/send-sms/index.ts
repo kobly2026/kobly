@@ -57,8 +57,29 @@ Deno.serve(async (req: Request) => {
     const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
     const { data: authUser } = await admin.auth.getUser(jwt);
     if (!authUser?.user) return json({ error: "unauthorized" }, 401);
-    const { data: caller } = await admin.from("profiles").select("id").eq("auth_id", authUser.user.id).maybeSingle();
+    const { data: caller } = await admin.from("profiles")
+      .select("id, organization_id").eq("auth_id", authUser.user.id).maybeSingle();
     if (!caller) return json({ error: "forbidden" }, 403);
+
+    // Capacidade de plano: SMS e' vendido so' nos planos Pro e Scale (0061). Antes do
+    // Vault de proposito — negar por plano nao e' falha de configuracao, e a UI trata
+    // `plan_gate` diferente de `secret_unavailable`.
+    // Sem organization_id nao ha' plano a consultar: e' o caso de Gestor/Admin (equipe),
+    // cujo profile nao pertence a uma org cliente. Esses seguem podendo mandar teste —
+    // negar aqui quebraria o teste de conexao do suporte. Cliente sempre tem org.
+    if (caller.organization_id) {
+      const { data: pode, error: gateErr } = await admin.rpc("org_pode", {
+        p_org: caller.organization_id, p_recurso: "sms",
+      });
+      // Fail-closed: erro ao consultar a capacidade nao pode liberar o recurso.
+      if (gateErr || pode !== true) {
+        return json({
+          error: "plan_gate",
+          recurso: "sms",
+          detail: "SMS esta disponivel nos planos Pro e Scale. Faca upgrade para liberar o canal.",
+        }, 403);
+      }
+    }
 
     const { data: token } = await admin.rpc("get_secret", { p_name: "gti_sms_token" });
     if (!token) {

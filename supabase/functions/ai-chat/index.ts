@@ -5,7 +5,7 @@
 //
 // Tasks (campo `task` no corpo):
 //   'chat'       (default) — assistente conversacional, multi-turn, resposta curta.
-//   'support'    — agente de SUPORTE do produto (multi-turn); conhece o Koblay e indica
+//   'support'    — agente de SUPORTE do produto (multi-turn); conhece o KOBLY e indica
 //                  o botão "Falar com atendente" quando a solução exige ação interna.
 //   'email'      — redige um e-mail de recuperação: JSON {assunto,titulo,paragrafos,cta,cupom}.
 //   'whatsapp'   — redige UMA mensagem de WhatsApp: JSON {titulo,texto} (com {{cta_link}}).
@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
     // ── Task: support (agente de suporte do produto, multi-turn) ────────────
     if (task === "support") {
       const sys = [
-        "Você é o agente de SUPORTE da Koblay (pt-BR), plataforma de automação de recuperação de vendas de e-commerce.",
+        "Você é o agente de SUPORTE da KOBLY (pt-BR), plataforma de automação de recuperação de vendas de e-commerce.",
         "CONHECIMENTO DO PRODUTO:",
         "- Campanhas: fluxos com um Gatilho (Abandono de carrinho, Pix Gerado, Boleto Gerado, Compra Aprovada etc.) + etapas de Envio de e-mail / Envio de WhatsApp / Adicionar-Remover Tag / Condição (comprou / não comprou) / Acionar Fluxo, cada etapa com atraso em minutos.",
         "- Tags-meta encerram o lead no fluxo quando o evento correspondente chega.",
@@ -111,7 +111,7 @@ Deno.serve(async (req: Request) => {
           ? 'TODAS as etapas devem ter "canal": "whatsapp".'
           : 'TODAS as etapas devem ter "canal": "email".';
       const sys = [
-        "Você é estrategista de automação de recuperação de vendas (pt-BR) da Koblay.",
+        "Você é estrategista de automação de recuperação de vendas (pt-BR) da KOBLY.",
         "A partir do OBJETIVO do usuário, planeje uma campanha: escolha o GATILHO e uma cadência de 1 a 3 toques.",
         "Responda APENAS um JSON válido (sem markdown, sem texto fora do JSON) no formato exato:",
         '{"nome": string (curto), "gatilho": string, "etapas": [{"canal": "email" | "whatsapp", "condicao": "sempre" | "comprou" | "nao_comprou", "atraso_min": number, "assunto": string (até ~55 car.; p/ whatsapp é o título interno), "eyebrow": string (curtíssimo; só email), "titulo": string, "paragrafos": string[] (1-2 curtos; só email), "cta": string (até ~28 car.; só email), "cupom": {"codigo": string, "detalhe": string} | null, "texto": string (SÓ whatsapp: a mensagem, 2-6 linhas, tom pessoal, no máx. 1 emoji, DEVE conter {{cta_link}})}]}',
@@ -183,7 +183,7 @@ Deno.serve(async (req: Request) => {
     // ── Task: suggestion (texto curto fundamentado) ─────────────────────────
     if (task === "suggestion") {
       const sys = [
-        "Você é o analista de IA da Koblay (automação de recuperação de vendas por e-mail).",
+        "Você é o analista de IA da KOBLY (automação de recuperação de vendas por e-mail).",
         "Dê UMA recomendação prática e específica, em pt-BR, no máximo 2 frases. Texto puro, SEM markdown.",
         "Fundamente nos DADOS REAIS do contexto (cite número ou nome de campanha quando útil). Não invente.",
         "CONTEXTO (JSON):", ctx,
@@ -196,11 +196,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Task: chat (default) ────────────────────────────────────────────────
     const system = [
-      "Você é o assistente de IA da Koblay, plataforma de automação de marketing por e-mail focada em recuperação de vendas de e-commerce (carrinho abandonado, Pix/boleto gerado, pós-venda).",
+      "Você é o assistente de IA da KOBLY, plataforma de automação de marketing por e-mail focada em recuperação de vendas de e-commerce (carrinho abandonado, Pix/boleto gerado, pós-venda).",
       "Responda SEMPRE em português do Brasil, objetivo e prático, curto (no máx. ~4 frases ou uma lista enxuta).",
       "Quando fizer sentido, use os DADOS REAIS do usuário no CONTEXTO para fundamentar (cite números/nomes de campanha).",
       "Domínios de ajuda: análise de campanhas, cadências, assuntos/CTA de e-mail, entregabilidade (DKIM/DMARC), leads e métricas.",
-      "Não invente dados fora do contexto. Se não houver dado suficiente, oriente o próximo passo dentro da Koblay.",
+      "Não invente dados fora do contexto. Se não houver dado suficiente, oriente o próximo passo dentro da KOBLY.",
       "CONTEXTO (JSON dos dados do usuário):", ctx,
     ].join("\n");
     const dsMessages = [

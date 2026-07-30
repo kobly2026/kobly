@@ -76,6 +76,26 @@ Deno.serve(async (req: Request) => {
   if (!canal) return json({ error: "invalid_canal", detail: "canal deve ser email | whatsapp | sms" }, 400);
   const filter = (body.filter && typeof body.filter === "object") ? body.filter : {};
 
+  // Capacidade de plano (0061). Só barra o `create` — `estimate` é contagem
+  // read-only, não dispara nada e não custa cota, então segue liberado: a tela
+  // continua podendo mostrar "seu filtro alcança N leads" e oferecer o upgrade.
+  // Fail-closed: erro ao consultar a capacidade nega.
+  if (action === "create") {
+    const precisa = canal === "sms" ? ["disparo_massa", "sms"] : ["disparo_massa"];
+    for (const recurso of precisa) {
+      const { data: pode, error: gateErr } = await sb.rpc("org_pode", { p_org: orgId, p_recurso: recurso });
+      if (gateErr || pode !== true) {
+        return json({
+          error: "plan_gate",
+          recurso,
+          detail: recurso === "sms"
+            ? "SMS está disponível nos planos Pro e Scale."
+            : "Disparo em massa está disponível nos planos Pro e Scale.",
+        }, 403);
+      }
+    }
+  }
+
   if (action === "estimate") {
     const { data, error } = await sb.rpc("bulk_count_audience", { p_org: orgId, p_canal: canal, p_filter: filter });
     if (error) return json({ error: "estimate_failed", detail: error.message }, 500);

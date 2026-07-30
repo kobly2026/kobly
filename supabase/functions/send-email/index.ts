@@ -52,7 +52,7 @@ function extractEmail(s: string | null | undefined): string | null {
   return (m ? m[1] : String(s)).trim() || null;
 }
 function fromNameSafe(n: string | null | undefined): string {
-  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "Koblay";
+  return String(n || "").replace(/["<>\\]/g, "").replace(/,/g, " ").trim() || "KOBLY";
 }
 
 Deno.serve(async (req: Request) => {
@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
       if (o?.sender_local) resolved = `${o.sender_local}@${sendingDomain}`;
     }
     if (resolved) addr = resolved;
-    const sender = fromName ? `${fromNameSafe(fromName)} <${addr}>` : `Koblay <${addr}>`;
+    const sender = fromName ? `${fromNameSafe(fromName)} <${addr}>` : `KOBLY <${addr}>`;
 
     const primeiroTo = Array.isArray(to) ? to[0] : to;
 
