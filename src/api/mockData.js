@@ -86,8 +86,8 @@ const users = [
 const sessionByRole = {
   Gestor:        { userId: 'u_vitor',   empresaId: null,   contextLabel: 'Agência Dizevolv' },
   Cliente:       { userId: 'u_joao',    empresaId: 'emp_1', contextLabel: 'Loja do João' },
-  Suporte:       { userId: 'u_marina',  empresaId: null,   contextLabel: 'Central Koblay' },
-  Administrador: { userId: 'u_daniela', empresaId: null,   contextLabel: 'Admin Koblay' },
+  Suporte:       { userId: 'u_marina',  empresaId: null,   contextLabel: 'Central KOBLY' },
+  Administrador: { userId: 'u_daniela', empresaId: null,   contextLabel: 'Admin KOBLY' },
 };
 
 // ---------------------------------------------------------------------------

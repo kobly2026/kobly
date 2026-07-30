@@ -154,7 +154,7 @@ export function MetricCard({
 
       {hasSpark && (
         <div style={{ position: 'relative', marginTop: 2 }}>
-          <Sparkline data={spark} color={hero ? '#ff8128' : undefined} height={38} />
+          <Sparkline data={spark} color={hero ? '#ff7b2a' : undefined} height={38} />
         </div>
       )}
     </div>

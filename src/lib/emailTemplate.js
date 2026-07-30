@@ -1,7 +1,10 @@
 // Kobly — Email Design System.
 // HTML de e-mail à prova de cliente (layout em <table>, estilos inline, bgcolor para
 // Outlook). Identidade Kobly com tema CLARO ou ESCURO (brand.mode) + acento (brand.color),
-// logo/monograma da marca, tipografia Plus Jakarta (com fallback de sistema).
+// logo/monograma da marca, tipografia Lexend (com fallback de sistema).
+// NOTA: em e-mail isso é quase simbólico — não carregamos webfont no HTML do e-mail
+// (link de fonte é removido por boa parte dos clientes), então na prática cai no
+// fallback de sistema. Declaramos Lexend para a intenção bater com a marca.
 //
 // Uso declarativo:
 //   renderEmail({ brand: { name, initial, logoUrl, color, mode }, preheader, blocks: [...] })
@@ -26,7 +29,7 @@ const PALETTES = {
 const C = PALETTES.dark; // default exportado
 
 const FONT =
-  "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  "'Lexend', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 function esc(s = '') {
   return String(s)
@@ -221,7 +224,7 @@ export function renderEmail({ brand = {}, preheader = '', blocks = [] } = {}) {
             <td class="kbly-pad" bgcolor="${P.bg}" style="background:${P.bg};padding:22px 34px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
                 <td valign="middle" style="font-family:${FONT};font-size:12px;color:${P.muted};">
-                  ${koblyMark(18, P)}<span style="display:inline-block;vertical-align:middle;padding-left:7px;">Enviado com <span style="color:${P.body};font-weight:700;">Koblay</span></span>
+                  ${koblyMark(18, P)}<span style="display:inline-block;vertical-align:middle;padding-left:7px;">Enviado com <span style="color:${P.body};font-weight:700;">KOBLY</span></span>
                 </td>
                 <td valign="middle" align="right" style="font-family:${FONT};font-size:12px;color:${P.muted};">
                   <a href="{{unsubscribe_url}}" style="color:${P.muted};text-decoration:underline;">Descadastrar</a>

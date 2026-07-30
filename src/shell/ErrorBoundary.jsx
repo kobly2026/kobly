@@ -16,7 +16,7 @@ class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     // Sem telemetria por enquanto — o log local ajuda no suporte.
-    console.error('[Koblay] erro de render:', error, info && info.componentStack);
+    console.error('[KOBLY] erro de render:', error, info && info.componentStack);
   }
 
   reset = () => this.setState({ error: null });
@@ -49,7 +49,7 @@ class ErrorBoundary extends Component {
     if (variant === 'app') {
       return (
         <div style={{ ...box, minHeight: '100dvh', background: 'var(--surface-app, #000)' }}>
-          <img src="/assets/koblay-mark.svg" alt="Koblay" style={{ width: 44, height: 44, opacity: 0.9 }} />
+          <img src="/assets/kobly-mark.svg" alt="KOBLY" style={{ width: 44, height: 44, opacity: 0.9 }} />
           {title}
           <button style={btn(true)} onClick={() => window.location.reload()}>Recarregar</button>
         </div>

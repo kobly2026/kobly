@@ -10,8 +10,9 @@ export function NavRail({
   items = [],
   active,
   onNavigate,
-  brand = 'Koblay',
+  brand = 'KOBLY',
   markSrc = null,
+  logoSrc = null,
   workspaceName = 'Agência Demo',
   workspaceMeta = 'Plano starter',
   collapsed = false,
@@ -41,8 +42,13 @@ export function NavRail({
           padding: collapsed ? '20px 0 18px' : '20px 18px 18px',
         }}
       >
-        {markSrc ? (
-          <img src={markSrc} alt={brand} width="34" height="34" style={{ display: 'block', borderRadius: 9 }} />
+        {/* Expandido usa o lockup (icone + wordmark KOBLY, letreiro oficial); colapsado
+            cai no mark quadrado. Sem borderRadius aqui: o SVG traz o rx proprio
+            (21.92/116.59 = 18.8%), e um raio CSS maior comeria o canto laranja. */}
+        {!collapsed && logoSrc ? (
+          <img src={logoSrc} alt={brand} style={{ display: 'block', height: 30, width: 'auto' }} />
+        ) : markSrc ? (
+          <img src={markSrc} alt={brand} width="34" height="34" style={{ display: 'block' }} />
         ) : (
           <span
             style={{
@@ -61,7 +67,9 @@ export function NavRail({
             K
           </span>
         )}
-        {!collapsed && (
+        {/* Wordmark em texto so' quando NAO ha lockup: o lockup ja traz o letreiro,
+            e repetir renderizaria "KOBLY KOBLY". */}
+        {!collapsed && !logoSrc && (
           <span style={{ color: '#fff', fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', letterSpacing: 'var(--ls-tight)' }}>
             {brand}
           </span>

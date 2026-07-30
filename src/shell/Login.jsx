@@ -95,7 +95,7 @@ export function KoblyAuthScreen({ mode = 'login' }) {
   }
 
   const titles = {
-    login: ['Entrar', 'Acesse o console da Koblay.'],
+    login: ['Entrar', 'Acesse o console da KOBLY.'],
     signup: ['Criar conta', 'Comece a recuperar vendas por e-mail.'],
     reset: ['Recuperar senha', 'Enviaremos um link para redefinir sua senha.'],
     recovery: ['Definir nova senha', 'Escolha uma nova senha para sua conta.'],
@@ -105,9 +105,10 @@ export function KoblyAuthScreen({ mode = 'login' }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--grad-hero), var(--surface-app)', padding: 24, fontFamily: 'var(--font-sans)' }}>
       <div style={{ width: '100%', maxWidth: 400 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, justifyContent: 'center' }}>
-          <img src="/assets/koblay-mark.svg" alt="Koblay" width={34} height={34} />
-          <span style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)', letterSpacing: 'var(--ls-tight)' }}>Koblay</span>
+        {/* Lockup oficial no lugar de mark + wordmark em texto: o letreiro do arquivo
+            e' o desenho da marca, nao a fonte da UI. */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 22, justifyContent: 'center' }}>
+          <img src="/assets/kobly-logo.svg" alt="KOBLY" style={{ display: 'block', height: 34, width: 'auto' }} />
         </div>
 
         <div style={{ position: 'relative', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 28 }}>

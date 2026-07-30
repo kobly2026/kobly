@@ -161,7 +161,7 @@ function KoblyTickets() {
           <Button size="sm" variant={fMine ? 'secondary' : 'ghost'} iconLeft="user-round" onClick={() => setFMine((v) => !v)}>Meus</Button>
         </div>
       ) : newTicketBtn}>
-        {isSupport ? 'Fila de chamados dos clientes — em tempo real. Atribua, responda e resolva.' : 'Seus chamados de suporte. Converse com a equipe Koblay.'}
+        {isSupport ? 'Fila de chamados dos clientes — em tempo real. Atribua, responda e resolva.' : 'Seus chamados de suporte. Converse com a equipe KOBLY.'}
       </PageIntro>
 
       <div className="kbly-split" style={{ flex: 1, minHeight: 0, gap: 16 }}>

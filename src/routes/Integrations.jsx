@@ -657,7 +657,7 @@ function WhatsappTab({ empresaId }) {
       ? { phone: testPhone.trim(), message: selected.corpoTexto || selected.titulo || '', buttonActions: selected.botoes || [] }
       : {
           phone: testPhone.trim(),
-          message: 'Mensagem de teste da Koblay — sua conexão WhatsApp está funcionando.',
+          message: 'Mensagem de teste da KOBLY — sua conexão WhatsApp está funcionando.',
           buttonActions: [{ id: '1', type: 'URL', label: 'Abrir site', url: 'https://koblay.io' }],
         };
     const r = await KoblyApi.sendTestWhatsapp(payload);
@@ -808,7 +808,7 @@ function SmsTab({ empresaId }) {
     const selected = testMsgId ? (msgs.data || []).find((m) => m.id === testMsgId) : null;
     const message = selected
       ? (selected.corpoTexto || selected.titulo || '')
-      : 'Teste de SMS da Koblay — sua integração está funcionando.';
+      : 'Teste de SMS da KOBLY — sua integração está funcionando.';
     const r = await KoblyApi.sendTestSms({ to: testPhone.trim(), message });
     setSending(false);
     if (r.error) {

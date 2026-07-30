@@ -156,7 +156,7 @@ function SupportWidget() {
 
   const subtitle = mode === 'humano'
     ? (conv ? `Chamado · ${conv.status}` : 'Chamado')
-    : `Assistente IA · ${KoblyMockDB.routeTitle[store.view] || 'Koblay'}`;
+    : `Assistente IA · ${KoblyMockDB.routeTitle[store.view] || 'KOBLY'}`;
 
   return (
     <React.Fragment>
@@ -188,7 +188,7 @@ function SupportWidget() {
 
       <Drawer
         open={open} onClose={() => setOpen(false)} width={420}
-        title="Suporte Koblay"
+        title="Suporte KOBLY"
         subtitle={subtitle}
         footer={
           mode === 'ia' ? (
@@ -205,7 +205,7 @@ function SupportWidget() {
               )}
               <form onSubmit={(e) => { e.preventDefault(); ask(input); }} style={{ display: 'flex', gap: 8 }}>
                 <input
-                  value={input} onChange={(e) => setInput(e.target.value)} placeholder="Pergunte algo sobre o Koblay…"
+                  value={input} onChange={(e) => setInput(e.target.value)} placeholder="Pergunte algo sobre o KOBLY…"
                   maxLength={4000}
                   style={{ flex: 1, background: 'var(--surface-sunken)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', color: 'var(--text-strong)', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-sm)', padding: '10px 12px', outline: 'none' }}
                 />
@@ -229,7 +229,7 @@ function SupportWidget() {
           <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
             {msgs.length === 0 && (
               <React.Fragment>
-                <Bubble from="ai">Olá! Sou o assistente da Koblay. Tiro dúvidas do produto, analiso suas campanhas e, se precisar, te passo para um atendente humano. Como posso ajudar?</Bubble>
+                <Bubble from="ai">Olá! Sou o assistente da KOBLY. Tiro dúvidas do produto, analiso suas campanhas e, se precisar, te passo para um atendente humano. Como posso ajudar?</Bubble>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                   <span style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-eyebrow)', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 'var(--fw-semibold)' }}>Sugestões</span>
                   {sugg.map((s) => (

@@ -1,12 +1,17 @@
 /* Kobly — Typography tokens
-   Font not specified in original material → substituted (see readme / SKILL caveats):
-   Plus Jakarta Sans for UI + display, JetBrains Mono for IDs / webhook payloads / code. */
+   Lexend e' a fonte da identidade da marca (guia "IDENTIDADE VISUAL — Kobly 2025",
+   pagina de tipografia). Substituiu Plus Jakarta Sans, que era um placeholder de
+   quando o material de marca ainda nao tinha sido entregue.
+   JetBrains Mono segue para IDs / payloads de webhook / codigo — o guia nao
+   especifica monoespacada, entao essa continua sendo escolha nossa.
+   Pesos: o guia mostra Thin/Light/Regular/Bold; carregamos 300..800 porque os
+   tokens --fw-* do app usam 500/600/700/800 e o guia nao os proibe. */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   /* Families */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Lexend', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   /* Type scale (1.250 major-third-ish, tuned for dense dashboards) */

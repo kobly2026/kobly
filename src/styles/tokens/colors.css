@@ -1,21 +1,45 @@
 /* Kobly — Color tokens · direção "Carvão Quente".
    Dark + laranja continuam a identidade, mas o preto puro achatado dá lugar a uma
    escala de carvão levemente aquecida (matiz ~25°) com passos de luminância REAIS
-   entre superfícies — o laranja #FF6800 "mora" naturalmente nesse fundo.
-     Primário   Laranja Primário  #FF6800
+   entre superfícies — o laranja da marca "mora" naturalmente nesse fundo.
+     Primário   #FF6201 (a laranja DO ARQUIVO do logo)
      Canvas     #0E0D0B  ·  Nav #090808  ·  Card #171512  ·  Overlay #1C1A17
-   Base ramps first, semantic aliases below (nomes estáveis — components usam os aliases). */
+   Base ramps first, semantic aliases below (nomes estáveis — components usam os aliases).
+
+   ATENÇÃO — o guia de marca discorda de si mesmo na laranja:
+     · SVGs do logo ...................... #FF6201  ← é o que o usuário VÊ na tela
+     · página de paleta do guia .......... #F06B0D
+     · placeholder que havia aqui ........ #FF6800 (não era nenhum dos dois)
+   Adotamos #FF6201 porque o accent aparece encostado no mark (sidebar, botões), e
+   duas laranjas quase-iguais lado a lado é pior que uma só. Se a paleta for
+   declarada canônica, trocar é uma linha: --orange-500. A paleta documentada está
+   preservada abaixo em --brand-*, então nada dela se perdeu.
+
+   A rampa 100–700 foi derivada de #FF6201 mantendo o MESMO ritmo de luminância da
+   rampa antiga (os passos claros caem em ~2a/52/85/bd, como antes) — assim nenhum
+   contraste da UI muda, só o matiz. */
 
 :root {
   /* ---- Brand: Orange (primary, accent, links, active) ---- */
-  --orange-700: #b34900; /* deep / active */
-  --orange-600: #e65d00;
-  --orange-500: #ff6800; /* Laranja Primário ★ */
-  --orange-400: #ff8128;
-  --orange-300: #ff9d52;
-  --orange-200: #ffba85;
-  --orange-100: #ffd9bd;
-  --orange-tint: rgba(255, 104, 0, 0.14); /* soft fill on dark */
+  --orange-700: #b24500; /* deep / active */
+  --orange-600: #e55800;
+  --orange-500: #ff6201; /* Laranja Primário ★ — igual ao SVG do logo */
+  --orange-400: #ff7b2a;
+  --orange-300: #ff9452;
+  --orange-200: #ffb485;
+  --orange-100: #ffd6bd;
+  --orange-tint: rgba(255, 98, 1, 0.14); /* soft fill on dark */
+
+  /* ---- Paleta documentada no guia de marca (Kobly 2025) ----
+     Disponível para uso deliberado. NÃO estão ligadas aos aliases semânticos: a UI
+     dark já tem escala própria de neutro/status, e sobrescrevê-la pelas duas cinzas
+     claras do guia (feitas para peça impressa em fundo claro) quebraria o contraste. */
+  --brand-orange:   #f06b0d; /* laranja da página de paleta (ver ATENÇÃO acima) */
+  --brand-amber:    #f39200;
+  --brand-rust:     #ad200e;
+  --brand-espresso: #732500;
+  --brand-mist:     #d8dddb;
+  --brand-paper:    #f6f6f6;
 
   /* ---- Neutral: Ink ramp (warm charcoal; higher number = darker) ---- */
   --ink-1000: #070606;
@@ -67,7 +91,7 @@
   --border-subtle:  rgba(255, 255, 255, 0.09);
   --border-default: rgba(255, 255, 255, 0.14);
   --border-strong:  rgba(255, 255, 255, 0.22);
-  --border-accent:  rgba(255, 104, 0, 0.45);
+  --border-accent:  rgba(255, 98, 1, 0.45);
   --border-nav:     rgba(255, 255, 255, 0.07);
 
   /* Accent / interactive */
@@ -83,7 +107,7 @@
   --primary-fg:        #1b0d02; /* label escuro sobre laranja */
 
   /* Focus ring */
-  --ring: rgba(255, 104, 0, 0.5);
+  --ring: rgba(255, 98, 1, 0.5);
 
   /* Status semantic pairs (fg on tinted bg) */
   --status-success-fg: var(--green-500); --status-success-bg: var(--green-tint);

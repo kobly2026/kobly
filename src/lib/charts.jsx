@@ -8,7 +8,7 @@ import ApexCharts from 'apexcharts';
 
 // Paleta resolvida (espelha tokens/colors.css — "Carvão Quente")
 const C = {
-  accent: '#ff6800', accent400: '#ff8128', green: '#3ddc84', amber: '#ffb020',
+  accent: '#ff6201', accent400: '#ff7b2a', green: '#3ddc84', amber: '#ffb020',
   red: '#ff6a61', textMuted: '#948e85', textSubtle: '#6b655d', textStrong: '#f7f4f0',
   grid: '#2b2824', card: '#171512', track: '#0b0a09',
 };
