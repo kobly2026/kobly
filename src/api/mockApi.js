@@ -1325,7 +1325,16 @@ export const KoblyApi = {
   async createPlan(p) {
     const { data, error } = await supabase.from('plans').insert({
       nome: p.nome, descricao: p.descricao, valor_mensal: p.valorMensal, valor_anual: p.valorAnual,
-      limite_campanhas: p.limiteCampanhas, limite_execucoes: p.limiteExecucoes, status: 'Ativo', deleted: false,
+      valor_semestral: p.valorSemestral ?? null,
+      limite_campanhas: p.limiteCampanhas, limite_execucoes: p.limiteExecucoes,
+      // limite_integracoes NULO significa ILIMITADO para enforce_limite_integracoes.
+      // Um plano novo não pode nascer vendendo integração sem teto por omissão.
+      limite_integracoes: p.limiteIntegracoes ?? 0,
+      preco_excedente: p.precoExcedente ?? null,
+      sms_habilitado: !!p.smsHabilitado,
+      disparo_massa_habilitado: !!p.disparoMassaHabilitado,
+      dominio_proprio_habilitado: !!p.dominioProprioHabilitado,
+      status: 'Ativo', deleted: false,
     }).select().single();
     if (error) throw error;
     resetDb();
