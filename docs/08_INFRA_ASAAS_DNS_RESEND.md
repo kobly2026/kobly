@@ -28,6 +28,23 @@ supabase functions deploy asaas
 - UI em **Planos**: botão “Assinar com Asaas (PIX)” quando a key está configurada.
 - `organizations.asaas_customer_id` guarda o customer criado no Asaas.
 
+### 1.2.1 CPF/CNPJ do titular (obrigatório no gateway)
+- `POST /customers` do Asaas exige `cpfCnpj`. A fonte é **`organizations.documento`**
+  (migration `0060_org_documento.sql`) — nunca o body da requisição, que seria
+  entrada não validada.
+- Sem documento na org, a function devolve `documento_ausente` (HTTP 400) e a tela
+  de **Planos** abre um modal pedindo o CPF/CNPJ antes de gerar a cobrança. O
+  Gestor também informa no cadastro/edição da conta em **Clientes**.
+- O documento é guardado **normalizado** (sem máscara, A–Z maiúsculo) e validado
+  pelo CHECK `organizations_documento_valido` → `public.is_documento_br()`.
+- **CNPJ alfanumérico (IN RFB nº 2.229/2024, vigente desde jul/2026)**: 1–12 em
+  `[0-9A-Z]`, 13–14 DV numérico; DV em módulo 11 com valor de caractere
+  `ASCII − 48`. O mesmo algoritmo valida o CNPJ numérico legado — não há
+  validador antigo em paralelo. Espelho em JS (UX): `src/lib/documento.js`,
+  testado em `supabase/functions/_shared/documento_test.ts`.
+- Pendência externa: confirmar com o Asaas se a API v3 já aceita `cpfCnpj`
+  alfanumérico (validação é do lado deles).
+
 ### 1.3 Produção
 1. Conta real em [https://www.asaas.com](https://www.asaas.com).
 2. Trocar Vault: `asaas_api_key` (prod) + `asaas_env=production`.
@@ -171,6 +188,11 @@ supabase db push
 - `domains.id_resend`, `from_email`, `status`
 - `organizations.asaas_customer_id`
 - `profiles.whatsapp_teste`
+
+### Colunas novas (0060)
+- `organizations.documento` — CPF/CNPJ normalizado do titular, exigido pelo Asaas.
+  CHECK `organizations_documento_valido` (`public.is_documento_br`), aceita CNPJ
+  alfanumérico da IN RFB 2.229. Ver §1.2.1.
 
 ### Novidades (0037–0039)
 - enum `tipo_card_fluxo` += `Envio de SMS`

@@ -6,6 +6,21 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inlinado de _shared/unsub.ts (parte de assinatura; per-function deploy não empacota ../_shared/).
+// Manter semanticamente idêntico a signUnsubToken em _shared/unsub.ts.
+function b64url(bytes: Uint8Array): string {
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function _hmac(secret: string, msg: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
+}
+async function signUnsubToken(secret: string, orgId: string, email: string, nowMs: number): Promise<string> {
+  const payload = `${orgId}:${String(email).toLowerCase()}:${nowMs}`;
+  return `${b64url(new TextEncoder().encode(payload))}.${b64url(await _hmac(secret, payload))}`;
+}
+
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -25,10 +40,28 @@ function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
 }
+// GSM-7 para SMS: a GTI "nao aceita emojis, acentos ou outros caracteres especiais"
+// e o envio falha com caractere fora do padrao. Transliterar e' melhor que derrubar
+// um blast inteiro por causa de um "c-cedilha".
+// Inlinado nas 3 funcoes que enviam SMS (deploy por funcao nao empacota ../_shared/).
+// Manter as tres copias semanticamente identicas.
+function toGsm7(text: string): string {
+  return String(text)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira acento: Voce <- Você
+    .replace(/[ç]/g, "c").replace(/[Ç]/g, "C")
+    .replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'")
+    .replace(/[–—]/g, "-").replace(/…/g, "...")
+    .replace(/[^\x20-\x7E\n\r]/g, "");                  // resto (emoji etc.) sai fora
+}
 function subst(text: string, lead: any): string {
   return String(text || "")
     .split("{{nome}}").join(lead?.nome || "")
-    .split("{{cta_link}}").join(""); // bulk não tem link de recuperação por lead
+    // "#" e nao "": o disparo em massa nao tem link de recuperacao por lead, e um
+    // href="" faz varios clientes recarregarem a URL do proprio webmail ao clicar —
+    // pior que um botao inerte. Os dois sao becos sem saida; "#" e o beco silencioso.
+    // Virou relevante quando emailTemplate.js passou a gerar botao com {{cta_link}}
+    // por padrao: antes nenhum template de massa trazia o placeholder.
+    .split("{{cta_link}}").join("#");
 }
 
 Deno.serve(async (req: Request) => {
@@ -65,10 +98,8 @@ Deno.serve(async (req: Request) => {
   const { data: zapiInstanceId } = await sb.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
-  const { data: twilioSid } = await sb.rpc("get_secret", { p_name: "twilio_account_sid" });
-  const { data: twilioAuth } = await sb.rpc("get_secret", { p_name: "twilio_auth_token" });
-  const { data: twilioFrom } = await sb.rpc("get_secret", { p_name: "twilio_from" });
-  const { data: twilioApiKey } = await sb.rpc("get_secret", { p_name: "twilio_api_key_sid" });
+  // GTI SMS (canal SMS). Sem parâmetro de remetente: o sender é da conta GTI.
+  const { data: gtiToken } = await sb.rpc("get_secret", { p_name: "gti_sms_token" });
 
   // 0) Recicla linhas 'processando' presas (crash de tick anterior): ao reivindicar,
   //    empurramos run_at p/ +3min; se ainda estão 'processando' com run_at vencido, o
@@ -103,6 +134,42 @@ Deno.serve(async (req: Request) => {
     .limit(BATCH);
   if (error) return json({ error: "query_failed", detail: error.message }, 500);
 
+  const { data: unsubSecret } = await sb.rpc("get_secret", { p_name: "unsubscribe_secret" });
+  const baseUrl = Deno.env.get("SUPABASE_URL")!;
+
+  // Reply-To por org (cache por varredura)
+  const replyCache = new Map<string, string | null>();
+  const resolveReplyTo = async (org: string): Promise<string | null> => {
+    if (replyCache.has(org)) return replyCache.get(org)!;
+    const { data } = await sb.from("organizations").select("reply_to_email").eq("id", org).maybeSingle();
+    const v = (data?.reply_to_email && String(data.reply_to_email).trim()) || null;
+    replyCache.set(org, v); return v;
+  };
+
+  // Supressão: carrega uma vez os endereços de e-mail suprimidos entre os devidos
+  const dueEmails = [...new Set((due || [])
+    .filter((r: any) => r.bulk_sends?.canal === "email" && r.destino)
+    .map((r: any) => String(r.destino).toLowerCase()))];
+  const suppressed = new Set<string>();
+  // Falha FECHADA, mas escopada ao canal de e-mail: se não conseguimos confirmar quem
+  // está suprimido, não sabemos se é seguro enviar — então NENHUM e-mail é reivindicado
+  // nesta varredura (ficam 'pendente', reprocessados no próximo tick). Isto NÃO deve
+  // abortar o tick inteiro: WhatsApp/SMS não usam email_suppressions e não têm nada a
+  // ver com esta falha. NÃO troque isto por "segue sem checar supressão" para e-mail —
+  // é exatamente o bug que isto evita.
+  let suppressionUnavailable = false;
+  if (dueEmails.length) {
+    const { data: sup, error: supError } = await sb.from("email_suppressions").select("email, organization_id").in("email", dueEmails);
+    if (supError) {
+      console.error("process-bulk: falha ao consultar email_suppressions — pulando destinatários de e-mail nesta varredura (fail-closed); WhatsApp/SMS seguem normalmente", supError);
+      suppressionUnavailable = true;
+    } else {
+      for (const row of sup || []) suppressed.add(`${String((row as any).email).toLowerCase()}::${(row as any).organization_id ?? "*"}`);
+    }
+  }
+  const isSuppressed = (email: string, org: string) =>
+    suppressed.has(`${String(email).toLowerCase()}::${org}`) || suppressed.has(`${String(email).toLowerCase()}::*`);
+
   const templateCache = new Map<string, any>();
   const loadTemplate = async (header: any) => {
     if (templateCache.has(header.id)) return templateCache.get(header.id);
@@ -128,12 +195,24 @@ Deno.serve(async (req: Request) => {
     const header = (r as any).bulk_sends; const lead = (r as any).leads;
     touched.add(r.bulk_send_id);
 
+    // Supressão indisponível nesta varredura: não reivindica o destinatário de e-mail
+    // (permanece 'pendente', run_at intacto) — será reprocessado no próximo tick, sem
+    // marcar falha definitiva. Restrito ao canal 'email'; WhatsApp/SMS seguem abaixo.
+    if (header.canal === "email" && suppressionUnavailable) continue;
+
     // Claim otimista: só prossegue quem virar 'processando' (evita duplo-envio em ticks sobrepostos).
     const holdUntil = new Date(Date.now() + CLAIM_HOLD_MIN * 60000).toISOString();
     const { data: claimed } = await sb.from("bulk_send_recipients")
       .update({ status: "processando", run_at: holdUntil })
       .eq("id", r.id).eq("status", "pendente").select("id");
     if (!claimed || claimed.length === 0) continue; // outro tick pegou
+
+    // destino hoisted acima da checagem de supressão (era declarado só mais abaixo).
+    const destino = r.destino;
+    if (header.canal === "email" && destino && isSuppressed(destino, r.organization_id)) {
+      await sb.from("bulk_send_recipients").update({ status: "pulado", last_error: "suprimido" }).eq("id", r.id);
+      skipped++; continue;
+    }
 
     const attempts = Number((r as any).attempts) || 0;
     const tpl = await loadTemplate(header);
@@ -144,17 +223,43 @@ Deno.serve(async (req: Request) => {
 
     let ok = false, msgId: string | null = null, errDetail: string | null = null, fatal = false;
     const canal = header.canal;
-    const destino = r.destino;
 
     if (canal === "email") {
       if (!destino) { fatal = true; errDetail = "sem e-mail"; }
       else if (!resendKey) { errDetail = "resend_api_key ausente"; }
       else {
-        const html = subst(tpl.corpo_html || "<p></p>", lead);
+        let html = subst(tpl.corpo_html || "<p></p>", lead);
         const fromHeader = `${fromNameSafe(tpl.remetente || "Koblay")} <${await resolveSender(r.organization_id)}>`;
+        const replyTo = await resolveReplyTo(r.organization_id);
+        // List-Unsubscribe: URL com token quando há secret; sempre inclui o mailto.
+        let unsubUrl: string | null = null;
+        if (unsubSecret) {
+          const token = await signUnsubToken(String(unsubSecret), r.organization_id, destino, Date.now());
+          unsubUrl = `${baseUrl}/functions/v1/unsubscribe?token=${token}`;
+          html = html.split("{{unsubscribe_url}}").join(unsubUrl)
+                     .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="${unsubUrl}"$1`);
+        } else {
+          // Sem secret: nunca deixa o literal "{{unsubscribe_url}}" (ou o href="#" morto)
+          // ir pro destinatário — melhor um mailto genérico funcional no rodapé.
+          html = html.split("{{unsubscribe_url}}").join("mailto:unsubscribe@koblay.io")
+                     .replace(/href="#"(\s[^>]*>\s*Descadastrar)/i, `href="mailto:unsubscribe@koblay.io"$1`);
+        }
+        const listUnsub = unsubUrl
+          ? `<${unsubUrl}>, <mailto:unsubscribe@koblay.io>`
+          : `<mailto:unsubscribe@koblay.io>`;
+        // List-Unsubscribe-Post (RFC 8058 one-click) só faz sentido junto de uma URL
+        // https clicável; anunciá-lo ao lado de um List-Unsubscribe só-mailto é
+        // combinação sem sentido pra RFC 8058 — omitido quando não há unsubUrl.
+        const payload: Record<string, unknown> = {
+          from: fromHeader, to: [destino], subject: tpl.assunto || "Koblay", html,
+          headers: unsubUrl
+            ? { "List-Unsubscribe": listUnsub, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+            : { "List-Unsubscribe": listUnsub },
+        };
+        if (replyTo) payload.reply_to = replyTo;
         const resp = await fetch("https://api.resend.com/emails", {
           method: "POST", headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: fromHeader, to: [destino], subject: tpl.assunto || "Koblay", html }),
+          body: JSON.stringify(payload),
         });
         const out = await resp.json().catch(() => ({}));
         ok = resp.ok; msgId = out?.id ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true; }
@@ -172,18 +277,26 @@ Deno.serve(async (req: Request) => {
       }
     } else if (canal === "SMS") {
       if (!destino) { fatal = true; errDetail = "sem telefone"; }
-      else if (!twilioSid || !twilioAuth || !twilioFrom) { errDetail = "twilio secrets ausentes"; }
+      else if (!gtiToken) { errDetail = "gti_sms_token ausente no Vault"; }
       else {
-        const message = subst(tpl.corpo_texto || tpl.titulo || "", lead);
-        const form = new URLSearchParams({ From: String(twilioFrom), To: `+${normalizePhone(destino)}`, Body: message });
-        const basicUser = twilioApiKey ? String(twilioApiKey) : String(twilioSid);
-        const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        // GTI SMS v3: JSON + Bearer, número SEM '+', corpo transliterado p/ GSM-7
+        // (a GTI rejeita acento/emoji). Mesmo contrato de send-sms e process-steps.
+        const message = toGsm7(subst(tpl.corpo_texto || tpl.titulo || "", lead));
+        const resp = await fetch("https://sms.gtisms.com/api/v3/sms/send", {
           method: "POST",
-          headers: { Authorization: `Basic ${btoa(`${basicUser}:${twilioAuth}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
-          body: form.toString(),
+          headers: { Authorization: `Bearer ${gtiToken}`, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient: normalizePhone(destino), message }),
         });
         const out = await resp.json().catch(() => ({}));
-        ok = resp.ok; msgId = out?.sid ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true; }
+        // Fail-closed: HTTP ok E status "success" (a GTI pode responder 200 com erro).
+        ok = resp.ok && out?.status === "success";
+        msgId = out?.data?.uid ?? null;
+        if (!ok) {
+          errDetail = String(out?.message || JSON.stringify(out)).slice(0, 200);
+          // Observado na GTI: 403 = telefone inválido, 422 = validação — ambos definitivos.
+          // 500 "Unauthenticated." (token) não é 4xx → segue com retry, como o 429.
+          if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true;
+        }
       }
     } else { fatal = true; errDetail = "canal desconhecido"; }
 

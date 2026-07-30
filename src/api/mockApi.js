@@ -340,15 +340,17 @@ export const KoblyApi = {
     const rows = clone(db.leads);
     // Contagens REAIS do pipeline de e-mail, escopadas por RLS às orgs acessíveis.
     const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    // event='send' exclui os cliques em "Enviar teste" (event='send_test') — sem este
+    // filtro cada teste manual infla enviados/rejeitados/processados do cliente.
     const [enviados, rejeitados, fila] = await Promise.all([
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'falhou')),
       countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
     ]);
     const status = {
       processados: enviados + rejeitados, // total de tentativas processadas (enviadas + rejeitadas)
-      enviados,                           // email_events.status = 'enviado'
-      rejeitados,                         // email_events.status = 'falhou'
+      enviados,                           // email_events.event = 'send' e status = 'enviado'
+      rejeitados,                         // email_events.event = 'send' e status = 'falhou'
       adiados: fila,                      // scheduled_steps ainda pendentes (na fila)
     };
     return { rows, status, tags: clone(db.tags) };
@@ -368,7 +370,8 @@ export const KoblyApi = {
     };
     const [eventos, enviados] = await Promise.all([
       countOf(scope(supabase.from('webhook_events').select('id', { count: 'exact', head: true }))),
-      countOf(scope(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado'))),
+      // event='send' exclui 'send_test' (botão "Enviar teste") do funil de campanha.
+      countOf(scope(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado'))),
     ]);
     const [abertos, clicados] = await Promise.all([uniqueEmails('open'), uniqueEmails('click')]);
     let rq = supabase.from('campaign_stats').select('vendas_recuperadas');
@@ -547,9 +550,10 @@ export const KoblyApi = {
   // Cards de status de e-mail da tela de Leads (contagens reais, sem carregar leads).
   async getLeadStatus() {
     const countOf = async (builder) => { const { count } = await builder; return count || 0; };
+    // event='send' exclui os cliques em "Enviar teste" (event='send_test').
     const [enviados, rejeitados, fila] = await Promise.all([
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'enviado')),
-      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('status', 'falhou')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'enviado')),
+      countOf(supabase.from('email_events').select('id', { count: 'exact', head: true }).eq('event', 'send').eq('status', 'falhou')),
       countOf(supabase.from('scheduled_steps').select('id', { count: 'exact', head: true }).in('status_agendamento', ['Iniciado', 'Em andamento'])),
     ]);
     return { processados: enviados + rejeitados, enviados, rejeitados, adiados: fila };
@@ -916,6 +920,13 @@ export const KoblyApi = {
       }
       return { error: error.message };
     }
+    // A function responde 200 {"ok":false,"skipped":"suppressed"} (sem campo 'error')
+    // quando o destinatário está na lista de supressão — sem este ramo o código caía
+    // direto no "sucesso" abaixo e a tela mostrava "e-mail de teste enviado" quando,
+    // na verdade, nada foi enviado.
+    if (data && data.skipped === 'suppressed') {
+      return { error: 'Destinatário está na lista de supressão (descadastrado ou bounce permanente).' };
+    }
     if (data && data.error) {
       if (data.error === 'secret_unavailable') return { error: 'Resend não configurado (falta a API key).' };
       const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
@@ -991,7 +1002,7 @@ export const KoblyApi = {
     return { error: null, id: data && data.id };
   },
 
-  // ---- SMS (Twilio) — espelha WhatsApp (texto puro + {{cta_link}}/{{nome}}) -----
+  // ---- SMS (GTI SMS) — espelha WhatsApp (texto puro + {{cta_link}}/{{nome}}) -----
   async listSmsMessages() {
     const db = await loadDB();
     return clone(db.smsMessages || []);
@@ -1015,7 +1026,7 @@ export const KoblyApi = {
     return { error: error ? error.message : null, id: data ? data.id : null };
   },
   // Envio de teste de SMS — espelha sendTestWhatsapp. {{cta_link}} resolvido pela
-  // URL da loja (ou vazio). Credenciais Twilio ficam no Vault (edge function).
+  // URL da loja (ou vazio). Token da GTI fica no Vault (edge function).
   async sendTestSms({ to, message }) {
     let testMsg = message || '';
     let ctaFallback = '';
@@ -1026,7 +1037,7 @@ export const KoblyApi = {
     });
     if (error) {
       const body = await error.context?.json?.().catch(() => null);
-      if (body && body.error === 'secret_unavailable') return { error: 'Twilio não configurado — as credenciais são definidas pelo suporte.' };
+      if (body && body.error === 'secret_unavailable') return { error: 'SMS não configurado — as credenciais são definidas pelo suporte.' };
       if (body && (body.detail || body.error)) {
         const msg = (body.detail && typeof body.detail === 'object') ? body.detail.message : body.detail;
         return { error: msg || body.error };
@@ -1034,7 +1045,7 @@ export const KoblyApi = {
       return { error: error.message };
     }
     if (data && data.error) {
-      if (data.error === 'secret_unavailable') return { error: 'Twilio não configurado (faltam as credenciais no Vault).' };
+      if (data.error === 'secret_unavailable') return { error: 'SMS não configurado (falta o token da GTI no Vault).' };
       const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
       return { error: msg || data.error || 'Falha no envio' };
     }
@@ -1176,13 +1187,15 @@ export const KoblyApi = {
       },
     });
     if (error) {
+      // Erro HTTP não-2xx: o corpo traz o código (ex.: documento_ausente, que a
+      // edge function devolve com 400 quando a org não tem CPF/CNPJ).
       const body = await error.context?.json?.().catch(() => null);
-      return { error: (body && (body.detail || body.error)) || error.message };
+      return { error: (body && (body.detail || body.error)) || error.message, code: body && body.error };
     }
     if (data && data.error) {
       const d = data.detail;
       const msg = typeof d === 'object' ? (d.errors?.[0]?.description || d.message || JSON.stringify(d)) : (d || data.error);
-      return { error: msg };
+      return { error: msg, code: data.error };
     }
     return {
       error: null, invoiceUrl: data.invoiceUrl, paymentId: data.paymentId,
@@ -1214,13 +1227,24 @@ export const KoblyApi = {
   // cliente por e-mail via Edge Function invite-client. O cliente recebe um
   // convite do Supabase Auth e, ao definir a senha, seu profile já nasce
   // vinculado à org (handle_new_user lê organization_id do metadata).
-  async createOrganization({ nome, segmento, email, planoId }) {
+  async createOrganization({ nome, segmento, email, planoId, documento }) {
     // 1) Cria a org gerida (gestor vira membro Gestor da conta)
     const rpcParams = { p_nome: nome, p_segmento: segmento || null };
     if (planoId) rpcParams.p_plano_id = planoId;
     const { data: org, error } = await supabase.rpc('create_managed_org', rpcParams);
     resetDb();
     if (error) return { error: error.message };
+
+    // 1b) Documento fiscal: a RPC não recebe (assinatura fixa), então grava em
+    // seguida — o gestor já é membro da org, o RLS de update permite. Falha aqui
+    // não bloqueia o convite: a org já existe e o documento é editável depois.
+    let documentoError = null;
+    if (documento && org && org.id) {
+      const { error: docErr } = await supabase.from('organizations').update({ documento }).eq('id', org.id);
+      resetDb();
+      if (docErr) documentoError = docErr.message;
+    }
+    const done = (extra) => ({ error: null, org, documentoError, ...extra });
 
     // 2) Convida o cliente por e-mail (se informado)
     if (email && org && org.id) {
@@ -1238,19 +1262,34 @@ export const KoblyApi = {
         const json = await res.json().catch(() => ({}));
         if (!res.ok && !json.already_exists) {
           // Org criada mas convite falhou — informa mas não bloqueia.
-          return { error: null, org, inviteError: json.detail || json.error || 'Falha no convite' };
+          return done({ inviteError: json.detail || json.error || 'Falha no convite' });
         }
-        return { error: null, org, invited: !json.already_exists, alreadyExists: !!json.already_exists };
+        return done({ invited: !json.already_exists, alreadyExists: !!json.already_exists });
       } catch (e) {
-        return { error: null, org, inviteError: 'Falha ao conectar no convite' };
+        return done({ inviteError: 'Falha ao conectar no convite' });
       }
     }
-    return { error: null, org };
+    return done();
   },
+  // `documento` (CPF/CNPJ) precisa chegar NORMALIZADO — o CHECK
+  // organizations_documento_valido rejeita valor mascarado ou com DV errado,
+  // inclusive no formato alfanumérico (IN RFB 2.229). Use normalizeDoc().
   async updateOrganization(id, patch) {
-    const { error } = await supabase.from('organizations').update({ nome: patch.nome, segmento: patch.segmento }).eq('id', id);
+    const upd = {};
+    if (patch.nome !== undefined) upd.nome = patch.nome;
+    if (patch.segmento !== undefined) upd.segmento = patch.segmento;
+    if (patch.documento !== undefined) upd.documento = patch.documento || null;
+    if (!Object.keys(upd).length) return { error: null };
+    const { error } = await supabase.from('organizations').update(upd).eq('id', id);
     resetDb();
     return { error: error ? error.message : null };
+  },
+  // Documento da org logada — o checkout Asaas exige (POST /customers pede cpfCnpj).
+  async getOrgDocumento(orgId) {
+    if (!orgId) return '';
+    const db = await loadDB();
+    const org = db.empresas.find((e) => e.id === orgId);
+    return (org && org.documento) || '';
   },
 
   // ---- Planos -------------------------------------------------------------
@@ -1413,7 +1452,9 @@ export const KoblyApi = {
       evCount({ event: 'send', status: 'enviado' }),
       evCount({ event: 'open' }),
       evCount({ event: 'click' }),
-      evCount({ status: 'falhou' }),
+      // event='send' exclui falhas de "Enviar teste" (event='send_test') da taxa de
+      // bounce do relatório — senão cada teste que falha infla o bounce do cliente.
+      evCount({ event: 'send', status: 'falhou' }),
     ]);
     const entrega = {
       abertura: nEnv ? nOpen / nEnv : 0,

@@ -8,11 +8,20 @@
 //
 // Config no Resend: aponte o webhook para
 //   ${SUPABASE_URL}/functions/v1/resend-webhook
-// e assine os eventos email.opened / email.clicked.
+// e assine os eventos do MAP abaixo (opened, clicked, delivered, delivery_delayed,
+// bounced, complained).
 //
-// ⚠️ Rastreamento de abertura/clique do Resend só dispara com DOMÍNIO VERIFICADO
-// (o sender de sandbox onboarding@resend.dev não rastreia). Sem isso, o pipeline
-// funciona mas não recebe eventos reais.
+// ⚠️ ABERTURA/CLIQUE NÃO CHEGAM SÓ POR TER DOMÍNIO VERIFICADO. O Resend desliga o
+// rastreamento por padrão em todo domínio ("Open and click tracking is disabled by
+// default for all domains") e ele só fica ATIVO com DUAS condições simultâneas:
+//   1) a flag open_tracking/click_tracking ligada no domínio, e
+//   2) um subdomínio de tracking (ex.: links.koblay.io) publicado por CNAME e verificado.
+// Sem as duas, o pixel nunca é inserido e NENHUM evento open/click existe — mesmo com
+// 100% de entrega em caixa de entrada. Este arquivo já afirmou que bastava "domínio
+// verificado"; era falso, e essa crença fez ler "0 aberturas em 67 entregas" como prova
+// de que os e-mails caíam em Spam (auditoria de 21/07). Zero abertura com tracking
+// desligado não é sinal de entrega — é ausência de instrumento. Antes de tirar qualquer
+// conclusão de taxa de abertura, confirme que as duas condições acima estão de pé.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -24,10 +33,14 @@ const cors = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
-// Resend event type → nosso mapeamento interno
-const MAP: Record<string, { event: string; col: "aberturas" | "cliques"; status: string }> = {
-  "email.opened": { event: "open", col: "aberturas", status: "aberto" },
-  "email.clicked": { event: "click", col: "cliques", status: "clicado" },
+// Resend event type → mapeamento interno. `kind` decide o tratamento.
+const MAP: Record<string, { event: string; status: string; kind: "engage" | "info" | "bounce" | "complaint"; col?: "aberturas" | "cliques" }> = {
+  "email.opened":           { event: "open",      status: "aberto",    kind: "engage", col: "aberturas" },
+  "email.clicked":          { event: "click",     status: "clicado",   kind: "engage", col: "cliques" },
+  "email.delivered":        { event: "delivered", status: "entregue",  kind: "info" },
+  "email.delivery_delayed": { event: "deferred",  status: "adiado",    kind: "info" },
+  "email.bounced":          { event: "bounce",    status: "bounce",    kind: "bounce" },
+  "email.complained":       { event: "complaint", status: "reclamado", kind: "complaint" },
 };
 
 // Verificação de assinatura svix (Resend). signedContent = "<id>.<ts>.<body>";
@@ -73,9 +86,18 @@ Deno.serve(async (req: Request) => {
   // Verificação de assinatura svix (auditoria E2E — Canais A1): sem isto, qualquer
   // um podia POSTar aberturas/cliques forjados e inflar métricas. A secret vem do
   // Vault (resend_webhook_secret = signing secret do webhook no painel do Resend).
-  // Se não estiver definida, seguimos sem verificar (dev) — defina-a em produção.
+  //
+  // FAIL CLOSED: se a secret não estiver definida, REJEITAMOS a request (503) em vez
+  // de processar sem verificar. Antes disto, "sem secret → segue sem checar" era
+  // aceitável quando este endpoint só gravava telemetria; agora que ele também
+  // escreve email_suppressions (bounce permanente → bloqueio GLOBAL, todo tenant),
+  // pular a verificação vira um curl anônimo capaz de suprimir qualquer endereço
+  // pra sempre em toda a plataforma. Não "simplifique" isto de volta para opcional.
   const { data: signingSecret } = await sb.rpc("get_secret", { p_name: "resend_webhook_secret" });
-  if (signingSecret) {
+  if (!signingSecret) {
+    return json({ error: "webhook_unconfigured" }, 503);
+  }
+  {
     const id = req.headers.get("svix-id") || "";
     const ts = req.headers.get("svix-timestamp") || "";
     const sig = req.headers.get("svix-signature") || "";
@@ -108,11 +130,50 @@ Deno.serve(async (req: Request) => {
   }
   if (!org) return json({ ok: true, ignored: true, reason: "unmatched" });
 
-  // 1) Registra o evento de abertura/clique
+  // Motivo do bounce. O Resend manda data.bounce = { type, subType, message } — e SÓ em
+  // email.bounced: o payload de email.delivery_delayed não carrega campo de motivo algum
+  // (ver docs/webhooks/emails/delivery-delayed), então `deferred` fica com reason null por
+  // limite do provedor, não por esquecimento — não "conserte" isso inventando um texto.
+  // Antes disto o insert gravava reason null em TODO bounce, e a única forma de saber por
+  // que um endereço quicou era abrir o painel do Resend. Foi exatamente esse buraco que
+  // cegou o diagnóstico de entregabilidade de 21/07: 12 eventos bounce/deferred na base,
+  // nenhum com motivo, forçando inferência por padrão temporal em vez de ler a resposta do MTA.
+  const bounce = body?.data?.bounce ?? null;
+  const bounceReason: string | null = bounce
+    ? ([[bounce.type, bounce.subType].filter(Boolean).join("/"), bounce.message]
+        .filter(Boolean).join(" — ").slice(0, 500) || null)
+    : null;
+
+  // Registra o evento (todos os tipos mapeados) — único insert por evento.
   await sb.from("email_events").insert({
     organization_id: org, campaign_id: campaignId, event: m.event, status: m.status,
-    email, sg_message_id: messageId, url: data.click?.link ?? null, "timestamp": new Date().toISOString(),
+    email, sg_message_id: messageId, reason: bounceReason,
+    url: (body.data?.click?.link ?? null), "timestamp": new Date().toISOString(),
   });
+
+  // Supressão automática: SÓ bounce PERMANENTE vira supressão global; reclamação de
+  // spam → por org (abaixo). Resend manda data.bounce.type = "Permanent" | "Transient"
+  // | "Undetermined". "Transient" cobre coisas como MailboxFull/MessageTooLarge — uma
+  // caixa cheia por um dia não pode virar bloqueio PERMANENTE e PLATAFORMA INTEIRA
+  // (organization_id=null): a policy de leitura esconde linhas globais até de admins
+  // e não existe policy de escrita nem UI pra reverter — vira definitivo. Transient/
+  // Undetermined/ausente: já gravamos o email_events acima (telemetria), mas NÃO suprime.
+  const bounceType: string | null = bounce?.type ?? null;
+  if (m.kind === "bounce" && email && bounceType === "Permanent") {
+    await sb.from("email_suppressions").upsert(
+      { email: String(email).toLowerCase(), organization_id: null, reason: "bounce", source: "webhook" },
+      { onConflict: "email,organization_id", ignoreDuplicates: true },
+    );
+  }
+  if (m.kind === "complaint" && email) {
+    await sb.from("email_suppressions").upsert(
+      { email: String(email).toLowerCase(), organization_id: org, reason: "complaint", source: "webhook" },
+      { onConflict: "email,organization_id", ignoreDuplicates: true },
+    );
+  }
+
+  // Só engajamento (open/click) alimenta lead_metrics e stats de campanha.
+  if (m.kind !== "engage") return json({ ok: true, type: body.type, event: m.event });
 
   // 2) Incrementa a métrica do lead
   if (email) {

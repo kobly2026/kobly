@@ -781,7 +781,7 @@ function WhatsappTab({ empresaId }) {
   );
 }
 
-// ── Aba: SMS (Twilio) — templates + envio de teste ──
+// ── Aba: SMS (GTI SMS) — templates + envio de teste ──
 function SmsTab({ empresaId }) {
   const store = useKobly();
   const msgs = useAsync(() => KoblyApi.listSmsMessages(), [empresaId]);
@@ -831,7 +831,7 @@ function SmsTab({ empresaId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card icon="smartphone" title="SMS (Twilio)" subtitle="As credenciais Twilio ficam no servidor (Vault). Envie um teste para validar.">
+      <Card icon="smartphone" title="SMS" subtitle="As credenciais do provedor ficam no servidor (Vault). Envie um teste para validar.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <Icon name="info" size={15} style={{ color: 'var(--accent)' }} />

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button, Icon, IconButton, StatusLine } from '@/ds';
+import { isDocumentoBr, maskDocumento, normalizeDoc, tipoDocumento } from '@/lib/documento.js';
 
 // Kobly — UI primitives the design system doesn't ship: loading skeletons, drawn
 // empty states, an animated toast, and a small segmented control.
@@ -352,4 +353,48 @@ function PhoneField({ label = 'Telefone', value = '', onChange }) {
   );
 }
 
-export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, SkeletonTable, SkeletonCards, SkeletonForm, EmptyState, ErrorState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField };
+// ---- Campo de CPF/CNPJ: máscara + validação de DV --------------------------
+// Emite via onChange o valor NORMALIZADO (sem máscara, caixa alta) — é o que o
+// banco aceita (CHECK organizations_documento_valido). Aceita o CNPJ
+// alfanumérico da IN RFB 2.229/2024, então o campo é `text`: nada de
+// inputMode="numeric" nem replace(/\D/g,''), que comeriam as letras.
+function DocumentoField({ label = 'CPF / CNPJ', value = '', onChange, hint, disabled = false }) {
+  const [touched, setTouched] = useState(false);
+  const c = normalizeDoc(value);
+  const tipo = tipoDocumento(c);
+  const invalido = touched && c.length > 0 && !isDocumentoBr(c);
+  const erro = invalido
+    ? (tipo === 'CPF' ? 'CPF inválido — confira os dígitos.' : 'CNPJ inválido — confira os dígitos.')
+    : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {label && <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-body)' }}>{label}</span>}
+      <input
+        type="text"
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+        maxLength={18}
+        disabled={disabled}
+        className="kbly-input"
+        placeholder="00.000.000/0000-00"
+        value={maskDocumento(c)}
+        onChange={(e) => onChange && onChange(normalizeDoc(e.target.value).slice(0, 14))}
+        onBlur={() => setTouched(true)}
+        style={{
+          fontFamily: 'var(--font-mono)', fontSize: 'var(--text-md)', color: 'var(--text-strong)',
+          background: disabled ? 'var(--surface-sunken)' : 'var(--surface-card)',
+          border: `1px solid ${erro ? 'var(--red-500)' : 'var(--border-default)'}`,
+          borderRadius: 'var(--radius-md)', minHeight: 40, padding: '9px 13px',
+          outline: 'none', boxSizing: 'border-box',
+        }}
+      />
+      {erro
+        ? <span style={{ fontSize: 'var(--text-xs)', color: 'var(--status-danger-fg)' }}>{erro}</span>
+        : <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{hint || 'CPF ou CNPJ. Já aceita o CNPJ alfanumérico (ex.: 12.ABC.345/01DE-35).'}</span>}
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonRow, SkeletonMetric, SkeletonDashboard, SkeletonTable, SkeletonCards, SkeletonForm, EmptyState, ErrorState, Toast, Segmented, Drawer, Modal, AISuggestion, PhoneField, DocumentoField };

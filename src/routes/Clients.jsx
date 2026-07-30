@@ -3,7 +3,8 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB, SEGMENTOS } from '@/api/mockData.js';
 import { Avatar, Badge, Button, DataTable, IconButton, Icon, Input, PageHeader, Select } from '@/ds';
 import { useAsync } from '@/lib/hooks.jsx';
-import { Modal, ErrorState, SkeletonTable, EmptyState } from '@/lib/ui.jsx';
+import { isDocumentoBr } from '@/lib/documento.js';
+import { Modal, ErrorState, SkeletonTable, EmptyState, DocumentoField } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Clientes (Gestor/Admin). Lista e gerencia contas de cliente (Empresa).
@@ -14,6 +15,8 @@ function AccountModal({ account, onClose, onSubmit }) {
   const editing = !!account;
   const [nome, setNome] = useState(account ? account.nome : '');
   const [segmento, setSegmento] = useState(account ? (account.segmento || 'Outro') : 'Suplementos');
+  // CPF/CNPJ da conta — exigido pelo Asaas no checkout. Guardado normalizado.
+  const [documento, setDocumento] = useState(account ? (account.documento || '') : '');
   // MARCA-2: e-mail do cliente (para convite) + seleção de plano inicial.
   const [email, setEmail] = useState(account ? (account.clienteEmail || '') : '');
   const [planoId, setPlanoId] = useState('');
@@ -22,10 +25,14 @@ function AccountModal({ account, onClose, onSubmit }) {
   const plansA = useAsync(() => (editing ? Promise.resolve([]) : KoblyApi.getPlans()), [editing]);
   const planos = (plansA.data?.planos || []).filter((p) => !p.deleted);
 
+  // Documento é opcional no cadastro, mas se preenchido tem que ser válido —
+  // o CHECK do banco rejeitaria e o erro chegaria cru.
+  const docOk = !documento || isDocumentoBr(documento);
+
   async function submit() {
-    if (!nome.trim()) return;
+    if (!nome.trim() || !docOk) return;
     setBusy(true);
-    await onSubmit({ nome, segmento, email: editing ? undefined : email, planoId: editing ? undefined : planoId });
+    await onSubmit({ nome, segmento, documento, email: editing ? undefined : email, planoId: editing ? undefined : planoId });
     setBusy(false);
   }
   return (
@@ -33,11 +40,17 @@ function AccountModal({ account, onClose, onSubmit }) {
       subtitle={editing ? 'Atualize os dados básicos da conta.' : 'A conta é criada sob a sua agência. O cliente recebe um convite por e-mail para definir a senha e acessar.'}
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-        <Button variant="primary" iconLeft={editing ? 'check' : 'plus'} disabled={busy || !nome.trim()} onClick={submit}>{busy ? 'Salvando…' : (editing ? 'Salvar' : 'Criar conta')}</Button>
+        <Button variant="primary" iconLeft={editing ? 'check' : 'plus'} disabled={busy || !nome.trim() || !docOk} onClick={submit}>{busy ? 'Salvando…' : (editing ? 'Salvar' : 'Criar conta')}</Button>
       </>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Input label="Nome da empresa" placeholder="Ex.: Loja do João" value={nome} onChange={(e) => setNome(e.target.value)} />
         <Select label="Segmento" value={segmento} onChange={(e) => setSegmento(e.target.value)} options={SEGMENTOS} />
+        <DocumentoField
+          label="CPF / CNPJ (opcional)"
+          value={documento}
+          onChange={setDocumento}
+          hint="Usado na cobrança pelo Asaas. Já aceita o CNPJ alfanumérico (ex.: 12.ABC.345/01DE-35)."
+        />
         {!editing && (
           <>
             <Input label="E-mail do cliente" icon="mail" type="email" placeholder="cliente@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -69,9 +82,10 @@ function KoblyClients() {
   const [editing, setEditing] = useState(null); // conta em edição
   const DB = KoblyMockDB;
 
-  async function create({ nome, segmento, email, planoId }) {
-    const r = await KoblyApi.createOrganization({ nome, segmento, email, planoId });
+  async function create({ nome, segmento, documento, email, planoId }) {
+    const r = await KoblyApi.createOrganization({ nome, segmento, documento, email, planoId });
     if (r.error) { store.notify('danger', 'Não foi possível criar a conta.'); return; }
+    if (r.documentoError) store.notify('warning', 'Conta criada, mas o CPF/CNPJ não foi salvo — edite a conta para informar.');
     // MARCA-2: feedback granular sobre o convite.
     if (r.invited) store.notify('success', `Conta "${nome}" criada — convite enviado para ${email}`);
     else if (r.alreadyExists) store.notify('warning', `Conta criada, mas ${email} já tem cadastro`);
@@ -80,8 +94,8 @@ function KoblyClients() {
     setModal(false);
     a.reload();
   }
-  async function saveEdit({ nome, segmento }) {
-    const { error } = await KoblyApi.updateOrganization(editing.id, { nome, segmento });
+  async function saveEdit({ nome, segmento, documento }) {
+    const { error } = await KoblyApi.updateOrganization(editing.id, { nome, segmento, documento });
     if (error) { store.notify('danger', 'Não foi possível salvar a conta.'); return; }
     store.notify('success', 'Conta atualizada');
     setEditing(null);

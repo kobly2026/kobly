@@ -827,6 +827,41 @@ export type Database = {
           },
         ]
       }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          organization_id: string | null
+          reason: string
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          organization_id?: string | null
+          reason: string
+          source?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          organization_id?: string | null
+          reason?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_suppressions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       emails: {
         Row: {
           assunto: string | null
@@ -1384,6 +1419,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -1404,6 +1440,7 @@ export type Database = {
           plano_expira_em?: string | null
           plano_id?: string | null
           plano_status?: string | null
+          reply_to_email?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -1424,6 +1461,7 @@ export type Database = {
           plano_expira_em?: string | null
           plano_id?: string | null
           plano_status?: string | null
+          reply_to_email?: string | null
           segmento?: string | null
           sender_local?: string | null
           updated_at?: string
@@ -2511,6 +2549,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
@@ -2540,6 +2579,7 @@ export type Database = {
           plano_expira_em: string | null
           plano_id: string | null
           plano_status: string | null
+          reply_to_email: string | null
           segmento: string | null
           sender_local: string | null
           updated_at: string
