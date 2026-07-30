@@ -731,14 +731,23 @@ export const KoblyApi = {
   async createPostbackToken(nome, empresaId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
-    if (!orgId) return null;
+    if (!orgId) return { ok: false, error: 'Conta não encontrada.' };
     const { data, error } = await supabase.rpc('create_postback_token', {
       p_org_id: orgId,
       p_nome: nome || 'Novo token',
     });
-    if (error) return null;
+    if (error) {
+      // O trigger enforce_limite_integracoes levanta check_violation com a
+      // mensagem 'limite_integracoes_atingido: o plano permite N integracao(oes)
+      // de checkout. Remova uma ou faça upgrade.' — mostrar isso, não um genérico.
+      const msg = String(error.message || '');
+      if (msg.includes('limite_integracoes_atingido')) {
+        return { ok: false, error: msg.replace(/^.*?limite_integracoes_atingido:\s*/, '') };
+      }
+      return { ok: false, error: 'Não foi possível criar o webhook' };
+    }
     resetDb();
-    return data;
+    return { ok: true, token: data };
   },
   async revokePostbackToken(tokenId) {
     const { error } = await supabase.from('postback_tokens')

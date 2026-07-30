@@ -164,14 +164,14 @@ function PostbackTab({ data, empresaId }) {
   async function createWebhook() {
     const nome = (newName || '').trim() || 'Novo webhook';
     setCreating(true);
-    const t = await KoblyApi.createPostbackToken(nome, empresaId);
+    const r = await KoblyApi.createPostbackToken(nome, empresaId);
     setCreating(false);
-    if (t) {
+    if (r && r.ok) {
       setNewName('');
       await loadTokens();
       store.notify('success', `Webhook "${nome}" criado`);
     } else {
-      store.notify('danger', 'Não foi possível criar o webhook');
+      store.notify('danger', (r && r.error) || 'Não foi possível criar o webhook');
     }
   }
   // WEB-1: renomeia um webhook inline.
