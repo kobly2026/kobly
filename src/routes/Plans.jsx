@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
-import { Badge, Button, Card, DataTable, Icon, Input } from '@/ds';
+import { Badge, Button, Card, DataTable, Icon, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
 import { isDocumentoBr } from '@/lib/documento.js';
 import { Modal, ErrorState, SkeletonCards, DocumentoField } from '@/lib/ui.jsx';
@@ -67,7 +67,12 @@ function KoblyPlans() {
   const a = useAsync(() => KoblyApi.getPlans(store.session.empresaId || 'emp_1'), [store.role]);
   const asaasA = useAsync(() => KoblyApi.getAsaasStatus(), []);
   const [modal, setModal] = useState(false);
-  const [pf, setPf] = useState({ nome: '', descricao: '', valorMensal: '', valorAnual: '', limiteCampanhas: '', limiteExecucoes: '' });
+  const PF_VAZIO = {
+    nome: '', descricao: '', valorMensal: '', valorAnual: '', valorSemestral: '',
+    limiteCampanhas: '', limiteExecucoes: '', limiteIntegracoes: '', precoExcedente: '',
+    smsHabilitado: 'nao', disparoMassaHabilitado: 'nao', dominioProprioHabilitado: 'nao',
+  };
+  const [pf, setPf] = useState(PF_VAZIO);
   const [busy, setBusy] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(null);
   // PIX gerado (QR + copia-e-cola) — mostrado em modal após criar a cobrança.
@@ -84,10 +89,16 @@ function KoblyPlans() {
       await KoblyApi.createPlan({
         nome: pf.nome, descricao: pf.descricao,
         valorMensal: Number(pf.valorMensal) || 0, valorAnual: Number(pf.valorAnual) || 0,
+        valorSemestral: pf.valorSemestral === '' ? null : Number(pf.valorSemestral),
         limiteCampanhas: parseInt(pf.limiteCampanhas, 10) || 0, limiteExecucoes: parseInt(pf.limiteExecucoes, 10) || 0,
+        limiteIntegracoes: parseInt(pf.limiteIntegracoes, 10) || 0,
+        precoExcedente: pf.precoExcedente === '' ? null : Number(pf.precoExcedente),
+        smsHabilitado: pf.smsHabilitado === 'sim',
+        disparoMassaHabilitado: pf.disparoMassaHabilitado === 'sim',
+        dominioProprioHabilitado: pf.dominioProprioHabilitado === 'sim',
       });
       store.notify('success', `Plano "${pf.nome}" criado`);
-      setModal(false); setPf({ nome: '', descricao: '', valorMensal: '', valorAnual: '', limiteCampanhas: '', limiteExecucoes: '' });
+      setModal(false); setPf(PF_VAZIO);
       a.reload();
     } catch (e) {
       store.notify('danger', 'Não foi possível criar o plano.');
@@ -273,10 +284,22 @@ function KoblyPlans() {
           <Input label="Descrição" placeholder="Para quem é este plano" value={pf.descricao} onChange={setField('descricao')} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Input label="Valor mensal (R$)" type="number" placeholder="297" value={pf.valorMensal} onChange={setField('valorMensal')} />
+            <Input label="Valor semestral (R$)" type="number" placeholder="1640" value={pf.valorSemestral} onChange={setField('valorSemestral')} />
             <Input label="Valor anual (R$)" type="number" placeholder="2970" value={pf.valorAnual} onChange={setField('valorAnual')} />
             <Input label="Limite de campanhas" type="number" placeholder="20" value={pf.limiteCampanhas} onChange={setField('limiteCampanhas')} />
             <Input label="Limite de execuções/mês" type="number" placeholder="50000" value={pf.limiteExecucoes} onChange={setField('limiteExecucoes')} />
+            <Input label="Limite de integrações (vazio = ilimitado)" type="number" placeholder="10" value={pf.limiteIntegracoes} onChange={setField('limiteIntegracoes')} />
+            <Input label="Excedente (R$/mensagem)" type="number" step="0.001" placeholder="0.010" value={pf.precoExcedente} onChange={setField('precoExcedente')} />
+            <Select label="SMS" value={pf.smsHabilitado} onChange={setField('smsHabilitado')}
+              options={[{ value: 'nao', label: 'Não' }, { value: 'sim', label: 'Sim' }]} />
+            <Select label="Disparo em massa" value={pf.disparoMassaHabilitado} onChange={setField('disparoMassaHabilitado')}
+              options={[{ value: 'nao', label: 'Não' }, { value: 'sim', label: 'Sim' }]} />
+            <Select label="Domínio próprio" value={pf.dominioProprioHabilitado} onChange={setField('dominioProprioHabilitado')}
+              options={[{ value: 'nao', label: 'Não' }, { value: 'sim', label: 'Sim' }]} />
           </div>
+          <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+            Deixar “Limite de integrações” em branco ou 0 libera integrações ilimitadas.
+          </p>
         </div>
       </Modal>
     </div>

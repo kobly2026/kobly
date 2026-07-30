@@ -731,14 +731,24 @@ export const KoblyApi = {
   async createPostbackToken(nome, empresaId) {
     const me = await currentProfile();
     const orgId = empresaId || await firstOrgId(me);
-    if (!orgId) return null;
+    if (!orgId) return { ok: false, error: 'Conta não encontrada.' };
     const { data, error } = await supabase.rpc('create_postback_token', {
       p_org_id: orgId,
       p_nome: nome || 'Novo token',
     });
-    if (error) return null;
+    if (error) {
+      // O trigger enforce_limite_integracoes levanta check_violation com a
+      // mensagem 'limite_integracoes_atingido: o plano permite N integracao(oes)
+      // de checkout. Exclua uma (revogar não libera a vaga) ou faça upgrade.' —
+      // mostrar isso, não um genérico.
+      const msg = String(error.message || '');
+      if (msg.includes('limite_integracoes_atingido')) {
+        return { ok: false, error: msg.replace(/^.*?limite_integracoes_atingido:\s*/, '') };
+      }
+      return { ok: false, error: 'Não foi possível criar o webhook' };
+    }
     resetDb();
-    return data;
+    return { ok: true, token: data };
   },
   async revokePostbackToken(tokenId) {
     const { error } = await supabase.from('postback_tokens')
@@ -1316,7 +1326,17 @@ export const KoblyApi = {
   async createPlan(p) {
     const { data, error } = await supabase.from('plans').insert({
       nome: p.nome, descricao: p.descricao, valor_mensal: p.valorMensal, valor_anual: p.valorAnual,
-      limite_campanhas: p.limiteCampanhas, limite_execucoes: p.limiteExecucoes, status: 'Ativo', deleted: false,
+      valor_semestral: p.valorSemestral ?? null,
+      limite_campanhas: p.limiteCampanhas, limite_execucoes: p.limiteExecucoes,
+      // Campo agora exposto no formulário (Peça 5), então a escolha é deliberada
+      // em vez de herdada do default da coluna. Contrato de enforce_limite_integracoes
+      // não muda: vazio/0 continua significando ILIMITADO (v_limite is null or <= 0).
+      limite_integracoes: p.limiteIntegracoes ?? 0,
+      preco_excedente: p.precoExcedente ?? null,
+      sms_habilitado: !!p.smsHabilitado,
+      disparo_massa_habilitado: !!p.disparoMassaHabilitado,
+      dominio_proprio_habilitado: !!p.dominioProprioHabilitado,
+      status: 'Ativo', deleted: false,
     }).select().single();
     if (error) throw error;
     resetDb();

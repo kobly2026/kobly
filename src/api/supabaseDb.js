@@ -134,6 +134,10 @@ async function hydrate() {
     planos: plans.map((pl) => ({
       id: pl.id, nome: pl.nome, descricao: pl.descricao, status: pl.status, valorMensal: num(pl.valor_mensal),
       valorAnual: num(pl.valor_anual), limiteCampanhas: num(pl.limite_campanhas), limiteExecucoes: num(pl.limite_execucoes), deleted: pl.deleted,
+      valorSemestral: num(pl.valor_semestral), limiteIntegracoes: num(pl.limite_integracoes),
+      precoExcedente: num(pl.preco_excedente),
+      smsHabilitado: !!pl.sms_habilitado, disparoMassaHabilitado: !!pl.disparo_massa_habilitado,
+      dominioProprioHabilitado: !!pl.dominio_proprio_habilitado,
     })),
     templates: templates.map((t) => ({
       id: t.id, tipo: t.tipo_template, nome: t.nome, icone: t.icone, descricao: t.descricao, blank: t.blank, gatilho: t.gatilho,
