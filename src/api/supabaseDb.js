@@ -143,7 +143,7 @@ async function hydrate() {
       botoes: Array.isArray(m.botoes) ? m.botoes : [],
       empresaId: m.organization_id,
     })),
-    // SMS (Twilio) — templates por org (espelha whatsappMessages).
+    // SMS (GTI SMS) — templates por org (espelha whatsappMessages).
     smsMessages: smsMsgs.map((m) => ({ id: m.id, titulo: m.titulo, corpoTexto: m.corpo_texto, empresaId: m.organization_id })),
     // WEB-1: webhooks nomeados (tokens de postback) — usados no seletor de
     // webhook do FlowBuilder e no CRUD da aba Integrações.

@@ -987,7 +987,7 @@ export const KoblyApi = {
     return { error: null, id: data && data.id };
   },
 
-  // ---- SMS (Twilio) — espelha WhatsApp (texto puro + {{cta_link}}/{{nome}}) -----
+  // ---- SMS (GTI SMS) — espelha WhatsApp (texto puro + {{cta_link}}/{{nome}}) -----
   async listSmsMessages() {
     const db = await loadDB();
     return clone(db.smsMessages || []);
@@ -1011,7 +1011,7 @@ export const KoblyApi = {
     return { error: error ? error.message : null, id: data ? data.id : null };
   },
   // Envio de teste de SMS — espelha sendTestWhatsapp. {{cta_link}} resolvido pela
-  // URL da loja (ou vazio). Credenciais Twilio ficam no Vault (edge function).
+  // URL da loja (ou vazio). Token da GTI fica no Vault (edge function).
   async sendTestSms({ to, message }) {
     let testMsg = message || '';
     let ctaFallback = '';
@@ -1022,7 +1022,7 @@ export const KoblyApi = {
     });
     if (error) {
       const body = await error.context?.json?.().catch(() => null);
-      if (body && body.error === 'secret_unavailable') return { error: 'Twilio não configurado — as credenciais são definidas pelo suporte.' };
+      if (body && body.error === 'secret_unavailable') return { error: 'SMS não configurado — as credenciais são definidas pelo suporte.' };
       if (body && (body.detail || body.error)) {
         const msg = (body.detail && typeof body.detail === 'object') ? body.detail.message : body.detail;
         return { error: msg || body.error };
@@ -1030,7 +1030,7 @@ export const KoblyApi = {
       return { error: error.message };
     }
     if (data && data.error) {
-      if (data.error === 'secret_unavailable') return { error: 'Twilio não configurado (faltam as credenciais no Vault).' };
+      if (data.error === 'secret_unavailable') return { error: 'SMS não configurado (falta o token da GTI no Vault).' };
       const msg = (data.detail && typeof data.detail === 'object') ? data.detail.message : data.detail;
       return { error: msg || data.error || 'Falha no envio' };
     }

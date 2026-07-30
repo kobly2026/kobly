@@ -40,6 +40,19 @@ function normalizePhone(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
 }
+// GSM-7 para SMS: a GTI "nao aceita emojis, acentos ou outros caracteres especiais"
+// e o envio falha com caractere fora do padrao. Transliterar e' melhor que derrubar
+// um blast inteiro por causa de um "c-cedilha".
+// Inlinado nas 3 funcoes que enviam SMS (deploy por funcao nao empacota ../_shared/).
+// Manter as tres copias semanticamente identicas.
+function toGsm7(text: string): string {
+  return String(text)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira acento: Voce <- Você
+    .replace(/[ç]/g, "c").replace(/[Ç]/g, "C")
+    .replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'")
+    .replace(/[–—]/g, "-").replace(/…/g, "...")
+    .replace(/[^\x20-\x7E\n\r]/g, "");                  // resto (emoji etc.) sai fora
+}
 function subst(text: string, lead: any): string {
   return String(text || "")
     .split("{{nome}}").join(lead?.nome || "")
@@ -85,10 +98,8 @@ Deno.serve(async (req: Request) => {
   const { data: zapiInstanceId } = await sb.rpc("get_secret", { p_name: "zapi_instance_id" });
   const { data: zapiToken } = await sb.rpc("get_secret", { p_name: "zapi_token" });
   const { data: zapiClientToken } = await sb.rpc("get_secret", { p_name: "zapi_client_token" });
-  const { data: twilioSid } = await sb.rpc("get_secret", { p_name: "twilio_account_sid" });
-  const { data: twilioAuth } = await sb.rpc("get_secret", { p_name: "twilio_auth_token" });
-  const { data: twilioFrom } = await sb.rpc("get_secret", { p_name: "twilio_from" });
-  const { data: twilioApiKey } = await sb.rpc("get_secret", { p_name: "twilio_api_key_sid" });
+  // GTI SMS (canal SMS). Sem parâmetro de remetente: o sender é da conta GTI.
+  const { data: gtiToken } = await sb.rpc("get_secret", { p_name: "gti_sms_token" });
 
   // 0) Recicla linhas 'processando' presas (crash de tick anterior): ao reivindicar,
   //    empurramos run_at p/ +3min; se ainda estão 'processando' com run_at vencido, o
@@ -266,18 +277,26 @@ Deno.serve(async (req: Request) => {
       }
     } else if (canal === "SMS") {
       if (!destino) { fatal = true; errDetail = "sem telefone"; }
-      else if (!twilioSid || !twilioAuth || !twilioFrom) { errDetail = "twilio secrets ausentes"; }
+      else if (!gtiToken) { errDetail = "gti_sms_token ausente no Vault"; }
       else {
-        const message = subst(tpl.corpo_texto || tpl.titulo || "", lead);
-        const form = new URLSearchParams({ From: String(twilioFrom), To: `+${normalizePhone(destino)}`, Body: message });
-        const basicUser = twilioApiKey ? String(twilioApiKey) : String(twilioSid);
-        const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        // GTI SMS v3: JSON + Bearer, número SEM '+', corpo transliterado p/ GSM-7
+        // (a GTI rejeita acento/emoji). Mesmo contrato de send-sms e process-steps.
+        const message = toGsm7(subst(tpl.corpo_texto || tpl.titulo || "", lead));
+        const resp = await fetch("https://sms.gtisms.com/api/v3/sms/send", {
           method: "POST",
-          headers: { Authorization: `Basic ${btoa(`${basicUser}:${twilioAuth}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
-          body: form.toString(),
+          headers: { Authorization: `Bearer ${gtiToken}`, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient: normalizePhone(destino), message }),
         });
         const out = await resp.json().catch(() => ({}));
-        ok = resp.ok; msgId = out?.sid ?? null; if (!ok) { errDetail = JSON.stringify(out).slice(0, 200); if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true; }
+        // Fail-closed: HTTP ok E status "success" (a GTI pode responder 200 com erro).
+        ok = resp.ok && out?.status === "success";
+        msgId = out?.data?.uid ?? null;
+        if (!ok) {
+          errDetail = String(out?.message || JSON.stringify(out)).slice(0, 200);
+          // Observado na GTI: 403 = telefone inválido, 422 = validação — ambos definitivos.
+          // 500 "Unauthenticated." (token) não é 4xx → segue com retry, como o 429.
+          if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) fatal = true;
+        }
       }
     } else { fatal = true; errDetail = "canal desconhecido"; }
 

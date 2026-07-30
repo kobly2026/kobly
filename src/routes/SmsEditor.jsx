@@ -3,18 +3,32 @@ import { Button, Icon, Input } from '@/ds';
 import { useBreakpoint } from '@/lib/responsive.jsx';
 import { useKobly } from '@/store/store.jsx';
 
-// Kobly — Editor de mensagem de SMS (canal Twilio). Espelha o WhatsAppEditor,
-// sem botões (SMS é texto puro). Suporta {{cta_link}} e {{nome}}, com estimativa
-// de segmentos (acentos PT-BR usam UCS-2 = 70/67 chars por segmento).
+// Kobly — Editor de mensagem de SMS (canal GTI SMS). Espelha o WhatsAppEditor,
+// sem botões (SMS é texto puro). Suporta {{cta_link}} e {{nome}}.
+// A GTI aceita SOMENTE GSM-7: acento e emoji são transliterados/removidos no envio
+// (toGsm7, inlinado em send-sms/process-steps/process-bulk). Por isso a contagem
+// aqui é sempre 160/153 — não existe mais o caso UCS-2 (70/67) do Twilio: o texto
+// que sai nunca tem caractere fora do GSM-7.
 
-// Estimativa de segmentos igual à da edge function send-sms.
+// Mesma transliteração dos senders — o contador precisa medir o que SAI, não o que
+// foi digitado, senão "Promoção 🔥" contaria caracteres que nunca chegam à operadora.
+function toGsm7(text) {
+  return String(text || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ç]/g, 'c').replace(/[Ç]/g, 'C')
+    .replace(/[\u201C\u201D\u201E]/g, '"').replace(/[\u2018\u2019\u201A]/g, "'")
+    .replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...')
+    .replace(/[^\x20-\x7E\n\r]/g, '');
+}
+
+// Estimativa de segmentos igual à da edge function send-sms (sempre GSM-7).
 function segInfo(text) {
-  const len = [...(text || '')].length;
-  const unicode = /[^\x20-\x7E]/.test(text || ''); // fora do ASCII → UCS-2
-  const single = unicode ? 70 : 160;
-  const multi = unicode ? 67 : 153;
-  const segments = len === 0 ? 0 : (len <= single ? 1 : Math.ceil(len / multi));
-  return { len, unicode, segments };
+  const original = text || '';
+  const enviado = toGsm7(original);
+  const len = enviado.length;
+  const alterado = enviado !== original; // tinha acento/emoji → o envio vai diferente
+  const segments = len === 0 ? 0 : (len <= 160 ? 1 : Math.ceil(len / 153));
+  return { len, alterado, segments, enviado };
 }
 
 function KoblySmsEditor({ message, onClose, onSave }) {
@@ -24,8 +38,10 @@ function KoblySmsEditor({ message, onClose, onSave }) {
   const [saving, setSaving] = useState(false);
   const stacked = useBreakpoint().isNarrow;
 
-  const { len, unicode, segments } = segInfo(texto);
-  const previewText = (texto || '')
+  const { len, alterado, segments } = segInfo(texto);
+  // Preview mostra o texto COMO SAI (já transliterado): exibir "Você" enquanto a
+  // operadora entrega "Voce" seria enganoso justo na tela que existe para conferir.
+  const previewText = toGsm7(texto)
     .replace(/\{\{cta_link\}\}/gi, '[seu link aqui]')
     .replace(/\{\{nome\}\}/gi, '[nome]');
 
@@ -65,7 +81,7 @@ function KoblySmsEditor({ message, onClose, onSave }) {
           </span>
           <div>
             <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-bold)', color: 'var(--text-strong)' }}>Editor de SMS</div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Texto puro · Twilio</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Texto puro · GTI SMS</div>
           </div>
         </header>
 
@@ -82,7 +98,7 @@ function KoblySmsEditor({ message, onClose, onSave }) {
               </div>
               <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: segments > 1 ? 'var(--status-warning-fg)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Icon name="info" size={13} />
-                {len} caractere(s) · {segments} segmento(s){unicode ? ' · acentos/emoji reduzem para 70/67 por segmento' : ''}. Cada segmento é cobrado à parte.
+                {len} caractere(s) · {segments} segmento(s){alterado ? ' · acentos e emojis serão removidos no envio (a operadora só aceita GSM-7)' : ''}. Cada segmento é cobrado à parte.
               </div>
             </div>
           </div>

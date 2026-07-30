@@ -1,11 +1,9 @@
-// Kobly — Edge Function `send-sms`: proxy seguro para o Twilio (SMS).
+// Kobly — Edge Function `send-sms`: proxy seguro para a GTI SMS.
 // Credenciais no Supabase Vault (RPC get_secret, service_role). NUNCA no browser.
 // Secrets:
-//   twilio_account_sid  — Account SID (AC...) — path da API
-//   twilio_auth_token   — Auth Token OU Secret da API Key
-//   twilio_from         — numero E.164 ou Messaging Service SID (MG...)
-//   twilio_api_key_sid  — opcional (SK...). Se presente, Basic auth = SK:secret;
-//                         senao Basic auth = AC:auth_token (legado).
+//   gti_sms_token — token da API v3 (formato "399|xxxx"), enviado como Bearer.
+// A GTI nao tem parametro de remetente: o sender e definido na conta da GTI, nao por
+// requisicao (por isso nao existe equivalente ao antigo `twilio_from`).
 // verify_jwt = true: so usuarios autenticados (a UI envia o JWT da sessao).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -18,21 +16,33 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-// E.164 COM '+': Twilio exige o prefixo. BR sem DDI (10-11 digitos) → +55.
-function toE164(raw: string): string {
+const GTI_SEND_URL = "https://sms.gtisms.com/api/v3/sms/send";
+
+// A GTI espera o numero SEM '+': "5511988887777" (DDI + DDD + numero).
+// BR sem DDI (10-11 digitos) -> prefixa 55. Diferente do Twilio, que exigia o '+'.
+function toGtiNumber(raw: string): string {
   const digits = String(raw).replace(/\D/g, "");
   if (!digits) return "";
-  const withCc = digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
-  return `+${withCc}`;
+  return digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
 }
 
-// Estimativa de segmentos (GSM-7 160/153 vs UCS-2 70/67 quando ha acento/emoji).
+// A GTI so aceita GSM-7: "nao pode conter emojis, acentos ou outros caracteres
+// especiais". Transliterar na saida e' melhor que falhar o envio — a automacao roda
+// sem humano por perto. Mantido identico em process-steps e process-bulk.
+function toGsm7(text: string): string {
+  return String(text)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira acento: Voce <- Você
+    .replace(/[ç]/g, "c").replace(/[Ç]/g, "C")
+    .replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'")
+    .replace(/[–—]/g, "-").replace(/…/g, "...")
+    .replace(/[^\x20-\x7E\n\r]/g, "");                 // resto (emoji etc.) sai fora
+}
+
+// Estimativa local, usada so' quando a GTI nao devolve sms_count.
+// Depois de toGsm7 o texto e' sempre GSM-7, entao 160/153.
 function estimateSegments(text: string): number {
   const len = [...text].length;
-  const unicode = /[^\x20-\x7E]/.test(text);
-  const single = unicode ? 70 : 160;
-  const multi = unicode ? 67 : 153;
-  return len <= single ? 1 : Math.ceil(len / multi);
+  return len <= 160 ? 1 : Math.ceil(len / 153);
 }
 
 Deno.serve(async (req: Request) => {
@@ -50,47 +60,39 @@ Deno.serve(async (req: Request) => {
     const { data: caller } = await admin.from("profiles").select("id").eq("auth_id", authUser.user.id).maybeSingle();
     if (!caller) return json({ error: "forbidden" }, 403);
 
-    const { data: accountSid } = await admin.rpc("get_secret", { p_name: "twilio_account_sid" });
-    const { data: authToken } = await admin.rpc("get_secret", { p_name: "twilio_auth_token" });
-    const { data: from } = await admin.rpc("get_secret", { p_name: "twilio_from" });
-    const { data: apiKeySid } = await admin.rpc("get_secret", { p_name: "twilio_api_key_sid" });
-    if (!accountSid || !authToken || !from) {
-      return json({
-        error: "secret_unavailable",
-        detail: "Defina 'twilio_account_sid', 'twilio_auth_token' e 'twilio_from' no Vault.",
-      }, 500);
+    const { data: token } = await admin.rpc("get_secret", { p_name: "gti_sms_token" });
+    if (!token) {
+      return json({ error: "secret_unavailable", detail: "Defina 'gti_sms_token' no Vault." }, 500);
     }
 
-    const target = toE164(String(to));
-    if (!target || target.replace(/\D/g, "").length < 10) {
+    const target = toGtiNumber(String(to));
+    if (!target || target.length < 10) {
       return json({ error: "invalid_phone", detail: "Numero invalido — confira DDD e digitos." }, 400);
     }
 
-    // Twilio Messages API: form-urlencoded + Basic auth.
-    // Auth: API Key (SK:secret) se twilio_api_key_sid existir; senao Account SID:Auth Token.
-    // Path sempre usa Account SID (AC...).
-    const form = new URLSearchParams({ To: target, Body: String(message) });
-    if (String(from).startsWith("MG")) form.set("MessagingServiceSid", String(from));
-    else form.set("From", String(from));
-
-    const basicUser = apiKeySid ? String(apiKeySid) : String(accountSid);
-    const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    const body = toGsm7(String(message));
+    const resp = await fetch(GTI_SEND_URL, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${btoa(`${basicUser}:${authToken}`)}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
       },
-      body: form.toString(),
+      body: JSON.stringify({ recipient: target, message: body }),
     });
     const out = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      return json({ error: "twilio_error", status: resp.status, detail: out?.message || out }, 502);
+
+    // A GTI carimba `status` no corpo em TODA resposta. Exigir os dois (HTTP ok E
+    // status success) e' fail-closed: se um dia ela devolver 200 com status "error",
+    // um SMS nao enviado nao pode ser contado como entregue.
+    if (!resp.ok || out?.status !== "success") {
+      return json({ error: "gti_error", status: resp.status, detail: out?.message || out }, 502);
     }
     return json({
       ok: true,
-      sid: out.sid ?? null,
-      status: out.status ?? null,
-      segments: estimateSegments(String(message)),
+      sid: out?.data?.uid ?? null,
+      status: out?.data?.status ?? null,
+      segments: Number(out?.data?.sms_count) || estimateSegments(body),
     });
   } catch (e) {
     return json({ error: "bad_request", detail: String(e).slice(0, 300) }, 400);
