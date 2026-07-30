@@ -3,7 +3,8 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Button, Card, DataTable, Icon, Input } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { Modal, ErrorState, SkeletonCards } from '@/lib/ui.jsx';
+import { isDocumentoBr } from '@/lib/documento.js';
+import { Modal, ErrorState, SkeletonCards, DocumentoField } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Planos & cobrança. Plano atual + uso vs. limites, planos disponíveis,
@@ -72,6 +73,9 @@ function KoblyPlans() {
   // PIX gerado (QR + copia-e-cola) — mostrado em modal após criar a cobrança.
   const [pixData, setPixData] = useState(null);
   const [pixCopied, setPixCopied] = useState(false);
+  // CPF/CNPJ pendente: { plan, valor } enquanto o modal de documento está aberto.
+  const [docModal, setDocModal] = useState(null);
+  const [docBusy, setDocBusy] = useState(false);
   const setField = (k) => (e) => setPf((f) => ({ ...f, [k]: e.target.value }));
   async function createPlan() {
     if (!pf.nome.trim()) return;
@@ -99,7 +103,15 @@ function KoblyPlans() {
     store.setTicketPrefill({ tipo: 'Pagamento', assunto });
     store.navigate('chamados');
   };
+  // O Asaas exige cpfCnpj para criar o customer. Se a org ainda não tem
+  // documento, pede aqui em vez de estourar erro do gateway.
   async function checkoutAsaas(plan) {
+    const orgId = store.session.empresaId;
+    const doc = await KoblyApi.getOrgDocumento(orgId);
+    if (!doc) { setDocModal({ plan, valor: '' }); return; }
+    await gerarCobranca(plan);
+  }
+  async function gerarCobranca(plan) {
     setCheckoutBusy(plan.id);
     const r = await KoblyApi.createAsaasCheckout({
       planId: plan.id,
@@ -108,6 +120,8 @@ function KoblyPlans() {
     });
     setCheckoutBusy(null);
     if (r.error) {
+      // Corrida: documento removido entre a checagem e o POST.
+      if (r.code === 'documento_ausente') { setDocModal({ plan, valor: '' }); return; }
       store.notify('danger', r.error);
       return;
     }
@@ -122,6 +136,16 @@ function KoblyPlans() {
     } else {
       store.notify('success', `Cobrança criada (${r.paymentId || 'ok'}). Confira no painel Asaas.`);
     }
+  }
+  async function salvarDocumento() {
+    if (!docModal || !isDocumentoBr(docModal.valor)) return;
+    setDocBusy(true);
+    const { error } = await KoblyApi.updateOrganization(store.session.empresaId, { documento: docModal.valor });
+    setDocBusy(false);
+    if (error) { store.notify('danger', 'Não foi possível salvar o CPF/CNPJ.'); return; }
+    const plan = docModal.plan;
+    setDocModal(null);
+    await gerarCobranca(plan);
   }
   async function copyPix() {
     if (!pixData?.pixCopyPaste) return;
@@ -186,6 +210,23 @@ function KoblyPlans() {
           rows={canCreate ? d.transacoes : d.transacoes.filter((t) => t.userId === store.session.userId)}
         />
       </Card>
+
+      <Modal open={!!docModal} onClose={() => setDocModal(null)} title="CPF / CNPJ para a cobrança" width={440}
+        subtitle={docModal?.plan ? `Necessário para emitir a cobrança do plano ${docModal.plan.nome}.` : undefined}
+        footer={<>
+          <Button variant="ghost" onClick={() => setDocModal(null)}>Cancelar</Button>
+          <Button variant="primary" iconLeft="check" loading={docBusy}
+            disabled={docBusy || !isDocumentoBr(docModal?.valor || '')}
+            onClick={salvarDocumento}>
+            {docBusy ? 'Salvando…' : 'Salvar e gerar cobrança'}
+          </Button>
+        </>}>
+        <DocumentoField
+          value={docModal?.valor || ''}
+          onChange={(v) => setDocModal((m) => (m ? { ...m, valor: v } : m))}
+          hint="O gateway de pagamento exige o documento do titular. Já aceita o CNPJ alfanumérico (ex.: 12.ABC.345/01DE-35)."
+        />
+      </Modal>
 
       <Modal open={!!pixData} onClose={() => setPixData(null)} title={`Pagar via PIX${pixData?.plan ? ` — ${pixData.plan.nome}` : ''}`} width={420}
         footer={<>

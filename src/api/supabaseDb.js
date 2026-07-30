@@ -123,6 +123,8 @@ async function hydrate() {
     empresas: orgs.map((o) => ({
       id: o.id, nome: o.nome, fundadorId: o.user_fundador_id, segmento: o.segmento, planoId: o.plano_id,
       leads: num(o.leads_count), campanhasAtivas: num(o.campanhas_ativas_count), criticidade: o.criticidade,
+      // CPF/CNPJ normalizado (sem máscara). Vai para o Asaas como cpfCnpj. Ver src/lib/documento.js.
+      documento: o.documento || '',
     })),
     users: profiles.map((p) => ({
       id: p.id, nome: p.nome, email: p.email, tipo: p.tipo_user_geral, status: p.status_user,

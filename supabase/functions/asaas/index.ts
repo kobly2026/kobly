@@ -1,7 +1,9 @@
 // Kobly — Edge Function `asaas`: gateway de pagamento (sandbox/produção).
 // Secrets no Vault: asaas_api_key, asaas_env ('sandbox' | 'production').
 // Ações:
-//  - create_customer  { name, email, cpfCnpj?, phone? } → customer Asaas + grava org
+//  - create_customer  { name?, email?, phone? } → customer Asaas + grava org.
+//    O cpfCnpj NÃO vem do body: sai de organizations.documento (validado pelo
+//    banco, aceita CNPJ alfanumérico da IN RFB 2.229). Sem ele → documento_ausente.
 //  - create_subscription { plan_id, billingType?, cycle? } → assinatura + payment link
 //  - create_payment { plan_id, billingType? } → cobrança avulsa (PIX/BOLETO/CREDIT_CARD)
 //  - status → { configured, env }
@@ -90,16 +92,22 @@ Deno.serve(async (req: Request) => {
   // Garante customer Asaas para a org
   const ensureCustomer = async () => {
     const { data: org } = await sb.from("organizations")
-      .select("id, nome, asaas_customer_id").eq("id", orgId).maybeSingle();
+      .select("id, nome, asaas_customer_id, documento").eq("id", orgId).maybeSingle();
     if (!org) throw new Error("org_not_found");
     if (org.asaas_customer_id) return org.asaas_customer_id as string;
+
+    // POST /customers do Asaas exige cpfCnpj. A fonte é organizations.documento,
+    // já validado pelo CHECK organizations_documento_valido (CPF, CNPJ numérico
+    // ou alfanumérico da IN RFB 2.229) e guardado sem máscara — por isso NÃO se
+    // aceita mais documento vindo do body: seria entrada não validada.
+    if (!org.documento) throw new Error("documento_ausente");
 
     const name = body.name || org.nome || prof.nome || "Cliente Kobly";
     const email = body.email || prof.email;
     const r = await asaas("/customers", "POST", {
       name,
       email,
-      cpfCnpj: body.cpfCnpj || undefined,
+      cpfCnpj: org.documento,
       phone: body.phone || prof.celular || undefined,
       externalReference: org.id,
       notificationDisabled: false,
@@ -194,6 +202,14 @@ Deno.serve(async (req: Request) => {
 
     return json({ error: "unknown_action", detail: action }, 400);
   } catch (e) {
+    // Erro acionável pelo usuário (não é falha do gateway): o front abre o campo
+    // de CPF/CNPJ em vez de mostrar "asaas_failed".
+    if (String(e).includes("documento_ausente")) {
+      return json({
+        error: "documento_ausente",
+        detail: "Informe o CPF/CNPJ da conta antes de gerar a cobrança.",
+      }, 400);
+    }
     return json({ error: "asaas_failed", detail: String(e).slice(0, 300) }, 500);
   }
 });

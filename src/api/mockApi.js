@@ -1172,13 +1172,15 @@ export const KoblyApi = {
       },
     });
     if (error) {
+      // Erro HTTP não-2xx: o corpo traz o código (ex.: documento_ausente, que a
+      // edge function devolve com 400 quando a org não tem CPF/CNPJ).
       const body = await error.context?.json?.().catch(() => null);
-      return { error: (body && (body.detail || body.error)) || error.message };
+      return { error: (body && (body.detail || body.error)) || error.message, code: body && body.error };
     }
     if (data && data.error) {
       const d = data.detail;
       const msg = typeof d === 'object' ? (d.errors?.[0]?.description || d.message || JSON.stringify(d)) : (d || data.error);
-      return { error: msg };
+      return { error: msg, code: data.error };
     }
     return {
       error: null, invoiceUrl: data.invoiceUrl, paymentId: data.paymentId,
@@ -1210,13 +1212,24 @@ export const KoblyApi = {
   // cliente por e-mail via Edge Function invite-client. O cliente recebe um
   // convite do Supabase Auth e, ao definir a senha, seu profile já nasce
   // vinculado à org (handle_new_user lê organization_id do metadata).
-  async createOrganization({ nome, segmento, email, planoId }) {
+  async createOrganization({ nome, segmento, email, planoId, documento }) {
     // 1) Cria a org gerida (gestor vira membro Gestor da conta)
     const rpcParams = { p_nome: nome, p_segmento: segmento || null };
     if (planoId) rpcParams.p_plano_id = planoId;
     const { data: org, error } = await supabase.rpc('create_managed_org', rpcParams);
     resetDb();
     if (error) return { error: error.message };
+
+    // 1b) Documento fiscal: a RPC não recebe (assinatura fixa), então grava em
+    // seguida — o gestor já é membro da org, o RLS de update permite. Falha aqui
+    // não bloqueia o convite: a org já existe e o documento é editável depois.
+    let documentoError = null;
+    if (documento && org && org.id) {
+      const { error: docErr } = await supabase.from('organizations').update({ documento }).eq('id', org.id);
+      resetDb();
+      if (docErr) documentoError = docErr.message;
+    }
+    const done = (extra) => ({ error: null, org, documentoError, ...extra });
 
     // 2) Convida o cliente por e-mail (se informado)
     if (email && org && org.id) {
@@ -1234,19 +1247,34 @@ export const KoblyApi = {
         const json = await res.json().catch(() => ({}));
         if (!res.ok && !json.already_exists) {
           // Org criada mas convite falhou — informa mas não bloqueia.
-          return { error: null, org, inviteError: json.detail || json.error || 'Falha no convite' };
+          return done({ inviteError: json.detail || json.error || 'Falha no convite' });
         }
-        return { error: null, org, invited: !json.already_exists, alreadyExists: !!json.already_exists };
+        return done({ invited: !json.already_exists, alreadyExists: !!json.already_exists });
       } catch (e) {
-        return { error: null, org, inviteError: 'Falha ao conectar no convite' };
+        return done({ inviteError: 'Falha ao conectar no convite' });
       }
     }
-    return { error: null, org };
+    return done();
   },
+  // `documento` (CPF/CNPJ) precisa chegar NORMALIZADO — o CHECK
+  // organizations_documento_valido rejeita valor mascarado ou com DV errado,
+  // inclusive no formato alfanumérico (IN RFB 2.229). Use normalizeDoc().
   async updateOrganization(id, patch) {
-    const { error } = await supabase.from('organizations').update({ nome: patch.nome, segmento: patch.segmento }).eq('id', id);
+    const upd = {};
+    if (patch.nome !== undefined) upd.nome = patch.nome;
+    if (patch.segmento !== undefined) upd.segmento = patch.segmento;
+    if (patch.documento !== undefined) upd.documento = patch.documento || null;
+    if (!Object.keys(upd).length) return { error: null };
+    const { error } = await supabase.from('organizations').update(upd).eq('id', id);
     resetDb();
     return { error: error ? error.message : null };
+  },
+  // Documento da org logada — o checkout Asaas exige (POST /customers pede cpfCnpj).
+  async getOrgDocumento(orgId) {
+    if (!orgId) return '';
+    const db = await loadDB();
+    const org = db.empresas.find((e) => e.id === orgId);
+    return (org && org.documento) || '';
   },
 
   // ---- Planos -------------------------------------------------------------
