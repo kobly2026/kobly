@@ -12,6 +12,34 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Inlinado de _shared/billing_cycle.ts (per-function deploy não empacota ../_shared/).
+// Manter idêntico a resolveCycleValue em _shared/billing_cycle.ts.
+// Regra: cada ciclo lê SÓ o seu campo; sem valor utilizável devolve null e o
+// chamador recusa. Nada de fallback entre ciclos.
+type BillingCycle = "MONTHLY" | "SEMIANNUALLY" | "YEARLY";
+
+const CYCLE_FIELD: Readonly<Record<BillingCycle, string>> = {
+  MONTHLY: "valor_mensal",
+  SEMIANNUALLY: "valor_semestral",
+  YEARLY: "valor_anual",
+};
+
+function resolveCycleValue(
+  cycle: string,
+  plan: Record<string, unknown>,
+): number | null {
+  const key = String(cycle ?? "").toUpperCase() as BillingCycle;
+  const field = CYCLE_FIELD[key];
+  if (!field) return null;                 // ciclo não suportado
+
+  const raw = plan?.[field];
+  if (raw === null || raw === undefined) return null;   // nulo OU coluna ausente
+
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -129,17 +157,17 @@ Deno.serve(async (req: Request) => {
       const planId = body.plan_id;
       if (!planId) return json({ error: "missing_plan_id" }, 400);
       const { data: plan } = await sb.from("plans")
-        .select("id, nome, valor_mensal, valor_anual, status")
+        .select("id, nome, valor_mensal, valor_semestral, valor_anual, status")
         .eq("id", planId).maybeSingle();
       if (!plan || plan.status !== "Ativo") return json({ error: "plan_not_found" }, 404);
 
       const customerId = await ensureCustomer();
       const billingType = (body.billingType || "PIX").toUpperCase(); // PIX | BOLETO | CREDIT_CARD
       const cycle = (body.cycle || "MONTHLY").toUpperCase();
-      const value = cycle === "YEARLY"
-        ? Number(plan.valor_anual) || Number(plan.valor_mensal) * 12
-        : Number(plan.valor_mensal) || 0;
-      if (value <= 0) return json({ error: "invalid_plan_value" }, 400);
+      const value = resolveCycleValue(cycle, plan as Record<string, unknown>);
+      if (value === null) {
+        return json({ error: "invalid_plan_value", detail: `plano "${plan.nome}" nao tem valor para o ciclo ${cycle}` }, 400);
+      }
 
       if (action === "create_subscription") {
         const r = await asaas("/subscriptions", "POST", {
