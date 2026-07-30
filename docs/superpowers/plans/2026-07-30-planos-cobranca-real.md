@@ -969,3 +969,25 @@ git commit -m "fix(planos): mensagem do limite aponta Excluir e excedente respei
 **Follow-up comercial.** Decidir se a Digital sobe para Pro (hoje trava em 5 integrações num plano de 3).
 
 **Non-goals registrados na spec:** créditos de SMS pré-pagos, comissão de agência, multi-número de WhatsApp, alerta de 80% da franquia, proração de upgrade/downgrade.
+
+---
+
+## Follow-ups PRÉ-EXISTENTES (achados pelo review final desta branch, não causados por ela)
+
+Nenhum dos dois foi introduzido aqui, e nenhum bloqueou o merge. Ficam registrados porque o review final os encontrou e porque o primeiro **precisa** estar fechado antes de alguém faturar.
+
+### 1. `asaas_activate_plan` mata o excedente antes do arquivamento
+
+`supabase/migrations/0044_asaas_webhook.sql:83` zera `numero_execucoes` e joga `periodo_inicio = current_date` a cada `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED`, sem arquivar nada e sem tocar em `execucoes_excedente`. O `reset_usage_cycles` (cron diário 03:00) só arquiva quando `periodo_inicio <= current_date - 1 month`.
+
+Para um assinante mensal, o pagamento da renovação chega **antes** do cron fechar o período — todo ciclo. Resultado: o `periodo_inicio` pula para frente, o predicado do cron nunca casa, o consumo do mês é apagado sem deixar linha em `usage_period_history`, e o excedente fica no contador acumulando para o mês seguinte. Ele acaba cobrado uma vez só, atrasado, como um bolo de dois períodos — e o primeiro mês não tem evidência nenhuma.
+
+Impacto hoje: **zero** (as 9 orgs são isentas, excedente = 0). Mas `usage_period_history` é justamente a tabela de onde a fatura sairia, e ela é starvada por construção. **Fechar antes de faturar qualquer coisa.**
+
+### 2. `create_postback_token` não checa membership
+
+`public.create_postback_token(p_org_id, p_nome)` é `SECURITY DEFINER` com `EXECUTE` para `authenticated` e não valida se quem chama pertence à org do `p_org_id`.
+
+Qualquer usuário logado que saiba o UUID de outra organização consegue criar um token de postback ativo dentro dela — consumindo as vagas de `limite_integracoes` da vítima e obtendo uma URL funcional para injetar eventos de checkout falsos nas campanhas dela.
+
+Não muda nada nesta branch, mas anda junto com o trabalho de gates: o limite que acabou de virar real pode ser consumido por terceiros.
