@@ -984,10 +984,8 @@ Para um assinante mensal, o pagamento da renovação chega **antes** do cron fec
 
 Impacto hoje: **zero** (as 9 orgs são isentas, excedente = 0). Mas `usage_period_history` é justamente a tabela de onde a fatura sairia, e ela é starvada por construção. **Fechar antes de faturar qualquer coisa.**
 
-### 2. `create_postback_token` não checa membership
+### 2. `create_postback_token` precisa de checagem de autorização
 
-`public.create_postback_token(p_org_id, p_nome)` é `SECURITY DEFINER` com `EXECUTE` para `authenticated` e não valida se quem chama pertence à org do `p_org_id`.
+Item de segurança em aberto, levantado pelo review final desta branch. Anda junto com o trabalho de gates, porque afeta quem consegue consumir os limites que acabaram de passar a valer.
 
-Qualquer usuário logado que saiba o UUID de outra organização consegue criar um token de postback ativo dentro dela — consumindo as vagas de `limite_integracoes` da vítima e obtendo uma URL funcional para injetar eventos de checkout falsos nas campanhas dela.
-
-Não muda nada nesta branch, mas anda junto com o trabalho de gates: o limite que acabou de virar real pode ser consumido por terceiros.
+**Detalhes fora do repositório** — este repo é público e a correção ainda não subiu. Tratar por canal privado antes de documentar aqui.
