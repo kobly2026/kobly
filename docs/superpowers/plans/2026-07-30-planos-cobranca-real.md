@@ -628,7 +628,18 @@ git commit -m "fix(planos): formulario governa os campos que passaram a valer co
 
 ---
 
-## Task 6: Ativar a cobrança
+## Task 6: Ativar a cobrança — CANCELADA
+
+> **CANCELADA em 2026-07-30 por decisão do cliente.** As 9 organizações cadastradas
+> permanecem com `limites_isentos = true` (tudo liberado/ilimitado) para teste. A migration
+> `0064` não foi escrita nem aplicada; o estado desejado já é o estado do banco.
+>
+> Consequência que **permanece valendo**: o default de `organizations.limites_isentos` é
+> `false`, então toda organização **nova** nasce com os gates ativos. Contas de teste ficam
+> livres, clientes novos são cobrados.
+>
+> Para ativar depois, basta `update public.organizations set limites_isentos = false;` —
+> e revisar antes o que está na Task 7.
 
 **Files:**
 - Create: `supabase/migrations/0064_ativar_cobranca.sql`
@@ -747,6 +758,206 @@ Expected: 9 linhas, todas `limites_isentos = false`, e a **Digital ainda com 5 i
 ```bash
 git add supabase/migrations/0064_ativar_cobranca.sql
 git commit -m "feat(planos): tirar a isencao e ativar a cobranca dos limites"
+```
+
+---
+
+## Task 7: Coerência dos gates com contas isentas
+
+**Files:**
+- Create: `supabase/migrations/0065_gates_coerencia.sql`
+
+**Interfaces:**
+- Consumes: `preco_excedente` populado na Task 2.
+- Produces: nenhuma interface nova. Duas funções existentes são substituídas com `create or replace`; assinaturas e tipos de retorno ficam idênticos.
+
+Dois ajustes independentes, na mesma migration, ambos descobertos durante a execução do plano.
+
+**a) A mensagem do limite aponta para a ação errada.** A tela de integrações tem duas remoções: **Revogar** (`revokePostbackToken`, soft — `ativo=false`, a linha fica) e **Excluir** (`deletePostbackToken`, hard — `.delete()`). O `enforce_limite_integracoes` conta linhas sem filtrar por `ativo`, então só Excluir libera vaga. A mensagem diz "Remova uma", que não distingue as duas, e quem revogar continua bloqueado achando que resolveu.
+
+Decisão de produto tomada com o cliente: **manter** a semântica atual (revogar é pausar, a vaga fica reservada para a reativação) e corrigir a mensagem. A alternativa — contar só ativos — foi rejeitada porque `activatePostbackToken` permite revogar → criar → reativar e passar do limite, o que exigiria estender o trigger para `UPDATE`.
+
+**b) `bulk_reserve_usage` ignora `limites_isentos`.** É o único dos quatro pontos de regra que não olha a isenção (`enforce_limite_campanhas`, `enforce_limite_integracoes` e `org_pode` olham). Ele acumula `execucoes_excedente` mesmo em org isenta, e como a Task 2 preencheu `preco_excedente`, uma conta de teste que passe da franquia arquiva excedente **faturável** em `usage_period_history` na virada do mês. A contagem de uso (`numero_execucoes`) continua — é telemetria útil; só o excedente cobrável para de acumular.
+
+- [ ] **Step 1: Escrever a migration**
+
+Create `supabase/migrations/0065_gates_coerencia.sql`:
+
+```sql
+-- 0065_gates_coerencia.sql
+-- Kobly — dois ajustes de coerencia nos gates de plano, descobertos ao executar
+-- o plano 2026-07-30-planos-cobranca-real.
+--
+-- (a) MENSAGEM DO LIMITE DE INTEGRACOES. A tela tem duas remocoes: Revogar
+--     (soft, ativo=false, a linha fica) e Excluir (hard, delete). O trigger conta
+--     linhas sem filtrar por ativo, entao SO Excluir libera vaga. A mensagem dizia
+--     "Remova uma", que nao distingue as duas — quem revogava seguia bloqueado
+--     achando que tinha resolvido.
+--     Decisao: manter a semantica (revogar = pausar, vaga reservada para reativacao)
+--     e apontar a acao certa. Contar so ativos foi rejeitado: activatePostbackToken
+--     permitiria revogar -> criar -> reativar e passar do limite, exigindo estender
+--     o trigger para UPDATE.
+--
+-- (b) bulk_reserve_usage IGNORAVA limites_isentos — o unico dos quatro pontos de
+--     regra que nao olhava a isencao. Com preco_excedente preenchido (0063), conta
+--     isenta de teste arquivaria excedente FATURAVEL em usage_period_history no
+--     vira-mes. numero_execucoes continua contando (telemetria); so o excedente
+--     cobravel para de acumular para quem e isento.
+--
+-- Nenhuma assinatura muda. Rollback: reaplicar os corpos de 0061.
+-- ---------------------------------------------------------------------------
+
+-- (a) so a linha da mensagem muda em relacao a 0061
+create or replace function public.enforce_limite_integracoes()
+returns trigger
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+declare
+  v_limite int;
+  v_isento boolean;
+  v_qtd    int;
+begin
+  select o.limites_isentos, p.limite_integracoes into v_isento, v_limite
+    from public.organizations o
+    left join public.plans p on p.id = o.plano_id
+   where o.id = new.organization_id;
+
+  if coalesce(v_isento, false) or v_limite is null or v_limite <= 0 then
+    return new;
+  end if;
+
+  select count(*) into v_qtd
+    from public.postback_tokens t
+   where t.organization_id = new.organization_id
+     and t.id <> new.id;
+
+  if v_qtd >= v_limite then
+    raise exception 'limite_integracoes_atingido: o plano permite % integracao(oes) de checkout. Exclua uma (revogar não libera a vaga) ou faça upgrade.', v_limite
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- (b) passa a respeitar limites_isentos no acumulo de excedente
+create or replace function public.bulk_reserve_usage(p_org uuid, p_n integer)
+returns boolean
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+declare
+  v_limite int;
+  v_isento boolean;
+  v_n      int := greatest(0, coalesce(p_n, 0));
+  v_antes  int;
+  v_depois int;
+  v_exc    int;
+begin
+  if p_org is null then
+    return true;
+  end if;
+
+  select o.limites_isentos, p.limite_execucoes into v_isento, v_limite
+    from public.organizations o
+    left join public.plans p on p.id = o.plano_id
+   where o.id = p_org;
+
+  insert into public.usage_counters (organization_id, numero_execucoes, periodo_inicio)
+    values (p_org, 0, current_date)
+    on conflict (organization_id) do nothing;
+
+  update public.usage_counters
+     set numero_execucoes = numero_execucoes + v_n,
+         updated_at = now()
+   where organization_id = p_org
+  returning numero_execucoes - v_n, numero_execucoes into v_antes, v_depois;
+
+  -- SOFT-CAP inalterado: nunca nega. O que muda e que org isenta nao acumula
+  -- excedente faturavel.
+  if not coalesce(v_isento, false) and v_limite is not null and v_limite > 0 then
+    v_exc := greatest(0, v_depois - greatest(v_antes, v_limite));
+    if v_exc > 0 then
+      update public.usage_counters
+         set execucoes_excedente = execucoes_excedente + v_exc
+       where organization_id = p_org;
+    end if;
+  end if;
+
+  return true;
+end;
+$function$;
+```
+
+- [ ] **Step 2: Aplicar**
+
+Aplicar via `mcp__kobly-supabase__apply_migration` com `name = "gates_coerencia"` e o corpo acima (o cabeçalho de comentários pode ficar só no arquivo do repo).
+
+Expected: `{"success": true}`
+
+- [ ] **Step 3: Verificar que as duas funções mudaram e nada mais**
+
+Run (via `mcp__kobly-supabase__execute_sql`):
+
+```sql
+select p.proname,
+       pg_get_functiondef(p.oid) ilike '%Exclua uma (revogar%'   as msg_nova,
+       pg_get_functiondef(p.oid) ilike '%Remova uma ou%'          as msg_antiga,
+       pg_get_functiondef(p.oid) ilike '%limites_isentos%'        as respeita_isencao
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname='public' and p.prokind='f'
+   and p.proname in ('enforce_limite_integracoes','bulk_reserve_usage')
+ order by p.proname;
+```
+
+Expected: `bulk_reserve_usage` → `msg_nova=false, msg_antiga=false, respeita_isencao=true`; `enforce_limite_integracoes` → `msg_nova=true, msg_antiga=false, respeita_isencao=true`.
+
+Nota: a query usa `p.prokind='f'`. Sem esse filtro, `pg_get_functiondef` recebe o oid de um agregado e levanta `42809 "array_agg" is an aggregate function` — o filtro de schema não protege, porque `nspname` está na tabela juntada e é aplicado depois.
+
+- [ ] **Step 4: Verificar que o trigger continua ligado e a assinatura não mudou**
+
+Run:
+
+```sql
+select t.tgname, t.tgrelid::regclass::text as tabela,
+       case t.tgenabled when 'O' then 'ativo' else t.tgenabled::text end as estado
+  from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+ where not t.tgisinternal and p.proname = 'enforce_limite_integracoes';
+```
+
+Expected: uma linha — `trg_limite_integracoes | postback_tokens | ativo`.
+
+```sql
+select pg_get_function_identity_arguments(p.oid) as args, t.typname as retorno
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  join pg_type t on t.oid = p.prorettype
+ where n.nspname='public' and p.proname='bulk_reserve_usage';
+```
+
+Expected: `p_org uuid, p_n integer` e retorno `bool`.
+
+- [ ] **Step 5: Verificar que nenhuma org isenta acumula excedente novo**
+
+Run:
+
+```sql
+select o.nome, o.limites_isentos, uc.numero_execucoes, uc.execucoes_excedente
+  from public.organizations o
+  left join public.usage_counters uc on uc.organization_id = o.id
+ order by o.nome;
+```
+
+Expected: as 9 orgs com `limites_isentos = true` e `execucoes_excedente = 0`. Registrar a saída — é a linha de base para conferir depois que não voltou a crescer.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add supabase/migrations/0065_gates_coerencia.sql
+git commit -m "fix(planos): mensagem do limite aponta Excluir e excedente respeita isencao"
 ```
 
 ---
