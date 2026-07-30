@@ -739,7 +739,8 @@ export const KoblyApi = {
     if (error) {
       // O trigger enforce_limite_integracoes levanta check_violation com a
       // mensagem 'limite_integracoes_atingido: o plano permite N integracao(oes)
-      // de checkout. Remova uma ou faça upgrade.' — mostrar isso, não um genérico.
+      // de checkout. Exclua uma (revogar não libera a vaga) ou faça upgrade.' —
+      // mostrar isso, não um genérico.
       const msg = String(error.message || '');
       if (msg.includes('limite_integracoes_atingido')) {
         return { ok: false, error: msg.replace(/^.*?limite_integracoes_atingido:\s*/, '') };
@@ -1327,8 +1328,9 @@ export const KoblyApi = {
       nome: p.nome, descricao: p.descricao, valor_mensal: p.valorMensal, valor_anual: p.valorAnual,
       valor_semestral: p.valorSemestral ?? null,
       limite_campanhas: p.limiteCampanhas, limite_execucoes: p.limiteExecucoes,
-      // limite_integracoes NULO significa ILIMITADO para enforce_limite_integracoes.
-      // Um plano novo não pode nascer vendendo integração sem teto por omissão.
+      // Campo agora exposto no formulário (Peça 5), então a escolha é deliberada
+      // em vez de herdada do default da coluna. Contrato de enforce_limite_integracoes
+      // não muda: vazio/0 continua significando ILIMITADO (v_limite is null or <= 0).
       limite_integracoes: p.limiteIntegracoes ?? 0,
       preco_excedente: p.precoExcedente ?? null,
       sms_habilitado: !!p.smsHabilitado,

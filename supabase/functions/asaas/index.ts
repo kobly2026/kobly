@@ -166,7 +166,7 @@ Deno.serve(async (req: Request) => {
       const cycle = (body.cycle || "MONTHLY").toUpperCase();
       const value = resolveCycleValue(cycle, plan as Record<string, unknown>);
       if (value === null) {
-        return json({ error: "invalid_plan_value", detail: `plano "${plan.nome}" nao tem valor para o ciclo ${cycle}` }, 400);
+        return json({ error: "invalid_plan_value", detail: `plano "${plan.nome}" não tem valor para o ciclo ${cycle}` }, 400);
       }
 
       if (action === "create_subscription") {

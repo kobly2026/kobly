@@ -77,6 +77,10 @@ Fora deste ciclo, deliberadamente:
 
 ### Peça 1 — Ativar a cobrança
 
+> **CANCELADA em 2026-07-30, por decisão do cliente.** Esta peça NÃO foi e NÃO deve ser executada. As 9 organizações existentes permanecem, de propósito, com `limites_isentos = true` — ficam de fora do enforcement para fins de teste. Nenhuma migration `0064` foi escrita (ver nota no cabeçalho de `0063_planos_schema_e_precos.sql`). O texto abaixo descreve o plano original e fica registrado por histórico da decisão — não é uma instrução pendente.
+>
+> Consequência prática: a asserção em "Testes" (`select count(*) from public.organizations where limites_isentos;`) espera hoje **9**, não `0` como o texto original diz. Se você rodar essa asserção e ver `9`, isso é o estado correto e esperado — **não** rode o `update ... set limites_isentos = false` abaixo para "corrigir". Fazer isso ligaria o enforcement de cobrança em nove contas ao vivo contra uma decisão comercial explícita do cliente.
+
 **Arquivo:** `supabase/migrations/0063_ativar_cobranca_planos.sql`
 
 `update public.organizations set limites_isentos = false` nas 9 orgs.
@@ -179,9 +183,11 @@ O projeto não tem runner JS. Seguindo a convenção já usada (ver `2026-07-21-
 
 **Integração → SQL de asserção.** Após a migration:
 
+> **Nota de 2026-07-30 (pós-cancelamento da Peça 1):** a primeira asserção abaixo foi escrita quando a Peça 1 ainda ia rodar. Peça 1 foi **cancelada** por decisão do cliente — as 9 organizações continuam de propósito com `limites_isentos = true`. A expectativa correta hoje é **9**, não `0`. Um resultado de `9` não é um rollout incompleto; é o estado desejado. Não "corrija" isso rodando `update ... set limites_isentos = false`.
+
 ```sql
--- nenhuma org isenta
-select count(*) from public.organizations where limites_isentos;         -- espera 0
+-- nenhuma org isenta [CANCELADO 2026-07-30: Peça 1 não rodou — hoje espera-se 9, as 9 orgs seguem isentas de propósito]
+select count(*) from public.organizations where limites_isentos;         -- espera 0 (original) → hoje espera 9
 -- os 3 planos ativos têm preço de excedente e valor semestral
 select count(*) from public.plans
  where status='Ativo' and deleted=false

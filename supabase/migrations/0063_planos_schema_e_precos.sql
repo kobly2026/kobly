@@ -1,6 +1,14 @@
 -- 0063_planos_schema_e_precos.sql
 -- Kobly — schema e preços para a cobrança real dos planos. INERTE: não muda
--- comportamento. A ativação está na 0064.
+-- comportamento.
+--
+-- 0064 NÃO EXISTE — número intencionalmente pulado. A Peça 1 (ativação, que
+-- seria a 0064) foi CANCELADA em 2026-07-30 por decisão do cliente: as 9 orgs
+-- existentes seguem de propósito com limites_isentos = true. Ver a nota de
+-- cancelamento em docs/superpowers/specs/2026-07-30-planos-cobranca-real-design.md
+-- (seção "Peça 1 — Ativar a cobrança"). O próximo número aplicado depois deste
+-- é a 0065_gates_coerencia.sql. NÃO criar um `0064_*.sql` agora — ordenaria
+-- antes da 0065 mas seria aplicado depois dela, quebrando a ordem histórica.
 --
 -- Decisões registradas em docs/superpowers/specs/2026-07-30-planos-cobranca-real-design.md:
 --
