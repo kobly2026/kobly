@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KOBLY — Handover técnico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Direction: Carvão Quente — dark warm charcoal canvas, Lexend, accent #FF6201 (~5–10%),
+   sticky nav rail like the product AppShell. Tokens espelhados de src/styles/tokens/*.css */
+
+:root {
+  --orange-700: #b24500;
+  --orange-600: #e55800;
+  --orange-500: #ff6201;
+  --orange-400: #ff7b2a;
+  --orange-tint: rgba(255, 98, 1, 0.14);
+
+  --ink-1000: #070606;
+  --ink-900:  #0e0d0b;
+  --ink-850:  #131110;
+  --ink-800:  #171512;
+  --ink-750:  #1c1a17;
+  --ink-700:  #211e1a;
+  --ink-600:  #2b2824;
+  --ink-500:  #3b3731;
+  --ink-300:  #948e85;
+  --ink-200:  #b5afa7;
+  --ink-100:  #cfcac3;
+  --ink-50:   #f7f4f0;
+
+  --green-500: #3ddc84; --green-tint: rgba(61, 220, 132, 0.14);
+  --amber-500: #ffb020; --amber-tint: rgba(255, 176, 32, 0.14);
+  --red-500:   #ff6a61; --red-tint:   rgba(255, 106, 97, 0.15);
+
+  --surface-app:    var(--ink-900);
+  --surface-nav:    #090808;
+  --surface-card:   var(--ink-800);
+  --surface-sunken: #0b0a09;
+  --surface-raised: var(--ink-700);
+  --surface-overlay: var(--ink-750);
+
+  --text-strong: var(--ink-50);
+  --text-body:   var(--ink-100);
+  --text-muted:  var(--ink-300);
+  --text-subtle: #6b655d;
+  --text-on-accent: #1b0d02;
+  --text-link:   var(--orange-400);
+
+  --border-subtle:  rgba(255, 255, 255, 0.09);
+  --border-default: rgba(255, 255, 255, 0.14);
+  --border-strong:  rgba(255, 255, 255, 0.22);
+  --border-accent:  rgba(255, 98, 1, 0.45);
+  --border-nav:     rgba(255, 255, 255, 0.07);
+
+  --accent:       var(--orange-500);
+  --accent-hover: var(--orange-400);
+  --accent-soft:  var(--orange-tint);
+  --primary-bg:   var(--orange-500);
+  --primary-fg:   #1b0d02;
+  --ring: rgba(255, 98, 1, 0.5);
+
+  --status-success-fg: var(--green-500); --status-success-bg: var(--green-tint);
+  --status-warning-fg: var(--amber-500); --status-warning-bg: var(--amber-tint);
+  --status-danger-fg:  var(--red-500);   --status-danger-bg:  var(--red-tint);
+  --status-info-fg:    var(--orange-400);--status-info-bg:    var(--orange-tint);
+  --status-neutral-fg: var(--ink-200);   --status-neutral-bg: rgba(255, 255, 255, 0.07);
+
+  --font-sans: 'Lexend', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --text-4xl: 38px; --text-3xl: 30px; --text-2xl: 24px; --text-xl: 20px;
+  --text-lg: 17px; --text-md: 15px; --text-sm: 13px; --text-xs: 12px; --text-2xs: 11px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700; --fw-extra: 800;
+  --lh-tight: 1.15; --lh-snug: 1.3; --lh-normal: 1.5;
+  --ls-tight: -0.02em; --ls-eyebrow: 0.08em;
+
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --shadow-focus: 0 0 0 3px var(--ring);
+  --glow-accent-soft: 0 4px 20px -6px rgba(255, 98, 1, 0.25);
+  --grad-hero: radial-gradient(900px 320px at 15% -10%, rgba(255, 98, 1, 0.1), transparent 60%);
+  --grad-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px);
+
+  --sidebar-width: 260px;
+  --content-max: 980px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-med: 200ms;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--surface-app);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* —— App shell —— */
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.nav {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  width: var(--sidebar-width);
+  height: 100vh;
+  flex: none;
+  background: var(--surface-nav);
+  border-inline-end: 1px solid var(--border-nav);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  z-index: 40;
+  overflow-y: auto;
+}
+
+.nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px 20px;
+  border-bottom: 1px solid var(--border-nav);
+  margin-bottom: 16px;
+}
+.nav__mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex: none;
+}
+.nav__brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nav__wordmark {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-extra);
+  letter-spacing: var(--ls-tight);
+  color: var(--text-strong);
+  line-height: var(--lh-tight);
+}
+.nav__sub {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  font-weight: var(--fw-medium);
+}
+
+.nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.nav__link {
+  display: block;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  border-inline-start: 3px solid transparent;
+  transition: background var(--dur-med) var(--ease-out), color var(--dur-med) var(--ease-out);
+}
+.nav__link:hover {
+  background: var(--surface-nav-hover, var(--ink-800));
+  color: var(--text-body);
+  text-decoration: none;
+}
+.nav__link.is-active {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  border-inline-start-color: var(--accent);
+}
+
+.nav__footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-nav);
+  font-size: var(--text-2xs);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  padding-inline: 10px;
+}
+
+.menu-btn {
+  display: none;
+  position: fixed;
+  top: 14px;
+  inset-inline-start: 14px;
+  z-index: 50;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.menu-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+.nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 35;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  background: var(--grad-hero), var(--grad-sheen), var(--surface-app);
+}
+
+.page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 40px 40px 96px;
+}
+
+/* —— Hero —— */
+.hero {
+  margin-bottom: 36px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.hero__eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+.hero__title {
+  margin: 0 0 10px;
+  font-size: clamp(28px, 4vw, var(--text-4xl));
+  font-weight: var(--fw-extra);
+  letter-spacing: var(--ls-tight);
+  line-height: var(--lh-tight);
+  color: var(--text-strong);
+}
+.hero__lead {
+  margin: 0 0 20px;
+  max-width: 52ch;
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+.hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* —— Sections —— */
+section {
+  margin-bottom: 40px;
+  scroll-margin-top: 28px;
+}
+.section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.section__num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.section__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-tight);
+  color: var(--text-strong);
+  line-height: var(--lh-snug);
+}
+.section__intro {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+/* —— Cards / tables / badges —— */
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+.card--accent {
+  border-color: var(--border-accent);
+  box-shadow: var(--glow-accent-soft);
+}
+.card__title {
+  margin: 0 0 8px;
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+.card p:last-child { margin-bottom: 0; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 860px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-weight: var(--fw-semibold);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.badge--ok { color: var(--status-success-fg); background: var(--status-success-bg); }
+.badge--warn { color: var(--status-warning-fg); background: var(--status-warning-bg); }
+.badge--danger { color: var(--status-danger-fg); background: var(--status-danger-bg); }
+.badge--info { color: var(--status-info-fg); background: var(--status-info-bg); }
+.badge--neutral { color: var(--status-neutral-fg); background: var(--status-neutral-bg); }
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 14px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+th, td {
+  text-align: start;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+th {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-muted);
+  font-weight: var(--fw-semibold);
+  background: var(--surface-sunken);
+}
+tr:last-child td { border-bottom: none; }
+td.num, th.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+code, .mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+}
+code.inline {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  color: var(--text-body);
+}
+
+.ink {
+  background: var(--ink-1000);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  overflow-x: auto;
+  margin: 0 0 14px;
+  box-shadow: var(--shadow-sm);
+}
+.ink pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--ink-100);
+  white-space: pre;
+}
+
+ul.tight { margin: 0; padding-inline-start: 1.15em; }
+ul.tight li { margin-bottom: 6px; }
+ul.tight li:last-child { margin-bottom: 0; }
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.checklist li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+.checklist li:last-child { border-bottom: none; }
+.checklist input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.callout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+  margin-bottom: 14px;
+  font-size: var(--text-sm);
+}
+.callout--warn {
+  border-color: rgba(255, 176, 32, 0.35);
+  background: var(--status-warning-bg);
+}
+.callout--danger {
+  border-color: rgba(255, 106, 97, 0.35);
+  background: var(--status-danger-bg);
+}
+.callout strong { color: var(--text-strong); font-weight: var(--fw-semibold); }
+
+.doc-list a {
+  font-weight: var(--fw-medium);
+}
+
+/* —— Mobile drawer —— */
+@media (max-width: 860px) {
+  .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .nav {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    transform: translateX(-105%);
+    transition: transform var(--dur-med) var(--ease-out);
+    box-shadow: var(--shadow-md);
+  }
+  .nav.is-open { transform: translateX(0); }
+  .nav-backdrop.is-open { display: block; }
+  .page { padding: 72px 20px 72px; }
+}
+
+@media print {
+  .nav, .menu-btn, .nav-backdrop { display: none !important; }
+  .main { background: #fff; color: #111; }
+  body { background: #fff; color: #111; }
+  .card, .table-wrap, .ink {
+    box-shadow: none;
+    border-color: #ccc;
+    background: #fff;
+    color: #111;
+  }
+  .hero__title, .section__title, .card__title { color: #111; }
+  a { color: #000; }
+  .badge { border: 1px solid #999; }
+}
+</style>
+</head>
+<body>
+<button type="button" class="menu-btn" id="menuBtn" aria-label="Abrir navegação" aria-expanded="false" aria-controls="sidebar">☰</button>
+<div class="nav-backdrop" id="navBackdrop" hidden></div>
+
+<div class="app">
+  <aside class="nav" id="sidebar" aria-label="Seções do handover">
+    <div class="nav__brand">
+      <svg class="nav__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116.59 116.59" role="img" aria-label="KOBLY">
+        <rect width="116.59" height="116.59" rx="21.92" fill="#FF6201"/>
+        <path fill="#000000" d="M27.96 87.04l14.8 -0.01 3.14 -15.71c0.33,0.63 0.62,1.94 0.88,2.66 0.33,0.92 0.63,1.65 1.01,2.52 0.49,1.12 1.95,3.44 2.84,4.3 1.39,1.34 1.79,2.02 3.81,3.25 5.08,3.08 11.23,4.11 17.39,3.99 5.21,-0.09 7.69,-0.6 12.6,-1.65l3.94 -19.26c-0.6,0.32 -1.25,0.77 -1.87,1.15 -0.68,0.42 -1.26,0.79 -1.97,1.17 -4.28,2.32 -8.17,4.32 -13.1,5.75 -3.44,0.99 -7.16,1.62 -10.97,1.38 -1.86,-0.12 -3.59,-0.48 -5.18,-1.09 -0.7,-0.27 -1.57,-0.69 -2.11,-1.03 -1.13,-0.73 -1.68,-1.2 -2.48,-2.18 -0.81,-1 -1.17,-1.67 -1.67,-2.99 -1.86,-4.89 -0.37,-11.13 1.83,-15.42 0.67,-1.3 1.53,-2.76 2.34,-3.84l4.29 -5.13c1.03,-1.17 3.84,-3.77 3.93,-3.88 0.19,-0.24 0.15,-0.21 0.36,-0.4 0.22,-0.19 0.29,-0.22 0.45,-0.44l-24.57 0c-0.19,1.6 -1.91,9.61 -2.36,11.75l-7.34 35.11z"/>
+        <path fill="#000000" d="M57.11 75.45l-0.48 -0.47c-1.38,-1.24 -1.76,-2.92 -1.57,-4.82 0.3,-3.15 1.84,-5.4 3.66,-7.58 0.65,-0.78 1.11,-1.36 1.83,-1.98 3.84,-3.35 6.55,-5.12 11.13,-7.52 2.82,-1.47 4.89,-2.33 7.65,-3.68 1.62,-0.79 3.72,-1.5 5.21,-2.33l4.1 -18.54c-1.2,0.25 -3.11,1.09 -4.22,1.57 -3.13,1.35 -4.75,2.14 -7.75,3.67 -3.65,1.86 -10.8,6.28 -13.75,9.1 -0.73,0.7 -0.91,0.74 -1.84,1.68l-1.12 1.07c-3.25,3.21 -7.12,7.88 -8.81,14.04 -1.06,3.86 -0.97,8.42 1.22,11.76 0.45,0.69 0.77,1.05 1.27,1.59 0.72,0.78 2.44,2.18 3.47,2.42z"/>
+      </svg>
+      <div class="nav__brand-text">
+        <span class="nav__wordmark">KOBLY</span>
+        <span class="nav__sub">Handover</span>
+      </div>
+    </div>
+    <ul class="nav__list" id="navList">
+      <li><a class="nav__link" href="#s1">1. Em uma frase</a></li>
+      <li><a class="nav__link" href="#s2">2. Stack e repo</a></li>
+      <li><a class="nav__link" href="#s3">3. Arquitetura</a></li>
+      <li><a class="nav__link" href="#s4">4. Rodar local</a></li>
+      <li><a class="nav__link" href="#s5">5. Domínio de produto</a></li>
+      <li><a class="nav__link" href="#s6">6. Dados críticos</a></li>
+      <li><a class="nav__link" href="#s7">7. Estado atual</a></li>
+      <li><a class="nav__link" href="#s8">8. Remotes / branches</a></li>
+      <li><a class="nav__link" href="#s9">9. Ops / deploy</a></li>
+      <li><a class="nav__link" href="#s10">10. Convenções</a></li>
+      <li><a class="nav__link" href="#s11">11. Contatos</a></li>
+      <li><a class="nav__link" href="#s12">12. Checklist</a></li>
+      <li><a class="nav__link" href="#s13">13. Docs críticos</a></li>
+    </ul>
+    <div class="nav__footer">
+      docs/HANDOVER.html<br />
+      gerado 2026-08-13
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page">
+      <header class="hero">
+        <p class="hero__eyebrow">Handover técnico · Console</p>
+        <h1 class="hero__title">KOBLY</h1>
+        <p class="hero__lead">Documento operacional para o próximo engineer. Fatos do repositório em 2026-08-13 — sem inventar; incertezas marcadas.</p>
+        <div class="hero__meta">
+          <span class="badge badge--ok">branch main</span>
+          <span class="badge badge--info">origin/main sync</span>
+          <span class="badge badge--neutral">remote kobly2026/kobly</span>
+          <span class="badge badge--warn">sem CI no repo</span>
+        </div>
+      </header>
+
+      <!-- 1 -->
+      <section id="s1">
+        <div class="section__head">
+          <span class="section__num">01</span>
+          <h2 class="section__title">Em uma frase</h2>
+        </div>
+        <div class="card card--accent">
+          <p style="margin:0;color:var(--text-strong);font-size:var(--text-lg);line-height:var(--lh-snug)">
+            <strong>Kobly</strong> (domínio <code class="inline">koblay.io</code>, package <code class="inline">koblay</code>) é o console SaaS de <strong>automação de recuperação de vendas</strong>: eventos de checkout disparam campanhas de e-mail/WhatsApp/SMS com fluxo visual, billing via Asaas, e suporte (IA + humano) multi-tenant no Supabase.
+          </p>
+        </div>
+      </section>
+
+      <!-- 2 -->
+      <section id="s2">
+        <div class="section__head">
+          <span class="section__num">02</span>
+          <h2 class="section__title">Stack e estrutura do repo</h2>
+        </div>
+        <p class="section__intro">App único (não monorepo). Nome no código/UI: Kobly/KOBLY; npm name: <code class="inline">koblay</code> v0.1.0.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Camada</th><th>Escolha</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Front</td><td>Vite 5 · React 18 · JSX · alias <code class="inline">@</code> → <code class="inline">src/</code></td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>Backend</td><td>Supabase (Postgres + RLS + Auth + Edge Functions Deno + Realtime + Storage + Vault)</td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>UI</td><td>Design system próprio em <code class="inline">src/ds/</code> + tokens CSS — sem Tailwind/shadcn</td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>Charts / ícones</td><td>apexcharts · lucide-react (Icon dinâmico ~368&nbsp;KB gzip — dívida conhecida)</td><td><span class="badge badge--warn">legado</span></td></tr>
+              <tr><td>Package manager</td><td>npm (<code class="inline">package-lock.json</code>)</td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>Node</td><td>20 (Netlify <code class="inline">NODE_VERSION</code>)</td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>Deploy</td><td>Netlify SPA → <code class="inline">dist/</code> · domínio <code class="inline">app.koblay.io</code></td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>IA</td><td>DeepSeek via edge <code class="inline">ai-chat</code> (chave no Vault)</td><td><span class="badge badge--ok">ok</span></td></tr>
+              <tr><td>E-mail / WA / SMS / Pay</td><td>Resend · Z-API · send-sms · Asaas</td><td><span class="badge badge--ok">ok</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="ink"><pre>src/
+  main.jsx, App.jsx
+  ds/          # Card, Button, Badge, NavRail, DataTable, …
+  api/         # supabaseClient, supabaseDb, mockApi (legado nome), ai, demoPersonas
+  store/       # fases loading|login|recovery|onboarding|app · RBAC
+  shell/       # AppShell, Topbar, Login, Onboarding, Support*
+  routes/      # Dashboard, Pipeline, Campaigns, FlowBuilder, Leads, Integrations, Plans, …
+  styles/tokens/  # colors · typography · spacing · effects  (“Carvão Quente”)
+supabase/
+  migrations/  # 0001…0066 (pulou 0064 — cancelada)
+  functions/   # ai-chat, asaas(+webhook), process-steps/bulk, send-*, webhooks, …
+docs/          # migração histórica + go-live + specs/plans superpowers</pre></div>
+        <div class="callout callout--warn">
+          <div><strong>Legado de nome:</strong> <code class="inline">mockApi.js</code> / <code class="inline">KoblyMockDB</code> leem/escrevem Supabase de verdade. Telas exportam prefixo <code class="inline">Kobly*</code> do protótipo.</div>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section id="s3">
+        <div class="section__head">
+          <span class="section__num">03</span>
+          <h2 class="section__title">Arquitetura runtime</h2>
+        </div>
+        <div class="ink"><pre>┌─────────────┐     VITE_SUPABASE_*      ┌──────────────────────────────┐
+│  Browser    │ ───────────────────────► │  Supabase                    │
+│  Vite SPA   │                          │  Auth · Postgres/RLS         │
+│  Netlify    │ ◄──── Realtime ───────── │  Storage · Vault             │
+└──────┬──────┘     Edge invoke          │                              │
+       │                                 │  Edge Functions (Deno)       │
+       │                                 │   process-steps / process-bulk│
+       │                                 │   send-email|whatsapp|sms     │
+       │                                 │   webhook/postback-receiver   │
+       │                                 │   asaas · asaas-webhook       │
+       │                                 │   resend-* · zapi-webhook     │
+       │                                 │   ai-chat · unsubscribe …     │
+       └─────────────────────────────────┴───────────┬──────────────────┘
+                                                     │
+                    ┌────────────┬───────────────────┼──────────────┐
+                    ▼            ▼                   ▼              ▼
+                 Resend        Z-API              Asaas         DeepSeek
+              (e-mail)       (WhatsApp)         (billing)         (IA)</pre></div>
+        <div class="grid-2">
+          <div class="card">
+            <h3 class="card__title">Multi-tenant</h3>
+            <p style="margin:0;font-size:var(--text-sm)">Isolamento por <code class="inline">organization_id</code> via RLS. Signup → confirma e-mail → onboarding RPC <code class="inline">create_own_org</code> (plano Starter).</p>
+          </div>
+          <div class="card">
+            <h3 class="card__title">Motor de automação</h3>
+            <p style="margin:0;font-size:var(--text-sm)">Checkout/postback → leads → passos de campanha. Workers <code class="inline">process-steps</code> / <code class="inline">process-bulk</code> (cron). Supressões, unsub assinado, dead-letter.</p>
+          </div>
+        </div>
+        <p style="font-size:var(--text-sm);color:var(--text-muted)">Project ref documentado: <code class="inline">hvkuymprmfrjrgpqaxbw</code> (<code class="inline">supabase/config.toml</code>, docs go-live). Staging separado: <span class="badge badge--warn">a confirmar</span> (só um projeto aparece na doc).</p>
+      </section>
+
+      <!-- 4 -->
+      <section id="s4">
+        <div class="section__head">
+          <span class="section__num">04</span>
+          <h2 class="section__title">Como rodar local + envs</h2>
+        </div>
+        <div class="ink"><pre>npm install
+cp .env.example .env   # preencher VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+npm run dev            # http://localhost:5173
+npm run build          # → dist/
+npm run preview</pre></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Variável / secret</th><th>Onde</th><th>Uso</th></tr></thead>
+            <tbody>
+              <tr><td><code class="inline">VITE_SUPABASE_URL</code></td><td>.env / Netlify</td><td>Client Supabase (obrigatória no build prod)</td></tr>
+              <tr><td><code class="inline">VITE_SUPABASE_ANON_KEY</code></td><td>.env / Netlify</td><td>Anon key pública no bundle</td></tr>
+              <tr><td><code class="inline">deepseek_api_key</code></td><td>Vault</td><td>Edge <code class="inline">ai-chat</code></td></tr>
+              <tr><td><code class="inline">resend_api_key</code>, <code class="inline">resend_from</code>, <code class="inline">resend_sending_domain</code></td><td>Vault</td><td>Envio / remetente plataforma</td></tr>
+              <tr><td>Credenciais Z-API (instance/token)</td><td>Vault</td><td>WhatsApp — hoje <strong>global</strong>, não por org</td></tr>
+              <tr><td><code class="inline">asaas_api_key</code>, <code class="inline">asaas_env</code>, <code class="inline">asaas_webhook_token</code></td><td>Vault</td><td>Billing + auth do webhook</td></tr>
+              <tr><td><code class="inline">unsubscribe_secret</code>, <code class="inline">resend_webhook_secret</code></td><td>Vault</td><td>Unsub HMAC · verificação Svix (se ausente = fail-open no webhook)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <div>Integrações leem o <strong>Vault</strong> via RPC <code class="inline">get_secret()</code> — não “Edge Functions → Secrets”. Docker Compose local: <span class="badge badge--neutral">não há no repo</span>. Edge deploys: <code class="inline">supabase functions deploy &lt;nome&gt; --project-ref …</code>.</div>
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section id="s5">
+        <div class="section__head">
+          <span class="section__num">05</span>
+          <h2 class="section__title">Domínio de produto</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Papel</th><th>Home</th><th>Nav (resumo)</th></tr></thead>
+            <tbody>
+              <tr><td>Cliente</td><td>Dashboard</td><td>painel · pipeline · campanhas · disparos · leads · integrações · planos · chamados · ajuda · perfil</td></tr>
+              <tr><td>Gestor (agência)</td><td>Dashboard</td><td>+ clientes · relatórios (multi-conta)</td></tr>
+              <tr><td>Suporte</td><td>Chamados</td><td>chamados · leads · ajuda · perfil</td></tr>
+              <tr><td>Administrador</td><td>Dashboard</td><td>painel · clientes · relatórios · planos · segurança · chamados · perfil</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3 class="card__title">Golden path</h3>
+          <ol style="margin:0;padding-inline-start:1.2em;font-size:var(--text-sm)">
+            <li>Signup / login → org criada (ou persona DEV)</li>
+            <li>Integrações: webhook/postback (checkout) + domínio/remetente Resend + (opcional) WhatsApp</li>
+            <li>Campanhas: FlowBuilder (gatilho → tags → e-mail/WA/SMS) → ativar</li>
+            <li>Evento real → lead → worker executa passos → métricas no Dashboard/Pipeline</li>
+            <li>Planos: assinar via Asaas (PIX/assinatura); gates de limite no Postgres</li>
+          </ol>
+        </div>
+        <p style="font-size:var(--text-sm);color:var(--text-muted)">Personas demo (seed 0013) — e-mails em <code class="inline">src/api/demoPersonas.js</code>: <code class="inline">vitor@dizevolv.com</code>, <code class="inline">joao@lojadojoao.com.br</code>, <code class="inline">marina@kobly.com</code>, <code class="inline">daniela@kobly.com</code>. Senha <strong>não</strong> repetida aqui (está no arquivo; README manda rotacionar/remover em prod).</p>
+      </section>
+
+      <!-- 6 -->
+      <section id="s6">
+        <div class="section__head">
+          <span class="section__num">06</span>
+          <h2 class="section__title">Dados / domínio analítico crítico</h2>
+        </div>
+        <ul class="tight" style="margin-bottom:14px">
+          <li><strong>Uso / franquia:</strong> <code class="inline">usage_counters</code>, <code class="inline">usage_period_history</code>, <code class="inline">org_pode()</code>, triggers <code class="inline">enforce_limite_*</code>, <code class="inline">bulk_reserve_usage</code>.</li>
+          <li><strong>Isenção:</strong> <code class="inline">organizations.limites_isentos</code> — em 2026-07-30 as 9 orgs estavam <code class="inline">true</code> de propósito (cobrança não enforced).</li>
+          <li><strong>Billing:</strong> planos com <code class="inline">valor_mensal/semestral/anual</code>, <code class="inline">preco_excedente</code>; lógica pura <code class="inline">_shared/billing_cycle.ts</code> (inlinada no <code class="inline">asaas</code> — deploy não empacota <code class="inline">../_shared/</code>).</li>
+          <li><strong>CTA recuperação:</strong> passos aprovados + flag; extração determinística do link no postback ainda <span class="badge badge--danger">bloqueada</span> (dependência plataforma).</li>
+          <li><strong>Deliverability:</strong> <code class="inline">email_suppressions</code>, unsub assinado, List-Unsubscribe, reply-to por org.</li>
+        </ul>
+        <div class="callout callout--danger">
+          <div><strong>Antes de faturar:</strong> follow-up documentado — <code class="inline">asaas_activate_plan</code> zera uso sem arquivar em <code class="inline">usage_period_history</code> (starve da fatura). Impacto atual zero enquanto isentos/excedente=0.</div>
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section id="s7">
+        <div class="section__head">
+          <span class="section__num">07</span>
+          <h2 class="section__title">Estado atual do trabalho</h2>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3 class="card__title">Feito (recente)</h3>
+            <ul class="tight" style="font-size:var(--text-sm)">
+              <li>Cobrança real dos planos: ciclo semestral, excedente, formulário/gates coerentes (merge <code class="inline">6185d40</code>)</li>
+              <li>Schema <code class="inline">0063</code> + coerência <code class="inline">0065</code>/<code class="inline">0066</code></li>
+              <li>Lote CTA <code class="inline">{{cta_link}}</code> + marca Lexend/#FF6201</li>
+              <li>Email deliverability (suppressions, unsub, headers) — SDD anterior</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 class="card__title">Em andamento / WIP</h3>
+            <ul class="tight" style="font-size:var(--text-sm)">
+              <li>Working tree limpa exceto untracked <code class="inline">doc-top.jpeg</code></li>
+              <li>Stash: <code class="inline">wip-gti-sms-unrelated-to-task7-review</code> (branch antiga email-deliverability)</li>
+              <li>Branches locais remotas: <code class="inline">feat/checklist-infra-botoes</code>, <code class="inline">fix/auditoria-e2e-criticos</code></li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card__title">Bloqueado / decisão comercial</h3>
+          <ul class="tight" style="font-size:var(--text-sm)">
+            <li><span class="badge badge--warn">decisão</span> Task 6 / migration <code class="inline">0064</code> <strong>cancelada</strong> — manter <code class="inline">limites_isentos=true</code> nas orgs de teste; não “corrigir” para false.</li>
+            <li><span class="badge badge--danger">ext</span> CTA Task 11 — extrair URL de checkout do payload ENTITY só após evento real no banco.</li>
+            <li><span class="badge badge--danger">sec</span> Item de auth em <code class="inline">create_postback_token</code> — detalhes fora do repo público; tratar por canal privado.</li>
+            <li><span class="badge badge--warn">ops</span> Go-live: Redirect URLs Auth, SMTP Resend, remover demos, leaked-password (ver doc 07).</li>
+          </ul>
+        </div>
+        <p style="font-size:var(--text-sm);color:var(--text-muted)">HEAD: <code class="inline">a7d72ac</code> — docs(plano): tira do repo publico o detalhe do item de seguranca em aberto.</p>
+      </section>
+
+      <!-- 8 -->
+      <section id="s8">
+        <div class="section__head">
+          <span class="section__num">08</span>
+          <h2 class="section__title">Remotes e branches úteis</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Remote</th><th>URL</th><th>Nota</th></tr></thead>
+            <tbody>
+              <tr><td><code class="inline">origin</code></td><td><code class="inline">git@github.com:kobly2026/kobly.git</code></td><td>tracking atual de <code class="inline">main</code></td></tr>
+              <tr><td><code class="inline">dizevolv</code></td><td><code class="inline">git@github.com:DizevolvTech/kobly.git</code></td><td>espelho / histórico agência</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul class="tight" style="font-size:var(--text-sm)">
+          <li><code class="inline">main</code> — produção de código; sync com <code class="inline">origin/main</code></li>
+          <li><code class="inline">feat/checklist-infra-botoes</code> · <code class="inline">fix/auditoria-e2e-criticos</code> (também em <code class="inline">dizevolv/*</code>)</li>
+        </ul>
+      </section>
+
+      <!-- 9 -->
+      <section id="s9">
+        <div class="section__head">
+          <span class="section__num">09</span>
+          <h2 class="section__title">Ops / deploy / backup</h2>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3 class="card__title">Deploy front</h3>
+            <ul class="tight" style="font-size:var(--text-sm)">
+              <li><code class="inline">netlify.toml</code>: build <code class="inline">npm run build</code>, publish <code class="inline">dist</code>, Node 20, SPA fallback, security headers</li>
+              <li>Envs Netlify: as duas <code class="inline">VITE_*</code></li>
+              <li>DNS: CNAME <code class="inline">app</code> → site Netlify</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 class="card__title">Backend / risco ops</h3>
+            <ul class="tight" style="font-size:var(--text-sm)">
+              <li>Migrations aplicadas no projeto Supabase linkado</li>
+              <li><code class="inline">asaas-webhook</code> fail-open se <code class="inline">asaas_webhook_token</code> ausente</li>
+              <li>CI GitHub Actions: <span class="badge badge--warn">ausente no repo</span></li>
+              <li>Backups Postgres: <span class="badge badge--warn">a confirmar</span> (plano Supabase / fora do Git)</li>
+            </ul>
+          </div>
+        </div>
+        <p style="font-size:var(--text-sm)">Runbooks: <code class="inline">docs/07_GO_LIVE_CHECKLIST.md</code>, <code class="inline">docs/08_INFRA_ASAAS_DNS_RESEND.md</code>, README § Deploy.</p>
+      </section>
+
+      <!-- 10 -->
+      <section id="s10">
+        <div class="section__head">
+          <span class="section__num">10</span>
+          <h2 class="section__title">Convenções para quem assume</h2>
+        </div>
+        <ul class="tight" style="font-size:var(--text-sm)">
+          <li>Sem <code class="inline">CONVENTIONS.md</code> / <code class="inline">AGENTS.md</code> / <code class="inline">CLAUDE.md</code> na raiz — fonte de verdade: <strong>README.md</strong> + specs em <code class="inline">docs/superpowers/</code>.</li>
+          <li>Migrations: <code class="inline">supabase/migrations/00NN_nome.sql</code>. Próximo número livre após <code class="inline">0066</code> (não reusar <code class="inline">0064</code> cancelada sem ler o plano).</li>
+          <li>Edge: lógica pura em <code class="inline">_shared/</code> + <code class="inline">deno test</code>; <strong>copiar/inlinar</strong> dentro da function no deploy (não importar <code class="inline">../_shared/</code>).</li>
+          <li>Tokens UI: aliases semânticos (<code class="inline">--surface-*</code>, <code class="inline">--text-*</code>, <code class="inline">--accent</code>) — não hardcodar hex solto.</li>
+          <li>Gates de plano vivem no <strong>Postgres</strong>, não no JS (front escreve PostgREST).</li>
+          <li><code class="inline">verify_jwt</code> versionado em <code class="inline">supabase/config.toml</code> — webhooks públicos autenticam por token próprio.</li>
+        </ul>
+      </section>
+
+      <!-- 11 -->
+      <section id="s11">
+        <div class="section__head">
+          <span class="section__num">11</span>
+          <h2 class="section__title">Contatos / contexto de negócio</h2>
+        </div>
+        <div class="card">
+          <ul class="tight" style="font-size:var(--text-sm)">
+            <li>Produto / domínio: <code class="inline">koblay.io</code> · app <code class="inline">app.koblay.io</code> · remetente <code class="inline">contato@koblay.io</code></li>
+            <li>Agência / remote: DizevolvTech (persona Gestor <code class="inline">vitor@dizevolv.com</code>)</li>
+            <li>Orgs de teste em prod (doc 2026-07-30): 9 contas isentas; “Digital” acima do limite de integrações Starter</li>
+            <li>Contatos humanos adicionais: <span class="badge badge--neutral">não listados no repo</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section id="s12">
+        <div class="section__head">
+          <span class="section__num">12</span>
+          <h2 class="section__title">Checklist do próximo engineer</h2>
+        </div>
+        <div class="card">
+          <ul class="checklist">
+            <li><input type="checkbox" /> Clonar, <code class="inline">npm install</code>, preencher <code class="inline">.env</code>, subir <code class="inline">npm run dev</code> e logar com persona DEV</li>
+            <li><input type="checkbox" /> Ler README + <code class="inline">docs/08_INFRA_ASAAS_DNS_RESEND.md</code> + plano/spec de planos (2026-07-30)</li>
+            <li><input type="checkbox" /> Confirmar Vault: Asaas webhook token presente (POST sem header → 401)</li>
+            <li><input type="checkbox" /> Conferir Auth Redirect URLs + SMTP Resend (checklist 07)</li>
+            <li><input type="checkbox" /> Não ativar <code class="inline">limites_isentos=false</code> sem decisão comercial explícita</li>
+            <li><input type="checkbox" /> Antes de faturar: corrigir starve de <code class="inline">usage_period_history</code> no activate Asaas</li>
+            <li><input type="checkbox" /> Tratar item de segurança de postback token por canal privado</li>
+            <li><input type="checkbox" /> CTA: só retomar Task 11 com payload real no banco</li>
+            <li><input type="checkbox" /> Plano de remoção/rotação das personas demo em produção</li>
+            <li><input type="checkbox" /> Mapear quem faz deploy Netlify + Supabase (acesso fora do Git)</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 13 -->
+      <section id="s13">
+        <div class="section__head">
+          <span class="section__num">13</span>
+          <h2 class="section__title">Índice de docs críticos</h2>
+        </div>
+        <div class="table-wrap doc-list">
+          <table>
+            <thead><tr><th>#</th><th>Doc</th><th>Para quê</th></tr></thead>
+            <tbody>
+              <tr><td class="num">—</td><td><a href="../README.md">README.md</a></td><td>Estado atual do produto (começar aqui)</td></tr>
+              <tr><td class="num">07</td><td><a href="07_GO_LIVE_CHECKLIST.md">07_GO_LIVE_CHECKLIST.md</a></td><td>Auth URLs, SMTP, demos, segurança dashboard</td></tr>
+              <tr><td class="num">08</td><td><a href="08_INFRA_ASAAS_DNS_RESEND.md">08_INFRA_ASAAS_DNS_RESEND.md</a></td><td>Asaas Vault, DNS, Resend multi-remetente</td></tr>
+              <tr><td class="num">—</td><td><a href="superpowers/specs/2026-07-30-planos-cobranca-real-design.md">spec planos cobrança</a></td><td>Decisões comerciais + cancelamento 0064</td></tr>
+              <tr><td class="num">—</td><td><a href="superpowers/plans/2026-07-30-planos-cobranca-real.md">plano planos cobrança</a></td><td>Tasks + follow-ups pré-existentes</td></tr>
+              <tr><td class="num">—</td><td><a href="superpowers/plans/2026-07-21-cta-link-recuperacao.md">plano CTA</a></td><td>Task 11 bloqueada (externo)</td></tr>
+              <tr><td class="num">01–04</td><td><a href="README.md">docs/README.md</a></td><td>Histórico migração Bubble (referência; stack alvo desatualizada)</td></tr>
+              <tr><td class="num">—</td><td><a href="../supabase/config.toml">supabase/config.toml</a></td><td>verify_jwt por function</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:var(--text-sm);color:var(--text-subtle)">Espelho Markdown: <code class="inline">docs/HANDOVER.md</code>. Este HTML é self-contained para abertura local.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('menuBtn');
+  var nav = document.getElementById('sidebar');
+  var backdrop = document.getElementById('navBackdrop');
+  var links = Array.prototype.slice.call(document.querySelectorAll('.nav__link'));
+  var sections = links.map(function (a) {
+    return document.querySelector(a.getAttribute('href'));
+  }).filter(Boolean);
+
+  function setOpen(open) {
+    nav.classList.toggle('is-open', open);
+    backdrop.classList.toggle('is-open', open);
+    backdrop.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.setAttribute('aria-label', open ? 'Fechar navegação' : 'Abrir navegação');
+  }
+
+  btn.addEventListener('click', function () {
+    setOpen(!nav.classList.contains('is-open'));
+  });
+  backdrop.addEventListener('click', function () { setOpen(false); });
+  links.forEach(function (a) {
+    a.addEventListener('click', function () {
+      if (window.matchMedia('(max-width: 860px)').matches) setOpen(false);
+    });
+  });
+
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var id = entry.target.id;
+        links.forEach(function (a) {
+          a.classList.toggle('is-active', a.getAttribute('href') === '#' + id);
+        });
+      });
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: 0 });
+    sections.forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
