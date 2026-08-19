@@ -687,7 +687,7 @@ function WhatsappTab({ empresaId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card icon="message-circle" title="WhatsApp (Z-API)" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam no servidor.">
+      <Card icon="message-circle" title="WhatsApp" subtitle="A conexão com o WhatsApp é configurada pelo suporte — as credenciais ficam no servidor.">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {conn.loading ? (
             <Banner tone="info" title="Verificando conexão…">

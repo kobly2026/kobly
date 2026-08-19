@@ -11,6 +11,13 @@ const br = (n) => Number(n).toLocaleString('pt-BR');
 const pct = (n) => (n * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
 const money = (n) => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+function asaasErrorMessage(value, fallback = 'Falha ao processar a cobrança no Asaas.') {
+  if (typeof value === 'string' && value) return value;
+  if (!value || typeof value !== 'object') return fallback;
+  const first = Array.isArray(value.errors) ? value.errors[0] : null;
+  return first?.description || first?.code || value.message || value.detail || JSON.stringify(value);
+}
+
 // helpers de lookup (recebem o db hidratado)
 const empresaNome = (db, id) => (db.empresas.find((e) => e.id === id) || {}).nome || '—';
 const userById = (db, id) => db.users.find((u) => u.id === id) || {};
@@ -1200,12 +1207,11 @@ export const KoblyApi = {
       // Erro HTTP não-2xx: o corpo traz o código (ex.: documento_ausente, que a
       // edge function devolve com 400 quando a org não tem CPF/CNPJ).
       const body = await error.context?.json?.().catch(() => null);
-      return { error: (body && (body.detail || body.error)) || error.message, code: body && body.error };
+      return { error: asaasErrorMessage(body?.detail || body?.error || error.message), code: body && body.error };
     }
     if (data && data.error) {
       const d = data.detail;
-      const msg = typeof d === 'object' ? (d.errors?.[0]?.description || d.message || JSON.stringify(d)) : (d || data.error);
-      return { error: msg, code: data.error };
+      return { error: asaasErrorMessage(d || data.error), code: data.error };
     }
     return {
       error: null, invoiceUrl: data.invoiceUrl, paymentId: data.paymentId,

@@ -122,7 +122,16 @@ Deno.serve(async (req: Request) => {
     const { data: org } = await sb.from("organizations")
       .select("id, nome, asaas_customer_id, documento").eq("id", orgId).maybeSingle();
     if (!org) throw new Error("org_not_found");
-    if (org.asaas_customer_id) return org.asaas_customer_id as string;
+    if (org.asaas_customer_id) {
+      // Customer IDs are scoped to the Asaas account/environment. After a
+      // sandbox -> production switch, an old ID may no longer exist.
+      const existing = await asaas(`/customers/${encodeURIComponent(org.asaas_customer_id)}`);
+      if (existing.ok && existing.data?.id) return org.asaas_customer_id as string;
+      if (existing.status !== 404) {
+        throw new Error(existing.data?.errors?.[0]?.description || existing.data?.message || "falha ao validar customer Asaas");
+      }
+      await sb.from("organizations").update({ asaas_customer_id: null }).eq("id", org.id);
+    }
 
     // POST /customers do Asaas exige cpfCnpj. A fonte é organizations.documento,
     // já validado pelo CHECK organizations_documento_valido (CPF, CNPJ numérico

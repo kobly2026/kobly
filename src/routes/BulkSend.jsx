@@ -3,7 +3,7 @@ import { KoblyApi } from '@/api/mockApi.js';
 import { KoblyMockDB } from '@/api/mockData.js';
 import { Badge, Banner, Button, Card, Icon, Input, Select } from '@/ds';
 import { PageIntro, useAsync } from '@/lib/hooks.jsx';
-import { ErrorState, SkeletonCards } from '@/lib/ui.jsx';
+import { ErrorState, Modal, SkeletonCards } from '@/lib/ui.jsx';
 import { useKobly } from '@/store/store.jsx';
 
 // Kobly — Disparo em massa (email / WhatsApp / SMS) para listas de leads.
@@ -39,8 +39,10 @@ function KoblyBulkSend() {
   const [est, setEst] = useState({ loading: false, total: null, error: null });
   const [creating, setCreating] = useState(false);
   const [running, setRunning] = useState(null); // { id, status, total, enviados, falhados, pulados }
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const templates = canal === 'email' ? (opts.emails || []) : canal === 'whatsapp' ? (opts.whatsappMessages || []) : (opts.smsMessages || []);
+  const selectedTemplate = templates.find((template) => template.id === templateId) || null;
 
   // Reseta o template ao trocar de canal (templates são por canal).
   useEffect(() => { setTemplateId(''); }, [canal]);
@@ -184,8 +186,17 @@ function KoblyBulkSend() {
             {noTemplates ? (
               <Banner tone="info" title="Nenhum template neste canal">Crie um template em Integrações antes de disparar.</Banner>
             ) : (
-              <Select label="Template a enviar" value={templateId} onChange={(e) => setTemplateId(e.target.value)}
-                options={[{ value: '', label: 'Selecionar…' }, ...templates.map((t) => ({ value: t.id, label: t.titulo || 'Sem título' }))]} />
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Select label="Template a enviar" value={templateId} onChange={(e) => setTemplateId(e.target.value)}
+                    options={[{ value: '', label: 'Selecionar…' }, ...templates.map((t) => ({ value: t.id, label: t.titulo || 'Sem título' }))]} />
+                </div>
+                {canal === 'email' && selectedTemplate?.corpoHtml && (
+                  <Button variant="secondary" iconLeft="eye" disabled={!selectedTemplate} onClick={() => setPreviewOpen(true)}>
+                    Ver template
+                  </Button>
+                )}
+              </div>
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'end' }}>
@@ -197,6 +208,24 @@ function KoblyBulkSend() {
           </div>
         </Card>
       )}
+
+      <Modal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        title={selectedTemplate?.titulo || 'Prévia do e-mail'}
+        subtitle="Prévia do conteúdo que será enviado para os leads selecionados."
+        width={720}
+        footer={<Button variant="primary" onClick={() => setPreviewOpen(false)}>Fechar</Button>}
+      >
+        <div style={{ height: 'min(68vh, 620px)', minHeight: 360, background: '#e9e9ec', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+          <iframe
+            title="Prévia do template de e-mail"
+            srcDoc={selectedTemplate?.corpoHtml || ''}
+            sandbox="allow-same-origin"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          />
+        </div>
+      </Modal>
 
       {/* Histórico */}
       <Card icon="history" title="Disparos recentes" pad={false}>

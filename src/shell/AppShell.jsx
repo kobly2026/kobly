@@ -78,7 +78,7 @@ function ShellInner() {
     active: allowed,
     onNavigate: go,
     markSrc: '/assets/kobly-mark.svg',
-    logoSrc: '/assets/kobly-logo-white.svg',
+    logoSrc: '/assets/kobly-logo.svg',
     workspaceName: store.session.contextLabel,
     workspaceMeta: store.session.plano ? `Plano ${store.session.plano}` : store.roleDef.label,
   };
