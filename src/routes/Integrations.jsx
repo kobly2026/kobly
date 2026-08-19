@@ -348,21 +348,6 @@ function PostbackTab({ data, empresaId }) {
         </div>
       </Card>
 
-      {/* Eventos suportados */}
-      <Card title="Eventos suportados" subtitle="Envie estes eventos no campo 'event' do payload">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {SUPPORTED_EVENTS.map((ev) => (
-            <div key={ev.event} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-              <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--accent)', minWidth: 180 }}>{ev.event}</code>
-              <div>
-                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-strong)' }}>{ev.label}</div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{ev.description}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
       {/* Hotmart nativo */}
       <Card title="Hotmart" subtitle="Cole a mesma URL acima em Ferramentas → Webhook (versão 2.0.0) — o payload nativo da Hotmart é aceito sem adaptação">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -373,7 +358,7 @@ function PostbackTab({ data, empresaId }) {
             </div>
           ))}
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Marque todos os eventos ao cadastrar o Webhook na Hotmart. Eventos fora dessa lista (protesto, atraso, clube) são recebidos e ignorados sem erro — não derrubam o webhook.
+            Eventos fora dessa lista são recebidos e ignorados sem erro — não derrubam o postback.
           </div>
         </div>
       </Card>
